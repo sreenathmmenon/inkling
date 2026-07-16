@@ -1,0 +1,12 @@
+{
+  "name": "Complexity",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["complexity"],
+    "properties": {
+      "complexity": { "type": "string", "enum": ["simple", "rich"] }
+    }
+  },
+  "strict": true
+}

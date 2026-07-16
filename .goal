@@ -1,0 +1,57 @@
+# /goal — Build Inkling's model pipeline from the spec
+
+## Objective
+Stand up the Inkling generation pipeline so that every model call defined
+in the spec runs automatically with its correct model, reasoning effort,
+prompt, and strict schema — with zero manual copy-paste per call.
+
+## Source of truth (do not invent, do not paraphrase)
+- docs/Inkling-Spec.pdf — the human spec.
+- spec/pipeline.json — the machine-readable version. This is authoritative.
+  Every call (P1–P11, P0, P2_photo) is listed with model, effort, prompt path,
+  schema path, dependencies, and parallel/loop/run_if behavior.
+
+Prompts are data. They live in /prompts/*.txt and schemas in
+/spec/schemas/*.json. Never hardcode a prompt inside code. If a prompt
+must change, change the file, not the runner.
+
+## Tasks (in order)
+1. Materialize the prompt & schema files. For each call in pipeline.json,
+   create the referenced prompt file and schema file using the exact text
+   and JSON from the PDF spec. Run runner/extract_from_pdf.py to bootstrap,
+   then verify each file byte-for-byte against the PDF section for that call.
+2. Wire the runner. runner/pipeline.ts already loops the spec. Make it
+   compile and run: install the OpenAI SDK, add types, provide the two entry
+   calls (drawing scan, photo scan).
+3. Implement the non-model pieces the spec references: the headless SDK
+   validator (headless_sdk_validator) and the solvability playtest harness
+   that produces playtest_report for P8.
+4. Self-verify. For every call, assert at runtime that the request sent
+   used the model + effort the spec declares. Add a test that loads
+   pipeline.json and checks: each prompt file exists, each schema is valid
+   JSON Schema with strict, and the dependency graph is acyclic.
+
+## Hard rules (from AGENTS.md — do not violate)
+- Model tier and reasoning.effort come only from pipeline.json.
+  Never globally raise effort or swap models "to improve quality."
+- Only parallel_group calls run concurrently. Keep dependent chains
+  (P2 → P6 → P7) sequential.
+- Structured Outputs strict:true on every call that declares a schema.
+- Send the per-user safety_identifier on every request.
+- Gates (P1, P8, P11) can never be skipped or reordered.
+
+## Definition of done
+- runPipeline({image}, {safetyId}) runs P1→P2→assets→P6→behaviors→P8
+  end to end, each with the spec's exact model/effort, and returns a
+  playable GameSpec + behavior patches.
+- The verification test passes: prompts present, schemas strict-valid,
+  graph acyclic, and a dry-run logs the model+effort per call matching
+  pipeline.json.
+- No prompt text exists anywhere except /prompts.
+
+## How to run this goal in Codex
+# codex --goal .goal --model gpt-5.2-codex --effort high
+# or, in the Codex app: open this repo, paste /goal contents, run.
+Codex should loop over spec/pipeline.json itself — treat the calls array
+as the checklist and complete each row. Use apply_patch for edits and the
+shell tool to run the verification test.

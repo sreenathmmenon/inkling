@@ -1,0 +1,13 @@
+{
+  "name": "PublishVerdict",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["publishable"],
+    "properties": {
+      "publishable": { "type": "boolean" },
+      "reason_code": { "type": "string", "enum": ["unsafe_content","personal_data","real_name","contact_info","none"] }
+    }
+  },
+  "strict": true
+}

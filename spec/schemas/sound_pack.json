@@ -1,0 +1,13 @@
+{
+  "name": "SoundPack",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["music_pack_id", "sfx_pack_id"],
+    "properties": {
+      "music_pack_id": { "type": "string" },
+      "sfx_pack_id": { "type": "string" }
+    }
+  },
+  "strict": true
+}

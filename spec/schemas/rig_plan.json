@@ -1,0 +1,30 @@
+{
+  "name": "RigPlan",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["topology", "tier", "joints", "animations"],
+    "properties": {
+      "topology": { "type": "string", "enum": ["humanoid", "quadruped", "blob", "vehicle", "unknown"] },
+      "tier": { "type": "string", "enum": ["arap_mesh", "squash_stretch_puppet"] },
+      "joints": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "point"],
+          "properties": {
+            "name": { "type": "string" },
+            "point": { "type": "array", "items": { "type": "number" }, "minItems": 2, "maxItems": 2 }
+          }
+        }
+      },
+      "animations": {
+        "type": "array",
+        "items": { "type": "string", "enum": ["idle", "walk", "jump", "blink", "bounce", "lean"] }
+      },
+      "style_ref": { "type": "string" }
+    }
+  },
+  "strict": true
+}

@@ -1,0 +1,25 @@
+{
+  "name": "BackdropPlan",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["layers"],
+    "properties": {
+      "layers": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 3,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["source", "parallax"],
+          "properties": {
+            "source": { "type": "string" },
+            "parallax": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    }
+  },
+  "strict": true
+}

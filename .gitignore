@@ -1,0 +1,32 @@
+# ── Inkling repo .gitignore ───────────────────────────────────────────
+
+# Internal-only planning & strategy
+docs/internal/
+*.internal.md
+/product-plan*
+/usecases-*
+/three-product-*
+/reality-to-game-*
+
+# (pipeline.json is not ignored — the runner needs it at runtime.)
+docs/*.pdf
+*-Spec.pdf
+
+# Secrets / env
+.env
+.env.*
+*.key
+*.pem
+openai.key
+
+# Node / build
+node_modules/
+dist/
+build/
+*.tsbuildinfo
+.DS_Store
+
+# Logs / scratch
+*.log
+tmp/
+scratch/

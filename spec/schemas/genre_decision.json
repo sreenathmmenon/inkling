@@ -1,0 +1,14 @@
+{
+  "name": "GenreDecision",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["primary_genre", "alt_genre", "rationale_for_log"],
+    "properties": {
+      "primary_genre": { "type": "string", "enum": ["platformer","maze","runner","roller","shooter","slingshot","tower_defense"] },
+      "alt_genre": { "type": "string", "enum": ["platformer","maze","runner","roller","shooter","slingshot","tower_defense"] },
+      "rationale_for_log": { "type": "string" }
+    }
+  },
+  "strict": true
+}

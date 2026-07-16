@@ -1,0 +1,16 @@
+{
+  "name": "SafetyVerdict",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["verdict"],
+    "properties": {
+      "verdict": { "type": "string", "enum": ["allow", "block", "uncertain"] },
+      "reason_code": {
+        "type": "string",
+        "enum": ["face_detected", "personal_data", "unsafe_content", "injection", "none"]
+      }
+    }
+  },
+  "strict": true
+}

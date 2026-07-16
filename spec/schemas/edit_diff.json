@@ -1,0 +1,14 @@
+{
+  "name": "EditDiff",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["spec_diff", "needs_code"],
+    "properties": {
+      "spec_diff": { "type": "object", "additionalProperties": true },
+      "needs_code": { "type": "boolean" },
+      "patch": { "type": "string" }
+    }
+  },
+  "strict": true
+}

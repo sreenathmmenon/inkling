@@ -1,0 +1,137 @@
+{
+  "$comment": "Single source of truth. Each entry mirrors one call from the Inkling Prompt & Model Engineering Spec PDF. The runner loops over `calls` and executes each with the exact model + effort + prompt + schema. Do NOT hardcode prompts anywhere else.",
+  "version": "1.0.0",
+  "api": "responses",
+  "globals": {
+    "reasoning_mode_live": "standard",
+    "reasoning_mode_offline": "pro",
+    "text_verbosity_json": "low",
+    "safety_identifier": "REQUIRED_PER_USER_HASH",
+    "cache_stable_prefixes": true
+  },
+  "models": {
+    "sol": "gpt-5.6-sol",
+    "terra": "gpt-5.6-terra",
+    "luna": "gpt-5.6-luna",
+    "codex": "gpt-5.2-codex"
+  },
+  "calls": [
+    {
+      "id": "P1", "name": "safety_precheck",
+      "model": "luna", "effort": "none", "escalate_to": "low",
+      "lane": "gate", "input": ["image"],
+      "prompt": "prompts/P1_safety_precheck.txt",
+      "schema": "spec/schemas/safety_verdict.json",
+      "depends_on": [], "blocks_pipeline_on": {"verdict": "block"},
+      "parallel_group": null
+    },
+    {
+      "id": "P2", "name": "gamespec_extraction",
+      "model": "sol", "effort": "medium",
+      "lane": "A", "input": ["image", "context"],
+      "prompt": "prompts/P2_gamespec_extraction.txt",
+      "schema": "spec/schemas/gamespec.json",
+      "fewshot": "spec/fewshot/gamespec_fewshot.json",
+      "depends_on": ["P1"], "parallel_group": null,
+      "effort_router": {"call": "P0_calibrate", "simple": "low", "rich": "medium"}
+    },
+    {
+      "id": "P0_calibrate", "name": "effort_calibration",
+      "model": "luna", "effort": "none",
+      "lane": "pre", "input": ["image"],
+      "prompt": "prompts/P0_calibrate.txt",
+      "schema": "spec/schemas/complexity.json",
+      "depends_on": ["P1"], "optional": true, "parallel_group": null
+    },
+    {
+      "id": "P3", "name": "character_rig_plan",
+      "model": "terra", "effort": "low",
+      "lane": "A_to_B", "input": ["image", "gamespec.hero"],
+      "prompt": "prompts/P3_character_rig.txt",
+      "schema": "spec/schemas/rig_plan.json",
+      "depends_on": ["P2"], "parallel_group": "assets"
+    },
+    {
+      "id": "P4", "name": "background_plate",
+      "model": "luna", "effort": "none",
+      "lane": "A", "input": ["image", "gamespec.palette"],
+      "prompt": "prompts/P4_background.txt",
+      "schema": "spec/schemas/backdrop_plan.json",
+      "depends_on": ["P2"], "parallel_group": "assets"
+    },
+    {
+      "id": "P5", "name": "sound_mood",
+      "model": "luna", "effort": "none",
+      "lane": "A", "input": ["gamespec.primary_genre", "gamespec.mood"],
+      "prompt": "prompts/P5_sound.txt",
+      "schema": "spec/schemas/sound_pack.json",
+      "depends_on": ["P2"], "parallel_group": "assets"
+    },
+    {
+      "id": "P6", "name": "genre_inference_hard",
+      "model": "sol", "effort": "high",
+      "lane": "A", "input": ["image", "gamespec"],
+      "prompt": "prompts/P6_genre_inference.txt",
+      "schema": "spec/schemas/genre_decision.json",
+      "depends_on": ["P2"], "run_if": "gamespec.flags includes 'genre_uncertain'",
+      "parallel_group": null
+    },
+    {
+      "id": "P7", "name": "bespoke_behavior_code",
+      "model": "codex", "effort": "medium", "escalate_to": "high",
+      "lane": "B", "input": ["gamespec.entities"],
+      "prompt": "prompts/P7_behavior_codex.txt",
+      "tools": ["apply_patch", "shell"],
+      "validator": "headless_sdk_validator",
+      "depends_on": ["P2", "P6"], "parallel_group": "behaviors",
+      "fan_out_over": "gamespec.entities[].behavior"
+    },
+    {
+      "id": "P8", "name": "solvability_verdict",
+      "model": "terra", "effort": "high",
+      "lane": "gate", "input": ["gamespec", "playtest_report"],
+      "prompt": "prompts/P8_solvability.txt",
+      "schema": "spec/schemas/solvability_verdict.json",
+      "depends_on": ["P2"], "loop_until": "verdict == 'ready'",
+      "max_iterations": 4, "parallel_group": null
+    },
+    {
+      "id": "P9", "name": "voice_edit_diff",
+      "model": "terra", "effort": "low", "then": "codex",
+      "lane": "B", "input": ["gamespec", "utterance"],
+      "prompt": "prompts/P9_voice_edit.txt",
+      "schema": "spec/schemas/edit_diff.json",
+      "tools": ["apply_patch"],
+      "depends_on": [], "realtime": true, "parallel_group": null
+    },
+    {
+      "id": "P10", "name": "multipage_stitch",
+      "model": "sol", "effort": "high",
+      "lane": "A", "input": ["gamespec_existing", "image_new"],
+      "prompt": "prompts/P10_multipage.txt",
+      "schema": "spec/schemas/gamespec.json",
+      "depends_on": [], "run_if": "new_page_scanned", "parallel_group": null
+    },
+    {
+      "id": "P11", "name": "share_moderation",
+      "model": "terra", "effort": "medium",
+      "lane": "gate", "input": ["rendered_game", "title"],
+      "prompt": "prompts/P11_share_moderation.txt",
+      "schema": "spec/schemas/publish_verdict.json",
+      "depends_on": [], "run_if": "on_share", "parallel_group": null
+    },
+    {
+      "id": "P2_photo", "name": "gamespec_from_photo",
+      "model": "sol", "effort": "medium", "escalate_to": "high",
+      "lane": "A", "input": ["photo", "annotations?"],
+      "prompt": "prompts/P2_photo_variant.txt",
+      "schema": "spec/schemas/gamespec.json",
+      "depends_on": ["P1"], "run_if": "input_mode == 'photo'",
+      "hard_requires": ["P1 face/plate scrub passed"], "parallel_group": null
+    }
+  ],
+  "execution_graph": {
+    "scan_path": ["P1", "P0_calibrate", "P2", {"parallel": "assets"}, "P6", {"parallel": "behaviors"}, "P8"],
+    "notes": "Lane A first-playable = P1 -> P2 -> assets -> template boot. P7 behaviors hot-swap after. Only fan out parallel_groups; keep P2->P6->P7 sequential."
+  }
+}

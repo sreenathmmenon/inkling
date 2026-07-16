@@ -1,0 +1,26 @@
+{
+  "name": "SolvabilityVerdict",
+  "schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["verdict"],
+    "properties": {
+      "verdict": { "type": "string", "enum": ["ready", "repair", "unsolvable_by_design"] },
+      "repairs": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["target_id", "op", "value"],
+          "properties": {
+            "target_id": { "type": "string" },
+            "op": { "type": "string", "enum": ["move", "speed", "gap", "lives"] },
+            "value": { "type": "array", "items": { "type": "number" } }
+          }
+        }
+      },
+      "fallback": { "type": "string", "enum": ["survive_mode", "none"] }
+    }
+  },
+  "strict": true
+}

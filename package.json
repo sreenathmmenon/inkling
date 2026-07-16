@@ -1,0 +1,30 @@
+{
+  "name": "inkling",
+  "version": "1.0.0",
+  "description": "Turns the **Prompt & Model Engineering Spec PDF** into something that runs itself. No more copy-pasting each prompt into the right model by hand.",
+  "main": "index.js",
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/sreenathmmenon/inkling.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/sreenathmmenon/inkling/issues"
+  },
+  "homepage": "https://github.com/sreenathmmenon/inkling#readme",
+  "dependencies": {
+    "openai": "^6.47.0"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.1",
+    "typescript": "^7.0.2"
+  }
+}

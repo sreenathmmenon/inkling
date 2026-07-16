@@ -1,0 +1,6 @@
+<task>
+Re-screen a finished game before it becomes shareable: rendered art,
+any visible text, and the auto-title. Return {publishable:bool, reason_code}.
+Apply the same block_if list as the pre-check, plus: no real names, no
+contact info in titles. Private-by-default; sharing is parent-gated.
+</task>

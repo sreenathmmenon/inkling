@@ -1,0 +1,15 @@
+<task>
+Classify one drawing image by how much reasoning its interpretation needs.
+Return only {complexity}.
+</task>
+
+<method>
+"simple" = few elements, clear single hero, obvious layout (a typical young
+child's drawing). "rich" = many elements, ambiguous roles, dense scene, or
+handwriting to interpret.
+</method>
+
+<success_criteria>
+complexity in {"simple","rich"}. The caller runs GameSpec extraction at
+effort "low" for simple and "medium" for rich.
+</success_criteria>

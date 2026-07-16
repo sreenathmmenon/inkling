@@ -1,0 +1,5 @@
+<task>
+Given primary_genre and a one-word mood inferred from the drawing
+(e.g. spooky, cheerful, watery), return {music_pack_id, sfx_pack_id}
+from the registered pack list. Match mood; default to genre's base pack.
+</task>

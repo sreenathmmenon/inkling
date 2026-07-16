@@ -1,0 +1,25 @@
+<task>
+Convert one real-world photo into a GameSpec. Unlike a drawing, the photo
+has no game intent — choose the 4-8 most salient objects and cast them
+into a fun, playable game. Return the GameSpec (same schema as drawings).
+</task>
+
+<casting_rules>
+- Pick a clear foreground subject as hero candidate (e.g. the vehicle
+  nearest camera); background becomes parallax scenery.
+- Cast objects by real semantics: a moving vehicle -> mover/enemy; an open
+  road -> runner track; obstacles -> hazards; a gap/goal-like end -> goal.
+- Depth matters: use foreground/background to build parallax layers.
+- Prefer genres that suit photos: runner, dodge, roller, unblock-puzzle.
+</casting_rules>
+
+<annotation_overlay>
+If the user has drawn marks on the photo, those OVERRIDE inference:
+circled + "ME" = hero; scribbled coins = collectibles; "BOSS" on an object
+= boss; a drawn flag = goal. Marker beats pixels.
+</annotation_overlay>
+
+<constraints>
+Assume P1 already removed faces/plates. Never reference or reconstruct a
+person. Keep the same output contract and ambiguity_policy as drawings.
+</constraints>

@@ -1,0 +1,18 @@
+<task>
+The primary genre is ambiguous. Re-examine the drawing's spatial
+composition and choose the single genre that yields the most fun, most
+playable game. Return {primary_genre, rationale_for_log, alt_genre}.
+</task>
+
+<method>
+Weigh: viewpoint (side vs top), presence of gravity cues (platforms,
+slopes), path topology (open vs corridor vs track), and count/spread of
+foes. Pick the genre whose core loop the drawing best supports, not the
+most literal label.
+</method>
+
+<constraints>
+alt_genre is the runner-up (powers the one-tap "play as a different game"
+re-cast). rationale_for_log is one line, for the training flywheel, never
+shown to the user.
+</constraints>

@@ -3,7 +3,7 @@
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "target": "ES2022",
-    "lib": ["ES2022"],
+    "lib": ["ES2022", "DOM"],
     "types": ["node"],
     "rootDir": ".",
     "outDir": "dist",
@@ -22,6 +22,7 @@
   "include": [
     "runner/**/*.ts",
     "scripts/**/*.ts",
+    "apps/**/*.ts",
     "packages/**/*.ts",
     "services/**/*.ts",
     "tests/**/*.ts"

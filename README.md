@@ -79,6 +79,31 @@ environment. Every outbound request is checked against `pipeline.json` before
 it is sent. Run `npm run dry-run` to print the call id, model, and effort without
 making network requests.
 
+## Play Lane A locally
+
+The deterministic Phaser 4 platformer lives in `packages/runtime`. It maps the
+GameSpec's normalized `0..1` boxes into a fixed 960×540 Arcade Physics world,
+retains every `style_ref` as art metadata, and uses simple palette-colored
+shapes when no extracted art asset is available. A safety floor and reachable
+goal trigger keep the fallback lane finishable even when input geometry is
+sparse. It never imports model-written behavior code and makes no API calls.
+
+Play the successful live-scan fixture:
+
+```bash
+npm run play -- examples/live-scan-gamespec.json
+```
+
+Then open the local URL printed by Vite (normally `http://127.0.0.1:5173`).
+You can also load another saved GameSpec using the browser's JSON file picker.
+
+To close the complete drawing-to-game loop:
+
+```bash
+npm run scan -- /absolute/path/to/drawing.png --out examples/my-game.json
+npm run play -- examples/my-game.json
+```
+
 P7 patch operations are held in memory, validated statically, and simulated in
 a Node permission sandbox with no network, project/data filesystem access,
 filesystem writes, child processes, or inherited environment. Invalid modules return a `static`

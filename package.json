@@ -15,6 +15,7 @@
     "verify": "npm run test && npm run audit:strict && python3 runner/extract_from_pdf.py --pdf docs/Inkling-Spec.pdf --spec spec/pipeline.json --verify",
     "audit:strict": "npm run build && node dist/runner/strict-schema-audit.js",
     "dry-run": "npm run build && node dist/runner/dry-run.js",
+    "play": "npm run build && node dist/scripts/play.js",
     "scan": "npm run build && node --env-file=.env dist/scripts/scan.js",
     "solvability": "npm run build && node --test dist/tests/solvability.test.js"
   },
@@ -30,10 +31,12 @@
   },
   "homepage": "https://github.com/sreenathmmenon/inkling#readme",
   "dependencies": {
-    "openai": "^6.47.0"
+    "openai": "^6.47.0",
+    "phaser": "4.2.1"
   },
   "devDependencies": {
     "@types/node": "^26.1.1",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "8.1.5"
   }
 }

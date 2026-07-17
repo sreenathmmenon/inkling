@@ -30,3 +30,5 @@ build/
 *.log
 tmp/
 scratch/
+output/
+.playwright-cli/

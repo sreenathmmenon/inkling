@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 
 import { runPipeline } from "../runner/pipeline.js";
@@ -7,7 +7,7 @@ import type { RequestTrace } from "../runner/types.js";
 
 const imageArgument = process.argv[2];
 if (!imageArgument) {
-  throw new Error("Usage: npm run scan -- <path-to-image>");
+  throw new Error("Usage: npm run scan -- <path-to-image> [--out gamespec.json]");
 }
 if (!process.env.OPENAI_API_KEY) {
   throw new Error("OPENAI_API_KEY is missing; add it to .env");
@@ -32,6 +32,11 @@ const safetyId = createHash("sha256")
   .update(`inkling-local:${process.env.USER ?? "anonymous"}`)
   .digest("hex");
 const calls: RequestTrace[] = [];
+const outputFlag = process.argv.indexOf("--out");
+const outputPath = outputFlag >= 0 ? process.argv[outputFlag + 1] : undefined;
+if (outputFlag >= 0 && !outputPath) {
+  throw new Error("--out requires a JSON file path");
+}
 
 const result = await runPipeline(
   {
@@ -48,6 +53,11 @@ const result = await runPipeline(
 
 console.log("GameSpec");
 console.log(JSON.stringify(result.gameSpec, null, 2));
+if (outputPath) {
+  const resolvedOutput = resolve(outputPath);
+  await writeFile(resolvedOutput, `${JSON.stringify(result.gameSpec, null, 2)}\n`, "utf8");
+  console.log(`\nSaved GameSpec to ${resolvedOutput}`);
+}
 console.log("\nExecuted calls");
 for (const call of calls) {
   console.log(`${call.callId}\t${call.model}\t${call.effort}`);

@@ -127,7 +127,7 @@ governs behavior and invariants, not setup.
 > self-verify instead of guessing.
 ```
 Install:   npm install
-Dev:       npm run dry-run
+Dev:       npm run play -- examples/live-scan-gamespec.json
 Test:      npm test          # run before finishing any change
 Lint/type: npm run typecheck
 Headless solvability: npm run solvability

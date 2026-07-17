@@ -3,10 +3,13 @@
   "schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["publishable"],
+    "required": ["publishable", "reason_code"],
     "properties": {
       "publishable": { "type": "boolean" },
-      "reason_code": { "type": "string", "enum": ["unsafe_content","personal_data","real_name","contact_info","none"] }
+      "reason_code": {
+        "type": ["string", "null"],
+        "enum": ["unsafe_content","personal_data","real_name","contact_info","none",null]
+      }
     }
   },
   "strict": true

@@ -3,20 +3,69 @@
   "schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["primary_genre","genre_confidence","hero","entities","goal","rules","assumptions","flags","palette"],
+    "required": [
+      "primary_genre",
+      "genre_confidence",
+      "mood",
+      "hero",
+      "entities",
+      "goal",
+      "rules",
+      "assumptions",
+      "flags",
+      "palette"
+    ],
     "properties": {
-      "primary_genre": { "type": "string", "enum": ["platformer","maze","runner","roller","shooter","slingshot","tower_defense"] },
-      "genre_confidence": { "type": "number", "minimum": 0, "maximum": 1 },
-      "mood": { "type": "string" },
+      "primary_genre": {
+        "type": "string",
+        "enum": [
+          "platformer",
+          "maze",
+          "runner",
+          "roller",
+          "shooter",
+          "slingshot",
+          "tower_defense"
+        ]
+      },
+      "genre_confidence": {
+        "type": "number",
+        "minimum": 0,
+        "maximum": 1
+      },
+      "mood": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
       "hero": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["id","bbox","style_ref","name"],
+        "required": [
+          "id",
+          "bbox",
+          "style_ref",
+          "name"
+        ],
         "properties": {
-          "id": { "type": "string" },
-          "name": { "type": "string" },
-          "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
-          "style_ref": { "type": "string" }
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "bbox": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 4,
+            "maxItems": 4
+          },
+          "style_ref": {
+            "type": "string"
+          }
         }
       },
       "entities": {
@@ -24,39 +73,148 @@
         "items": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["id","role","bbox","behavior","style_ref"],
+          "required": [
+            "id",
+            "role",
+            "bbox",
+            "behavior",
+            "linked_to",
+            "style_ref"
+          ],
           "properties": {
-            "id": { "type": "string" },
-            "role": { "type": "string", "enum": ["platform","hazard","water","ice","cloud","launchpad","enemy","boss","collectible","key","door","decoration","mover","goal"] },
-            "bbox": { "type": "array", "items": { "type": "number" }, "minItems": 4, "maxItems": 4 },
-            "behavior": { "type": "string", "enum": ["static","patrol","chase","spinner","shooter","faller","rise","none"] },
-            "linked_to": { "type": "string" },
-            "style_ref": { "type": "string" }
+            "id": {
+              "type": "string"
+            },
+            "role": {
+              "type": "string",
+              "enum": [
+                "platform",
+                "hazard",
+                "water",
+                "ice",
+                "cloud",
+                "launchpad",
+                "enemy",
+                "boss",
+                "collectible",
+                "key",
+                "door",
+                "decoration",
+                "mover",
+                "goal"
+              ]
+            },
+            "bbox": {
+              "type": "array",
+              "items": {
+                "type": "number"
+              },
+              "minItems": 4,
+              "maxItems": 4
+            },
+            "behavior": {
+              "type": "string",
+              "enum": [
+                "static",
+                "patrol",
+                "chase",
+                "spinner",
+                "shooter",
+                "faller",
+                "rise",
+                "none"
+              ]
+            },
+            "linked_to": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "style_ref": {
+              "type": "string"
+            }
           }
         }
       },
       "goal": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["kind"],
+        "required": [
+          "kind",
+          "target_id"
+        ],
         "properties": {
-          "kind": { "type": "string", "enum": ["reach_goal","collect_all","survive","defeat_boss"] },
-          "target_id": { "type": "string" }
+          "kind": {
+            "type": "string",
+            "enum": [
+              "reach_goal",
+              "collect_all",
+              "survive",
+              "defeat_boss"
+            ]
+          },
+          "target_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
         }
       },
       "rules": {
         "type": "object",
         "additionalProperties": false,
-        "required": ["lives","difficulty_hint"],
+        "required": [
+          "lives",
+          "difficulty_hint",
+          "modifiers"
+        ],
         "properties": {
-          "lives": { "type": "integer", "minimum": 1, "maximum": 9 },
-          "difficulty_hint": { "type": "string", "enum": ["chill","normal","spicy"] },
-          "modifiers": { "type": "array", "items": { "type": "string" } }
+          "lives": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9
+          },
+          "difficulty_hint": {
+            "type": "string",
+            "enum": [
+              "chill",
+              "normal",
+              "spicy"
+            ]
+          },
+          "modifiers": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            }
+          }
         }
       },
-      "palette": { "type": "array", "items": { "type": "string" }, "minItems": 1, "maxItems": 8 },
-      "assumptions": { "type": "array", "items": { "type": "string" } },
-      "flags": { "type": "array", "items": { "type": "string" } }
+      "palette": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        },
+        "minItems": 1,
+        "maxItems": 8
+      },
+      "assumptions": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      },
+      "flags": {
+        "type": "array",
+        "items": {
+          "type": "string"
+        }
+      }
     }
   },
   "strict": true

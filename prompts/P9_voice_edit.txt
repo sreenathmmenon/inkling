@@ -4,15 +4,13 @@ GameSpec diff that satisfies the intent. If it requires new behavior code,
 also emit the behavior change as an apply_patch against the SDK. Return
 {spec_diff, needs_code:bool, patch?}.
 </task>
-
 <constraints>
 - Change only what the utterance asks. Preserve everything else.
 - Keep the hero and the child's drawn intent intact.
 - Map friendly language: "friendly" -> behavior:none + follow;
-  "moon gravity" -> low-gravity modifier; "rise" -> behavior:rise.
+"moon gravity" -> low-gravity modifier; "rise" -> behavior:rise.
 - If the request is unclear, apply the most fun minimal reading; never ask.
 </constraints>
-
 <success_criteria>
 Diff applies cleanly, hot-reloads without restarting play, preserves score.
 </success_criteria>

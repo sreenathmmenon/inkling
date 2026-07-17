@@ -126,11 +126,11 @@ governs behavior and invariants, not setup.
 > Fill these in as the repo lands; keep this list current so agents can
 > self-verify instead of guessing.
 ```
-Install:   <cmd>
-Dev:       <cmd>
-Test:      <cmd>          # run before finishing any change
-Lint/type: <cmd>
-Headless solvability: <cmd>
+Install:   npm install
+Dev:       npm run dry-run
+Test:      npm test          # run before finishing any change
+Lint/type: npm run typecheck
+Headless solvability: npm run solvability
 ```
 
 ---

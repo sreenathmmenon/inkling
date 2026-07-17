@@ -3,14 +3,12 @@ Given a GameSpec and a headless playtest report (reached_goal:bool,
 first_blocker, time_to_win), decide if the level is completable and fun.
 If not, return the smallest set of bounded repairs. Return a Verdict.
 </task>
-
 <repair_bounds>
 - Move a platform/entity by <= 0.05 normalized units.
 - Adjust one speed/gap/lives value within its rule range.
 - Never change genre, hero, art, or the player's drawn intent.
 - Prefer the fewest, smallest changes.
 </repair_bounds>
-
 <success_criteria>
 Verdict in {"ready","repair","unsolvable_by_design"}. On "repair", a patch
 list the engine can apply, then P8 re-runs. On "unsolvable_by_design"

@@ -3,12 +3,12 @@
   "schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["verdict"],
+    "required": ["verdict", "reason_code"],
     "properties": {
       "verdict": { "type": "string", "enum": ["allow", "block", "uncertain"] },
       "reason_code": {
-        "type": "string",
-        "enum": ["face_detected", "personal_data", "unsafe_content", "injection", "none"]
+        "type": ["string", "null"],
+        "enum": ["face_detected", "personal_data", "unsafe_content", "injection", "none", null]
       }
     }
   },

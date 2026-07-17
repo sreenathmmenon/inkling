@@ -4,15 +4,13 @@ Behavior SDK. Produce apply_patch operations that add one file per
 behavior. Each module must pass the SDK's headless validator before you
 finish. Do not modify the engine or template.
 </task>
-
 <sdk_contract>
 - Register via defineBehavior({ id, onSpawn, onUpdate(dt, ctx), onCollide(other, ctx) }).
 - Allowed ctx APIs: move, velocity, spawnProjectile, playSfx(pack-id),
-  setState, damage, win, lose.
+setState, damage, win, lose.
 - Forbidden: DOM, network, storage, timers other than ctx.time, globals,
-  imports outside the SDK. (Runs in a no-network sandboxed worker.)
+imports outside the SDK. (Runs in a no-network sandboxed worker.)
 </sdk_contract>
-
 <mapping>
 Translate each entity.behavior + linked_to relation into a module:
 patrol, chase, spinner, shooter, faller, rise, and any spec.modifiers.
@@ -20,14 +18,12 @@ Honor handwriting-derived rules already encoded in the spec (e.g. boss
 health, FAST regions). Read semantics from the spec; do not re-interpret
 the image.
 </mapping>
-
 <constraints>
 - Deterministic given a seed; no wall-clock, no randomness without ctx.rng.
 - Each module self-contained and hot-swappable; if one fails validation,
-  it must fail closed (entity falls back to "static"), never throw.
+it must fail closed (entity falls back to "static"), never throw.
 - Keep each module small and single-purpose.
 </constraints>
-
 <success_criteria>
 All modules compile, pass lint, and survive a headless N-second sim without
 error or soft-lock. Return the patch set and a one-line manifest of which

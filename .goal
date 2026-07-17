@@ -50,7 +50,7 @@ must change, change the file, not the runner.
 - No prompt text exists anywhere except /prompts.
 
 ## How to run this goal in Codex
-# codex --goal .goal --model gpt-5.2-codex --effort high
+# codex --goal .goal --model gpt-5.6-sol --effort high
 # or, in the Codex app: open this repo, paste /goal contents, run.
 Codex should loop over spec/pipeline.json itself — treat the calls array
 as the checklist and complete each row. Use apply_patch for edits and the

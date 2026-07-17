@@ -1,13 +1,21 @@
 {
   "name": "inkling",
   "version": "1.0.0",
+  "type": "module",
   "description": "Turns the **Prompt & Model Engineering Spec PDF** into something that runs itself. No more copy-pasting each prompt into the right model by hand.",
-  "main": "index.js",
+  "main": "dist/runner/pipeline.js",
+  "types": "dist/runner/pipeline.d.ts",
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "npm run build && node --test dist/tests/*.test.js",
+    "verify": "npm run test && npm run audit:strict && python3 runner/extract_from_pdf.py --pdf docs/Inkling-Spec.pdf --spec spec/pipeline.json --verify",
+    "audit:strict": "npm run build && node dist/runner/strict-schema-audit.js",
+    "dry-run": "npm run build && node dist/runner/dry-run.js",
+    "solvability": "npm run build && node --test dist/tests/solvability.test.js"
   },
   "repository": {
     "type": "git",

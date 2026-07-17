@@ -3,7 +3,7 @@
   "schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["topology", "tier", "joints", "animations"],
+    "required": ["topology", "tier", "joints", "animations", "style_ref"],
     "properties": {
       "topology": { "type": "string", "enum": ["humanoid", "quadruped", "blob", "vehicle", "unknown"] },
       "tier": { "type": "string", "enum": ["arap_mesh", "squash_stretch_puppet"] },
@@ -23,7 +23,7 @@
         "type": "array",
         "items": { "type": "string", "enum": ["idle", "walk", "jump", "blink", "bounce", "lean"] }
       },
-      "style_ref": { "type": "string" }
+      "style_ref": { "type": ["string", "null"] }
     }
   },
   "strict": true

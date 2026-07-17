@@ -2,17 +2,15 @@
 Given the hero bbox and the source drawing, produce a rig plan to animate
 the hero in its own drawn style. Return a RigPlan only.
 </task>
-
 <constraints>
 - Identify body topology: humanoid | quadruped | blob | vehicle | unknown.
 - For humanoid/quadruped: name joint points (head, torso, limbs) as
-  normalized coords for ARAP mesh deformation.
+normalized coords for ARAP mesh deformation.
 - For blob/vehicle/unknown: fall back to squash-stretch puppet
-  (bounce, lean, blink) — every hero must feel alive.
+(bounce, lean, blink) — every hero must feel alive.
 - Preserve stroke style; do not redraw. Reference style_ref only.
 - Output the minimum joints needed for walk + idle + jump.
 </constraints>
-
 <success_criteria>
 A RigPlan that the animation runtime can bind without a human step, with a
 declared fallback tier if topology is "unknown".

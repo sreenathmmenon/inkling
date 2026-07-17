@@ -55,7 +55,33 @@ await runPipeline({ photo, annotations }, { safetyId });
 ## Bootstrap
 ```bash
 python runner/extract_from_pdf.py \
-  --pdf docs/Inkling-Prompt-and-Model-Engineering-Spec.pdf \
+  --pdf docs/Inkling-Spec.pdf \
   --spec spec/pipeline.json
-npm i openai && npx tsc && node runner/pipeline.js
+npm install
+npm run verify
 ```
+
+`npm run audit:strict` separately checks the narrower JSON Schema subset
+accepted by OpenAI Structured Outputs. This is stricter than parsing the files
+as ordinary JSON Schema and intentionally exits non-zero when a source schema
+would be rejected by the Responses API.
+
+## Runtime entry points
+
+`runPipeline({ image }, { safetyId })` and `runDrawingScan` run the drawing
+workflow. `runPhotoScan` runs the mandatory P1 gate before `P2_photo`.
+`runVoiceEdit`, `runMultipageStitch`, and `runShareModeration` cover their
+conditional workflows; share moderation requires the passing P8 evidence from
+the scan result.
+
+The OpenAI client is created lazily and reads `OPENAI_API_KEY` from the process
+environment. Every outbound request is checked against `pipeline.json` before
+it is sent. Run `npm run dry-run` to print the call id, model, and effort without
+making network requests.
+
+P7 patch operations are held in memory, validated statically, and simulated in
+a Node permission sandbox with no network, project/data filesystem access,
+filesystem writes, child processes, or inherited environment. Invalid modules return a `static`
+fallback and are never installed. The deterministic playtest report is produced
+before each P8 iteration; bounded repairs are applied and replayed until P8 is
+ready or the configured iteration limit is exhausted.

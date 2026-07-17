@@ -3,11 +3,11 @@
   "schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["verdict"],
+    "required": ["verdict", "repairs", "fallback"],
     "properties": {
       "verdict": { "type": "string", "enum": ["ready", "repair", "unsolvable_by_design"] },
       "repairs": {
-        "type": "array",
+        "type": ["array", "null"],
         "items": {
           "type": "object",
           "additionalProperties": false,
@@ -19,7 +19,10 @@
           }
         }
       },
-      "fallback": { "type": "string", "enum": ["survive_mode", "none"] }
+      "fallback": {
+        "type": ["string", "null"],
+        "enum": ["survive_mode", "none", null]
+      }
     }
   },
   "strict": true

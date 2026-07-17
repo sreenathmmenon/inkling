@@ -21,6 +21,7 @@
   },
   "include": [
     "runner/**/*.ts",
+    "scripts/**/*.ts",
     "packages/**/*.ts",
     "services/**/*.ts",
     "tests/**/*.ts"

@@ -366,6 +366,13 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       };
     })();
 
+  // A collect-all game with no collectible entities has no possible progress
+  // event in either Phaser or P8. Keep the same generated world and fall back
+  // to its deterministic finish marker rather than creating a dead end.
+  const goalKind = spec.goal.kind === "collect_all" && collectibles.length === 0
+    ? "reach_goal"
+    : spec.goal.kind || "reach_goal";
+
   return {
     title: spec.hero.name,
     primaryGenre: spec.primary_genre,
@@ -373,7 +380,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     mood: spec.mood ?? "playful",
     palette: safePalette(spec.palette),
     lives: clamp(Math.round(spec.rules.lives || 3), 1, 9),
-    goalKind: spec.goal.kind || "reach_goal",
+    goalKind,
     modifiers,
     hero,
     platforms,

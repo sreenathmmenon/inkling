@@ -428,7 +428,11 @@ class PipelineRunner {
       };
     }
     if (!this.client) this.client = new OpenAI() as unknown as ResponsesClient;
-    return this.client.responses.create(request);
+    this.options.signal?.throwIfAborted();
+    return this.client.responses.create(
+      request,
+      this.options.signal ? { signal: this.options.signal } : undefined,
+    );
   }
 
   private validateStructuredResult(call: PipelineCall, result: unknown): void {

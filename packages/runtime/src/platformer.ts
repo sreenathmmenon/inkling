@@ -16,6 +16,7 @@ import {
   PLATFORMER_PHYSICS,
 } from "./platformer-physics.js";
 import { createTouchControlLayout } from "./platformer-controls.js";
+import { createObjectiveContract } from "./objective-contract.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
 
@@ -32,6 +33,8 @@ export interface PlatformerOptions {
   artwork?: ArtworkManifest;
   onStateChange?: (state: PlatformerState) => void;
 }
+
+export type PlatformerControl = "left" | "right" | "jump" | "down" | "action";
 
 interface Controls {
   cursors?: Phaser.Types.Input.Keyboard.CursorKeys;
@@ -59,6 +62,7 @@ class PlatformerScene extends Phaser.Scene {
   private target!: Phaser.Physics.Arcade.StaticGroup;
   private projectiles!: Phaser.Physics.Arcade.Group;
   private hud!: Phaser.GameObjects.Text;
+  private goalGuide: Phaser.GameObjects.Text | undefined;
   private message!: Phaser.GameObjects.Text;
   private controls: Controls = {};
   private touch = { left: false, right: false, jump: false, down: false, action: false };
@@ -75,6 +79,10 @@ class PlatformerScene extends Phaser.Scene {
   private surviveRemainingMs = PLATFORMER_PHYSICS.surviveDurationMs;
   private lastProjectileAt = -Infinity;
   private status: PlatformerStatus = "playing";
+
+  setExternalControl(control: PlatformerControl, pressed: boolean): void {
+    this.touch[control] = pressed;
+  }
 
   private get usesFreeMovement(): boolean {
     return this.plan.contract.movement === "free" || this.plan.contract.movement === "launch";
@@ -114,27 +122,33 @@ class PlatformerScene extends Phaser.Scene {
     const collectibleColor = color(this.plan.palette[5], 0x4c9bd6);
 
     this.cameras.main.setBackgroundColor(this.usesFreeMovement ? 0xe8edff : paper);
+    this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     // Free-movement scenes are composed from individual original-art crops so a
     // collectible can actually disappear when collected. A full photo behind
     // it would make every object look static even when the game is working.
     if (!this.usesFreeMovement) this.addOriginalDrawingBackground(0.13);
     this.add
       .text(24, 18, this.plan.title, {
-        color: `#${ink.toString(16).padStart(6, "0")}`,
+        color: "#211c38",
         fontFamily: "system-ui, sans-serif",
         fontSize: "22px",
         fontStyle: "bold",
+        backgroundColor: "rgba(255,255,255,0.82)",
+        padding: { x: 8, y: 4 },
       })
+      .setScrollFactor(0)
       .setDepth(20);
     if (this.usesFreeMovement) {
       this.add
-        .text(WORLD_WIDTH - 24, 22, this.plan.contract.instruction, {
+        .text(this.scale.width - 24, 22, this.plan.contract.instruction, {
           color: `#${ink.toString(16).padStart(6, "0")}`,
           fontFamily: "system-ui, sans-serif",
           fontSize: "16px",
           fontStyle: "bold",
         })
         .setOrigin(1, 0)
+        .setScrollFactor(0)
         .setAlpha(0.78)
         .setDepth(20);
     }
@@ -170,6 +184,9 @@ class PlatformerScene extends Phaser.Scene {
       );
     }
     heroBody.setMaxVelocity(PLATFORMER_PHYSICS.maxVelocityX, PLATFORMER_PHYSICS.maxVelocityY);
+    if (this.scale.width < WORLD_WIDTH) {
+      this.cameras.main.startFollow(this.hero, true, 0.16, 0.16);
+    }
     if (!this.usesFreeMovement) this.physics.add.collider(this.hero, this.platforms);
 
     this.hazards = this.physics.add.staticGroup();
@@ -201,6 +218,42 @@ class PlatformerScene extends Phaser.Scene {
     if (hasVisibleGoal) {
       this.rectangle(this.plan.goal, dangerColor, ink, 0.85);
       this.addArtwork(this.plan.goal, 4, 1);
+      this.add
+        .rectangle(
+          this.plan.goal.x,
+          this.plan.goal.y,
+          this.plan.goal.width + 18,
+          this.plan.goal.height + 18,
+          0xffffff,
+          0,
+        )
+        .setStrokeStyle(5, 0xffb629, 0.96)
+        .setDepth(8);
+      this.add
+        .text(this.plan.goal.x, Math.max(18, this.plan.goal.y - this.plan.goal.height / 2 - 18), "FINISH", {
+          color: "#211c38",
+          fontFamily: "system-ui, sans-serif",
+          fontSize: "14px",
+          fontStyle: "bold",
+          backgroundColor: "rgba(255,255,255,0.9)",
+          padding: { x: 6, y: 3 },
+        })
+        .setOrigin(0.5)
+        .setDepth(9);
+      if (this.scale.width < WORLD_WIDTH) {
+        this.goalGuide = this.add
+          .text(this.scale.width - 24, 66, "FINISH →", {
+            color: "#211c38",
+            fontFamily: "system-ui, sans-serif",
+            fontSize: "16px",
+            fontStyle: "bold",
+            backgroundColor: "rgba(255,213,86,0.94)",
+            padding: { x: 8, y: 5 },
+          })
+          .setOrigin(1, 0)
+          .setScrollFactor(0)
+          .setDepth(121);
+      }
       const trigger = this.add
         .rectangle(
           this.plan.goalTrigger.x,
@@ -235,15 +288,15 @@ class PlatformerScene extends Phaser.Scene {
       }
     }
 
-    this.hud = this.add.text(24, 50, "", {
-      color: `#${ink.toString(16).padStart(6, "0")}`,
+    this.hud = this.add.text(24, 62, "", {
+      color: "#211c38",
       fontFamily: "ui-monospace, monospace",
       fontSize: "18px",
       backgroundColor: "rgba(255,255,255,0.68)",
       padding: { x: 8, y: 5 },
-    });
+    }).setScrollFactor(0).setDepth(120);
     this.message = this.add
-      .text(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, "", {
+      .text(this.scale.width / 2, this.scale.height / 2, "", {
         align: "center",
         color: "#ffffff",
         fontFamily: "system-ui, sans-serif",
@@ -253,6 +306,7 @@ class PlatformerScene extends Phaser.Scene {
         padding: { x: 28, y: 20 },
       })
       .setOrigin(0.5)
+      .setScrollFactor(0)
       .setDepth(200)
       .setVisible(false)
       .setInteractive()
@@ -290,6 +344,13 @@ class PlatformerScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this.status !== "playing") return;
     this.elapsedMs += delta;
+    if (this.goalGuide) {
+      const view = this.cameras.main.worldView;
+      const visible = this.plan.goal.x >= view.left + 24 && this.plan.goal.x <= view.right - 24;
+      this.goalGuide
+        .setVisible(!visible)
+        .setText(this.plan.goal.x < this.hero.x ? "← FINISH" : "FINISH →");
+    }
     if (this.elapsedMs >= this.invulnerableUntil) this.hero.setAlpha(1);
 
     const body = this.hero.body as Phaser.Physics.Arcade.Body;
@@ -649,6 +710,8 @@ class PlatformerScene extends Phaser.Scene {
     const layout = createTouchControlLayout(
       displayWidth || bounds.width || WORLD_WIDTH,
       displayHeight || bounds.height || WORLD_HEIGHT,
+      this.scale.width,
+      this.scale.height,
     );
     for (const button of this.touchButtons) button.destroy(true);
     this.touchButtons = [];
@@ -659,7 +722,7 @@ class PlatformerScene extends Phaser.Scene {
       property: keyof typeof this.touch,
     ): void => {
       const size = layout.size;
-      const button = this.add.container(x, layout.y).setDepth(100);
+      const button = this.add.container(x, layout.y).setDepth(100).setScrollFactor(0);
       const chrome = this.add.graphics();
       chrome.fillStyle(0x151329, 0.2);
       chrome.fillRoundedRect(
@@ -811,8 +874,9 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   private updateHud(): void {
-    const collectibleText = this.plan.collectibles.length
-      ? `  Stars ${this.collected}/${this.plan.collectibles.length}`
+    const objective = createObjectiveContract(this.plan);
+    const collectibleText = objective.counterLabel
+      ? `  ${objective.counterLabel} ${this.collected}/${this.plan.collectibles.length}`
       : "";
     const surviveText = this.plan.goalKind === "survive"
       ? `  Time ${Math.max(0, Math.ceil(this.surviveRemainingMs / 1000))}`
@@ -836,10 +900,13 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
   const playableGame = resolvePlayableGame(options.gameSpec);
   const plan = createPlatformerPlan(playableGame.gameSpec);
   const artwork = options.artwork ?? playableGame.artwork;
+  const narrowPortrait = typeof window !== "undefined" &&
+    window.innerWidth <= 680 && window.innerHeight > window.innerWidth;
+  const viewportWidth = narrowPortrait ? 432 : WORLD_WIDTH;
   return new Phaser.Game({
     type: Phaser.AUTO,
     parent: options.parent,
-    width: WORLD_WIDTH,
+    width: viewportWidth,
     height: WORLD_HEIGHT,
     backgroundColor: plan.palette[0] ?? "#fffaf0",
     // P5 currently supplies a sound plan, not playable audio assets. Do not
@@ -863,4 +930,15 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
     },
     scene: new PlatformerScene(plan, artwork, options.onStateChange),
   });
+}
+
+/** Feeds accessible DOM controls into the same deterministic input state. */
+export function setPlatformerControl(
+  game: Phaser.Game | undefined,
+  control: PlatformerControl,
+  pressed: boolean,
+): void {
+  if (!game) return;
+  const scene = game.scene.getScene("lane-a-platformer");
+  if (scene instanceof PlatformerScene) scene.setExternalControl(control, pressed);
 }

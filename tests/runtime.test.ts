@@ -13,6 +13,7 @@ import {
 } from "../packages/runtime/src/artwork.js";
 import { createTouchControlLayout } from "../packages/runtime/src/platformer-controls.js";
 import { ONE_WAY_PLATFORM_COLLISION } from "../packages/runtime/src/platformer-physics.js";
+import { createObjectiveContract } from "../packages/runtime/src/objective-contract.js";
 import { type GameSpec } from "../runner/types.js";
 import { findProjectRoot, loadJson } from "../runner/spec.js";
 
@@ -197,6 +198,11 @@ test("touch controls keep a child-sized tap target without dominating desktop pl
   assert.ok(phone.size * (360 / WORLD_WIDTH) >= 48);
   assert.ok(desktop.size * (1_495 / WORLD_WIDTH) <= 72);
   assert.ok(phone.left[1] + phone.size / 2 < phone.right[1] - phone.size / 2);
+
+  const portrait = createTouchControlLayout(390, 488, 432, 540);
+  assert.ok(portrait.size * (390 / 432) >= 48);
+  assert.ok(portrait.left[0] > 0);
+  assert.ok(portrait.right[0] < 432);
 });
 
 test("all drawn platform shapes use the same one-way landing contract", () => {
@@ -206,6 +212,48 @@ test("all drawn platform shapes use the same one-way landing contract", () => {
     left: false,
     right: false,
   });
+});
+
+test("objective copy and counters stay truthful without guessing drawing nouns", () => {
+  const reachPlan = createPlatformerPlan({
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+    entities: [
+      { id: "entity_1", role: "collectible", bbox: [0.4, 0.5, 0.45, 0.6], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "entity_2", role: "goal", bbox: [0.8, 0.5, 0.9, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "entity_2" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  });
+  assert.deepEqual(createObjectiveContract(reachPlan), {
+    headline: "Reach the finish",
+    instruction: "Reach the marked finish. Drawn items are a bonus.",
+    counterLabel: "Bonus",
+    requiredTotal: 0,
+    optionalTotal: 1,
+  });
+
+  const collectPlan = { ...reachPlan, goalKind: "collect_all" };
+  const collectObjective = createObjectiveContract(collectPlan);
+  assert.equal(collectObjective.headline, "Find everything");
+  assert.equal(collectObjective.counterLabel, "Found");
+  assert.equal(collectObjective.requiredTotal, 1);
+  assert.doesNotMatch(JSON.stringify(collectObjective), /star|carrot|rocket|collectible/i);
+});
+
+test("an empty collect-all contract falls back to a reachable finish instead of a dead end", () => {
+  const plan = createPlatformerPlan({
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+    entities: [],
+    goal: { kind: "collect_all", target_id: null },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  });
+  assert.equal(plan.goalKind, "reach_goal");
+  assert.equal(createObjectiveContract(plan).headline, "Reach the finish");
+  assert.ok(plan.goalTrigger.width > 0 && plan.goalTrigger.height > 0);
 });
 
 test("a saved playable game carries only local original artwork and entity crops", () => {

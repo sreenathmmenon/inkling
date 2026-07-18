@@ -45,7 +45,7 @@ function firstForwarded(value: string | string[] | undefined): string | undefine
   return source?.split(",", 1)[0]?.trim() || undefined;
 }
 
-function requestFromNode(request: IncomingMessage, body?: Buffer): Request {
+function requestFromNode(request: IncomingMessage, body?: Buffer, signal?: AbortSignal): Request {
   const headers = new Headers();
   for (const [key, value] of Object.entries(request.headers)) {
     if (value === undefined) continue;
@@ -56,6 +56,7 @@ function requestFromNode(request: IncomingMessage, body?: Buffer): Request {
   const forwardedHost = firstForwarded(request.headers["x-forwarded-host"]);
   const requestHost = forwardedHost ?? request.headers.host ?? `127.0.0.1:${port}`;
   const init: RequestInit = { method: request.method ?? "GET", headers };
+  if (signal) init.signal = signal;
   if (body && body.length > 0) init.body = body.toString("utf8");
   return new Request(`${protocol}://${requestHost}${request.url ?? "/"}`, init);
 }
@@ -266,9 +267,15 @@ const server = createHttpServer(async (request, response) => {
       return;
     }
     activeGenerations += 1;
+    const disconnect = new AbortController();
+    const abortDisconnectedGeneration = (): void => {
+      if (!response.writableEnded) disconnect.abort(new Error("client_disconnected"));
+    };
+    request.once("aborted", abortDisconnectedGeneration);
+    response.once("close", abortDisconnectedGeneration);
     try {
       const body = await readRequestBody(request);
-      await writeWebResponse(response, await generationHandler(requestFromNode(request, body)));
+      await writeWebResponse(response, await generationHandler(requestFromNode(request, body, disconnect.signal)));
     } catch (error) {
       const status = error instanceof Error && error.message === "request_too_large" ? 413 : 500;
       if (!response.headersSent) {
@@ -283,6 +290,8 @@ const server = createHttpServer(async (request, response) => {
         response.end();
       }
     } finally {
+      request.off("aborted", abortDisconnectedGeneration);
+      response.off("close", abortDisconnectedGeneration);
       activeGenerations -= 1;
     }
     return;

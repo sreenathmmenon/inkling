@@ -1,5 +1,7 @@
 export {
   launchPlatformer,
+  setPlatformerControl,
+  type PlatformerControl,
   type PlatformerOptions,
   type PlatformerState,
   type PlatformerStatus,
@@ -30,6 +32,10 @@ export {
   PLATFORMER_PHYSICS,
 } from "./platformer-physics.js";
 export { createTouchControlLayout } from "./platformer-controls.js";
+export {
+  createObjectiveContract,
+  type ObjectiveContract,
+} from "./objective-contract.js";
 export {
   contractForGenre,
   GAME_CONTRACTS,

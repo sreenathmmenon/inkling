@@ -101,7 +101,7 @@ export function createDrawingGenerationHandler(
         // An anonymous child flow sends only the prepared image. Deliberately
         // do not forward arbitrary browser metadata into model prompts.
         payload,
-        options,
+        { ...options, signal: request.signal },
       );
       return json(201, { playableGame: result.playableGame });
     } catch (error) {
@@ -134,6 +134,7 @@ export function createDrawingGenerationStreamHandler(
         try {
           const result = await generateDrawingGame(payload, {
             ...options,
+            signal: request.signal,
             onRequest(trace, modelRequest) {
               options.onRequest?.(trace, modelRequest);
               emit({ type: "progress", stage: stageForCall(trace.callId) });

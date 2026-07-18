@@ -254,6 +254,33 @@ test("an uncertain safety result fails closed after its declared escalation", as
   assert.deepEqual(efforts, ["none", "low"]);
 });
 
+test("a disconnect signal reaches the active model request and stops the pipeline", async () => {
+  const controller = new AbortController();
+  let receivedSignal: AbortSignal | undefined;
+  let calls = 0;
+  const client: ResponsesClient = {
+    responses: {
+      async create(_request, options) {
+        calls += 1;
+        receivedSignal = options?.signal;
+        controller.abort(new Error("client_disconnected"));
+        receivedSignal?.throwIfAborted();
+        throw new Error("unreachable");
+      },
+    },
+  };
+
+  await assert.rejects(
+    runPipeline(
+      { image: "data:image/png;base64,disconnect" },
+      { safetyId: "disconnect-user", client, signal: controller.signal },
+    ),
+    /client_disconnected/,
+  );
+  assert.equal(receivedSignal, controller.signal);
+  assert.equal(calls, 1, "no later model call may start after disconnect");
+});
+
 test("a malformed safety verdict fails closed before extraction", async () => {
   const calls: string[] = [];
   const client: ResponsesClient = {

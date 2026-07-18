@@ -24,6 +24,7 @@ export interface DrawingGenerationOptions {
   onRequest?: RunnerOptions["onRequest"];
   onResult?: RunnerOptions["onResult"];
   maxImageBytes?: number;
+  signal?: AbortSignal;
 }
 
 export interface GeneratedDrawingGame {
@@ -65,6 +66,7 @@ export async function generateDrawingGame(
   }
 
   const runnerOptions: RunnerOptions = { safetyId: request.safetyId };
+  if (options.signal) runnerOptions.signal = options.signal;
   if (options.client) runnerOptions.client = options.client;
   if (options.dryRun !== undefined) runnerOptions.dryRun = options.dryRun;
   if (options.offline !== undefined) runnerOptions.offline = options.offline;

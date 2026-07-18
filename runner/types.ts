@@ -77,6 +77,7 @@ export interface ResponsesClient {
   responses: {
     create(
       request: Responses.ResponseCreateParamsNonStreaming,
+      options?: { signal?: AbortSignal },
     ): Promise<ResponseLike>;
   };
 }
@@ -91,6 +92,7 @@ export interface RequestTrace {
 
 export interface RunnerOptions {
   safetyId: string;
+  signal?: AbortSignal;
   offline?: boolean;
   client?: ResponsesClient;
   dryRun?: boolean;

@@ -2,8 +2,11 @@ import Phaser from "phaser";
 
 import {
   createPlatformerPlan,
+  createObjectiveContract,
   launchPlatformer,
   resolvePlayableGame,
+  setPlatformerControl,
+  type PlatformerControl,
   type PlatformerState,
 } from "../../../packages/runtime/src/index.js";
 import { prepareDrawing, type PreparedDrawing } from "./drawing-prep.js";
@@ -32,6 +35,14 @@ const controlsHint = requireElement<HTMLElement>("#controls-hint");
 const progressPanel = requireElement<HTMLElement>("#progress-panel");
 const progressTitle = requireElement<HTMLElement>("#progress-title");
 const progressDetail = requireElement<HTMLElement>("#progress-detail");
+const progressTime = requireElement<HTMLElement>("#progress-time");
+const playToolbar = requireElement<HTMLElement>("#play-toolbar");
+const objectiveTitle = requireElement<HTMLElement>("#objective-title");
+const objectiveDetail = requireElement<HTMLElement>("#objective-detail");
+const gameShell = requireElement<HTMLElement>("#game-shell");
+const fullscreenGame = requireElement<HTMLButtonElement>("#fullscreen-game");
+const makeAnother = requireElement<HTMLButtonElement>("#make-another");
+const accessibleControls = requireElement<HTMLElement>("#accessible-controls");
 
 // The standalone player may replace this at build time; the local capture
 // server intentionally does not need Vite's websocket client to do so.
@@ -42,6 +53,8 @@ let currentSpec: unknown = initialGameSpec;
 let game: Phaser.Game | undefined;
 let preparedDrawing: PreparedDrawing | undefined;
 let generationProgressTimer: number | undefined;
+let generationStartedAt = 0;
+let activeCounterLabel: "Bonus" | "Found" | null = null;
 
 type GenerationStage = "checking" | "understanding" | "animating" | "testing";
 type GenerationEvent = {
@@ -62,7 +75,7 @@ function showState(state: PlatformerState): void {
   status.dataset.gameState = state.status;
   status.classList.remove("error");
   if (state.status === "won") {
-    status.textContent = "You won — the drawing completed its game loop.";
+    status.textContent = "You made it! Play again or make another game.";
     return;
   }
   if (state.status === "lost") {
@@ -70,9 +83,21 @@ function showState(state: PlatformerState): void {
     return;
   }
   const collectibles = state.collectibleTotal
-    ? ` · collectibles ${state.collected}/${state.collectibleTotal}`
+    ? ` · ${activeCounterLabel ?? "Found"} ${state.collected}/${state.collectibleTotal}`
     : "";
-  status.textContent = `Playing · lives ${state.lives}${collectibles}`;
+  status.textContent = `Lives ${state.lives}${collectibles}`;
+}
+
+function enterPlayMode(): void {
+  document.body.classList.add("play-mode");
+  playToolbar.hidden = false;
+  window.requestAnimationFrame(() => {
+    gameShell.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+    parent.focus({ preventScroll: true });
+  });
 }
 
 function play(spec: unknown): void {
@@ -82,13 +107,22 @@ function play(spec: unknown): void {
   parent.hidden = false;
   restart.disabled = false;
   controlsHint.hidden = false;
+  accessibleControls.hidden = false;
   const resolved = resolvePlayableGame(spec).gameSpec;
   const plan = createPlatformerPlan(resolved);
+  const objective = createObjectiveContract(plan);
+  activeCounterLabel = objective.counterLabel;
+  objectiveTitle.textContent = objective.headline;
+  objectiveDetail.textContent = objective.instruction;
   controlsHint.textContent = plan.contract.touchControls === "four_way"
-    ? "Steer with A/D/W/S or arrow keys — or use the four touch controls."
-    : "Move left or right, then tap jump. Tap jump again in the air for an extra boost.";
+    ? "Use the four arrow buttons to steer. On a keyboard, use the arrow keys."
+    : "Use left and right, then tap jump. You can tap jump once more in the air.";
+  requireElement<HTMLButtonElement>('[data-game-control="down"]').hidden = plan.contract.touchControls !== "four_way";
+  requireElement<HTMLButtonElement>('[data-game-control="action"]').hidden = !(
+    plan.contract.action === "projectile" && plan.goalKind === "defeat_boss"
+  );
   game = launchPlatformer({ parent, gameSpec: spec, onStateChange: showState });
-  parent.focus();
+  enterPlayMode();
 }
 
 function showGameWaiting(): void {
@@ -99,6 +133,9 @@ function showGameWaiting(): void {
   gameEmpty.hidden = false;
   restart.disabled = true;
   controlsHint.hidden = true;
+  accessibleControls.hidden = true;
+  playToolbar.hidden = true;
+  document.body.classList.remove("play-mode");
   status.dataset.gameState = "waiting";
   status.classList.remove("error");
   status.textContent = "Ready when your drawing is.";
@@ -109,7 +146,7 @@ function showCaptureStatus(message: string, error = false): void {
   captureStatus.classList.toggle("error", error);
 }
 
-function forgetPreparedDrawing(message = "The prepared drawing was removed from this browser."): void {
+function forgetPreparedDrawing(message = "Photo removed from this page."): void {
   preparedDrawing = undefined;
   drawingInput.value = "";
   drawingPreview.removeAttribute("src");
@@ -132,27 +169,40 @@ function showGenerationStage(stage: GenerationStage): void {
     const stepIndex = STAGES.findIndex((item) => item.id === element.dataset.stage);
     element.classList.toggle("done", stepIndex >= 0 && stepIndex < index);
     element.classList.toggle("active", stepIndex === index);
+    if (stepIndex === index) element.setAttribute("aria-current", "step");
+    else element.removeAttribute("aria-current");
   }
 }
 
 function startGenerationProgress(): void {
   window.clearInterval(generationProgressTimer);
+  generationStartedAt = performance.now();
   showGenerationStage("checking");
-  generationProgressTimer = window.setTimeout(() => {
-    progressDetail.textContent = `${progressDetail.textContent} This step can take a moment—keep this page open.`;
-    generationProgressTimer = undefined;
-  }, 60_000);
+  progressTime.textContent = "Just started";
+  generationProgressTimer = window.setInterval(() => {
+    const seconds = Math.floor((performance.now() - generationStartedAt) / 1_000);
+    progressTime.textContent = seconds < 30
+      ? `${seconds} seconds so far`
+      : `${seconds} seconds so far — still working, and every safety and playability check will finish.`;
+  }, 1_000);
 }
 
 function stopGenerationProgress(): void {
   window.clearInterval(generationProgressTimer);
   generationProgressTimer = undefined;
+  for (const element of document.querySelectorAll<HTMLElement>(".progress-steps [data-stage]")) {
+    element.classList.remove("active");
+    element.removeAttribute("aria-current");
+  }
 }
 
 function errorMessage(code?: string): string {
-  if (code === "drawing_not_approved") return "Let’s use a drawing without a face, name, or personal details.";
-  if (code === "game_not_finishable") return "We could not make a finishable game from that drawing yet. Try another photo.";
-  return "We could not make a game right now. Your prepared drawing stays on this device.";
+  if (code === "drawing_not_approved") return "Let’s try a drawing without a real face, name, or personal details.";
+  if (code === "game_not_finishable") return "This version was not ready to play. Try a clearer photo or a new drawing.";
+  if (code === "generation_busy") return "Lots of games are being made right now. Your photo is still ready—please try again in a moment.";
+  if (code === "generation_rate_limited") return "You have made several games quickly. Wait a little, then try again with this photo.";
+  if (code === "request_too_large") return "That photo is too large to send. Choose a smaller photo and try again.";
+  return "We could not finish this game right now. The drawing was not posted or shared. Please try again.";
 }
 
 async function readGenerationStream(response: Response): Promise<unknown> {
@@ -202,7 +252,8 @@ fileInput.addEventListener("change", async () => {
   } catch (error) {
     status.dataset.gameState = "error";
     status.classList.add("error");
-    status.textContent = `Could not load GameSpec: ${String(error)}`;
+    status.textContent = "That saved game could not be opened. Try another Inkling game file.";
+    status.focus?.();
   }
 });
 
@@ -234,7 +285,7 @@ drawingInput.addEventListener("change", async () => {
     previewEmpty.hidden = true;
     makeGame.disabled = false;
     forgetDrawing.hidden = false;
-    showCaptureStatus("Your drawing is ready. Tap Make my game when you are happy with the crop.");
+    showCaptureStatus("Your photo is ready. Tap Make my game, or choose a different photo.");
   } catch (error) {
     showCaptureStatus(error instanceof Error ? error.message : "That drawing could not be prepared.", true);
   }
@@ -248,13 +299,10 @@ makeGame.addEventListener("click", async () => {
   forgetDrawing.disabled = true;
   showCaptureStatus("We’re turning your drawing into a game. Keep this page open.");
   startGenerationProgress();
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 150_000);
   try {
     const response = await fetch("/api/games/drawing", {
       method: "POST",
       headers: { "content-type": "application/json", accept: "text/event-stream" },
-      signal: controller.signal,
       body: JSON.stringify({
         image: preparedDrawing.dataUrl,
       }),
@@ -275,16 +323,16 @@ makeGame.addEventListener("click", async () => {
     if (!currentSpec) throw new Error(errorMessage());
     play(currentSpec);
     saveGame.disabled = false;
-    forgetPreparedDrawing("Your drawing is now a playable game. Save it locally if you want to keep it.");
+    forgetPreparedDrawing("Your drawing is now a playable game.");
   } catch (error) {
-    const message = error instanceof DOMException && error.name === "AbortError"
-      ? "This is taking longer than expected. Your drawing is still here—please try Make my game again."
-      : error instanceof Error
-        ? error.message
-        : "We could not make a game right now.";
+    progressPanel.hidden = true;
+    const message = error instanceof Error
+      ? error.message
+      : "We could not finish this game right now. Please try again.";
     showCaptureStatus(message, true);
+    captureStatus.setAttribute("tabindex", "-1");
+    captureStatus.focus();
   } finally {
-    window.clearTimeout(timeout);
     stopGenerationProgress();
     makeGame.disabled = preparedDrawing === undefined;
     makeGame.textContent = "Make my game";
@@ -299,6 +347,37 @@ restart.addEventListener("click", () => {
   restart.blur();
   play(currentSpec);
 });
+
+makeAnother.addEventListener("click", () => {
+  currentSpec = null;
+  saveGame.disabled = true;
+  showGameWaiting();
+  showCaptureStatus("Take a clear photo of your next drawing. No account needed.");
+  window.requestAnimationFrame(() => drawingInput.focus());
+});
+
+if (!document.fullscreenEnabled) fullscreenGame.hidden = true;
+fullscreenGame.addEventListener("click", async () => {
+  try {
+    if (document.fullscreenElement) await document.exitFullscreen();
+    else await gameShell.requestFullscreen();
+  } catch {
+    fullscreenGame.hidden = true;
+  }
+});
+
+for (const button of accessibleControls.querySelectorAll<HTMLButtonElement>("[data-game-control]")) {
+  const control = button.dataset.gameControl as PlatformerControl;
+  const release = (): void => setPlatformerControl(game, control, false);
+  button.addEventListener("pointerdown", () => setPlatformerControl(game, control, true));
+  button.addEventListener("pointerup", release);
+  button.addEventListener("pointercancel", release);
+  button.addEventListener("pointerleave", release);
+  button.addEventListener("click", () => {
+    setPlatformerControl(game, control, true);
+    window.setTimeout(release, control === "jump" || control === "action" ? 120 : 300);
+  });
+}
 saveGame.disabled = currentSpec === null || currentSpec === undefined;
 if (currentSpec === null || currentSpec === undefined) showGameWaiting();
 else play(currentSpec);

@@ -148,6 +148,22 @@ The client capture screen validates supported image formats and size, detects
 the drawing-content bounds, and creates a local PNG crop before a child taps
 **Make my game**. Its crop operation does not apply art-restyling filters.
 
+## Production web deployment
+
+`npm run build:production` compiles the server and builds the Vite client into
+`build/client`. `npm start` serves that immutable client bundle and the
+same-origin generation API on `0.0.0.0:$PORT`. The production server requires
+`OPENAI_API_KEY` and a stable, random `INKLING_SESSION_SECRET` of at least 32
+characters. Both belong in the host's encrypted secret store and must never be
+written to `.env` in a deployment image, client code, logs, or Git.
+
+The committed `railway.json` uses Railpack, runs the production build and
+start commands, checks `/healthz` before routing traffic, and applies bounded
+restart/drain behavior. The production HTTP boundary uses secure anonymous
+session cookies, HTTPS-aware same-origin checks, strict security headers,
+bounded uploads, and per-session generation/concurrency limits. It does not
+persist drawings or generated games server-side.
+
 ## Kid-first, no-account web flow
 
 The primary player is deliberately usable without an account: a child can take

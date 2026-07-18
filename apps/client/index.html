@@ -41,6 +41,8 @@
       #progress-title { margin: 0; font-size: 1.25rem; letter-spacing: -.035em; }
       #progress-detail { margin: 6px 0 20px; color: #6e6784; }
       #progress-time { margin: -12px 0 18px; color: #625b78; font-size: .86rem; font-weight: 750; }
+      #cancel-generation { margin-bottom: 18px; }
+      #cancel-generation[hidden] { display: none; }
       .progress-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 0; padding: 0; list-style: none; counter-reset: progress-step; }
       .progress-steps li { min-height: 92px; padding: 14px; border: 1px solid #e7e3f5; border-radius: 14px; color: #807996; background: #fbfaff; font-size: .84rem; font-weight: 750; }
       .progress-steps li::before { display: grid; width: 24px; height: 24px; place-items: center; margin-bottom: 8px; border-radius: 50%; background: #e7e2f5; color: #736a92; counter-increment: progress-step; content: counter(progress-step); }
@@ -53,7 +55,10 @@
       #play-toolbar[hidden] { display: none; }
       #objective-title { margin: 0; font-size: clamp(1.2rem, 4vw, 1.65rem); letter-spacing: -.04em; }
       #objective-detail { margin: 4px 0 0; color: #625b78; line-height: 1.45; }
-      .play-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+      #make-another { color: #fff; background: #5c46e8; }
+      #make-another:hover { background: #4d37dc; }
+      #post-play-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 4px 0; }
+      #post-play-actions[hidden] { display: none; }
       #game-shell { overflow: hidden; border: 1px solid #dfdaf5; border-radius: 24px; background: #fff; box-shadow: 0 18px 42px #30275d17; }
       #game { width: 100%; aspect-ratio: 16 / 9; }
       #game-empty { display: grid; place-items: center; min-height: 290px; padding: 28px; text-align: center; background: radial-gradient(circle at 50% 40%, #f0edff, #fff 62%); }
@@ -72,6 +77,9 @@
       body.play-mode #capture-panel { display: none; }
       body.play-mode main { width: min(100%, 1280px); }
       body.play-mode #game-shell { margin-inline: auto; }
+      @media (min-width: 681px) and (min-height: 601px) {
+        body.play-mode #game-shell { width: min(100%, calc((100svh - 148px) * 16 / 9)); }
+      }
       @media (max-width: 680px) {
         body { padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
         header { margin-bottom: 16px; }
@@ -81,13 +89,24 @@
         .preview-stage { min-height: 210px; }
         .progress-steps { grid-template-columns: 1fr 1fr; }
         #game { min-height: 190px; }
-        #play-toolbar { grid-template-columns: 1fr; padding: 14px; }
-        .play-actions { display: grid; grid-template-columns: 1fr 1fr; justify-content: stretch; }
-        .play-actions > * { width: 100%; }
+        #play-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 6px; padding: 10px 11px; border-radius: 16px; }
+        #play-toolbar .eyebrow { display: none; }
+        #objective-title { font-size: 1.15rem; }
+        #objective-detail { max-width: 30ch; margin-top: 2px; overflow: hidden; font-size: .8rem; line-height: 1.25; text-overflow: ellipsis; white-space: nowrap; }
+        #make-another { min-width: 48px; padding-inline: 12px; }
         body.play-mode { padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
         body.play-mode header { margin-bottom: 10px; }
         body.play-mode #game-shell { width: calc(100% + 16px); margin-left: -8px; border-radius: 16px; }
         body.play-mode #game { aspect-ratio: 4 / 5; min-height: 0; }
+      }
+      @media (max-height: 600px) and (orientation: landscape) {
+        body.play-mode { padding: max(6px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(6px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+        body.play-mode header { display: none; }
+        body.play-mode #play-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 6px; padding: 7px 10px; border-radius: 14px; }
+        body.play-mode #play-toolbar .eyebrow, body.play-mode #objective-detail { display: none; }
+        body.play-mode #objective-title { font-size: 1rem; }
+        body.play-mode #game-shell { width: min(100%, calc((100svh - 72px) * 16 / 9)); }
+        body.play-mode #game { aspect-ratio: 16 / 9; min-height: 0; }
       }
       #game-shell:fullscreen { width: 100vw; height: 100vh; height: 100svh; display: grid; place-items: center; border: 0; border-radius: 0; background: #171326; }
       #game-shell:fullscreen #game { width: min(100vw, calc(100vh * 16 / 9)); height: min(100vh, calc(100vw * 9 / 16)); }
@@ -124,10 +143,13 @@
           <div id="preview-empty"><span aria-hidden="true">✎</span>Your drawing will stay wonderfully yours.</div>
           <img id="drawing-preview" alt="Prepared crop of your drawing" hidden />
         </div>
-        <section id="progress-panel" aria-live="polite" hidden>
-          <h2 id="progress-title">Getting your game ready</h2>
-          <p id="progress-detail">We will show each real step as it starts.</p>
+        <section id="progress-panel" hidden>
+          <div aria-live="polite" aria-atomic="true">
+            <h2 id="progress-title">Getting your game ready</h2>
+            <p id="progress-detail">We will show each real step as it starts.</p>
+          </div>
           <p id="progress-time">Just started</p>
+          <button id="cancel-generation" type="button" hidden>Cancel</button>
           <ol class="progress-steps">
             <li data-stage="checking">Checking drawing</li>
             <li data-stage="understanding">Understanding your world</li>
@@ -139,17 +161,12 @@
       <section id="play-toolbar" aria-labelledby="objective-title" hidden>
         <div>
           <p class="eyebrow">Your game</p>
-          <h1 id="objective-title">Reach the finish</h1>
-          <p id="objective-detail">Reach the marked finish.</p>
+          <h1 id="objective-title">Game preview</h1>
+          <p id="objective-detail">Your game will appear here after you choose a drawing.</p>
         </div>
-        <div class="play-actions">
-          <button id="restart" type="button" disabled>Play again</button>
-          <button id="save-game" type="button" disabled>Save to this device</button>
-          <button id="fullscreen-game" type="button">Bigger game</button>
-          <button id="make-another" type="button">Make another</button>
-        </div>
+        <button id="make-another" type="button">New drawing</button>
       </section>
-      <section id="game-shell" aria-labelledby="objective-title" aria-describedby="objective-detail game-status controls-hint">
+      <section id="game-shell" aria-label="Game preview" aria-describedby="game-status">
         <div id="game-empty">
           <div>
             <h2>Your game will appear here</h2>
@@ -160,6 +177,11 @@
       </section>
       <p id="game-status" data-game-state="waiting" aria-live="polite" tabindex="-1">Ready when your drawing is.</p>
       <p id="controls-hint" class="hint" hidden>Move with A/D or arrow keys. Jump with W, ↑, Space, or the touch controls.</p>
+      <div id="post-play-actions" hidden>
+        <button id="restart" type="button" disabled>Play again</button>
+        <button id="save-game" type="button" disabled>Save to this device</button>
+        <button id="fullscreen-game" type="button">Bigger game</button>
+      </div>
       <div id="accessible-controls" role="group" aria-label="Game controls" hidden>
         <button type="button" data-game-control="left" aria-label="Move left">Left</button>
         <button type="button" data-game-control="right" aria-label="Move right">Right</button>

@@ -36,12 +36,14 @@ const progressPanel = requireElement<HTMLElement>("#progress-panel");
 const progressTitle = requireElement<HTMLElement>("#progress-title");
 const progressDetail = requireElement<HTMLElement>("#progress-detail");
 const progressTime = requireElement<HTMLElement>("#progress-time");
+const cancelGeneration = requireElement<HTMLButtonElement>("#cancel-generation");
 const playToolbar = requireElement<HTMLElement>("#play-toolbar");
 const objectiveTitle = requireElement<HTMLElement>("#objective-title");
 const objectiveDetail = requireElement<HTMLElement>("#objective-detail");
 const gameShell = requireElement<HTMLElement>("#game-shell");
 const fullscreenGame = requireElement<HTMLButtonElement>("#fullscreen-game");
 const makeAnother = requireElement<HTMLButtonElement>("#make-another");
+const postPlayActions = requireElement<HTMLElement>("#post-play-actions");
 const accessibleControls = requireElement<HTMLElement>("#accessible-controls");
 
 // The standalone player may replace this at build time; the local capture
@@ -55,6 +57,8 @@ let preparedDrawing: PreparedDrawing | undefined;
 let generationProgressTimer: number | undefined;
 let generationStartedAt = 0;
 let activeCounterLabel: "Bonus" | "Found" | null = null;
+let generationSequence = 0;
+let activeGeneration: { controller: AbortController; sequence: number } | undefined;
 
 type GenerationStage = "checking" | "understanding" | "animating" | "testing";
 type GenerationEvent = {
@@ -92,7 +96,10 @@ function enterPlayMode(): void {
   document.body.classList.add("play-mode");
   playToolbar.hidden = false;
   window.requestAnimationFrame(() => {
-    gameShell.scrollIntoView({
+    // Keep the compact objective and the complete control-bearing canvas in
+    // one initial viewport. Scrolling to the canvas itself hides the goal cue
+    // immediately above it on small phones.
+    playToolbar.scrollIntoView({
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       block: "start",
     });
@@ -105,9 +112,13 @@ function play(spec: unknown): void {
   parent.replaceChildren();
   gameEmpty.hidden = true;
   parent.hidden = false;
+  gameShell.removeAttribute("aria-label");
+  gameShell.setAttribute("aria-labelledby", "objective-title");
+  gameShell.setAttribute("aria-describedby", "objective-detail game-status controls-hint");
   restart.disabled = false;
   controlsHint.hidden = false;
   accessibleControls.hidden = false;
+  postPlayActions.hidden = false;
   const resolved = resolvePlayableGame(spec).gameSpec;
   const plan = createPlatformerPlan(resolved);
   const objective = createObjectiveContract(plan);
@@ -134,7 +145,11 @@ function showGameWaiting(): void {
   restart.disabled = true;
   controlsHint.hidden = true;
   accessibleControls.hidden = true;
+  postPlayActions.hidden = true;
   playToolbar.hidden = true;
+  gameShell.setAttribute("aria-label", "Game preview");
+  gameShell.removeAttribute("aria-labelledby");
+  gameShell.setAttribute("aria-describedby", "game-status");
   document.body.classList.remove("play-mode");
   status.dataset.gameState = "waiting";
   status.classList.remove("error");
@@ -158,6 +173,62 @@ function forgetPreparedDrawing(message = "Photo removed from this page."): void 
   showCaptureStatus(message);
 }
 
+function resetProgress(): void {
+  stopGenerationProgress();
+  progressPanel.hidden = true;
+  cancelGeneration.hidden = true;
+  progressTitle.textContent = "Getting your game ready";
+  progressDetail.textContent = "We will show each real step as it starts.";
+  progressTime.textContent = "Just started";
+  for (const element of document.querySelectorAll<HTMLElement>(".progress-steps [data-stage]")) {
+    element.classList.remove("active", "done");
+    element.removeAttribute("aria-current");
+  }
+}
+
+function cancelActiveGeneration(): void {
+  generationSequence += 1;
+  activeGeneration?.controller.abort();
+  activeGeneration = undefined;
+  resetProgress();
+  makeGame.disabled = preparedDrawing === undefined;
+  makeGame.textContent = "Make my game";
+  makeGame.removeAttribute("aria-busy");
+  forgetDrawing.disabled = false;
+}
+
+/**
+ * Atomically ends the old drawing/game session. This is intentionally the one
+ * transition used by Make another so stale artwork, model responses, file
+ * values, and Phaser listeners cannot leak into the next child's creation.
+ */
+function startFreshDrawingSession(
+  message = "Take a clear photo of your next drawing. No account needed.",
+): void {
+  cancelActiveGeneration();
+
+  currentSpec = null;
+  activeCounterLabel = null;
+  showGameWaiting();
+  preparedDrawing = undefined;
+  drawingInput.value = "";
+  fileInput.value = "";
+  drawingPreview.removeAttribute("src");
+  drawingPreview.hidden = true;
+  previewEmpty.hidden = false;
+  makeGame.disabled = true;
+  makeGame.textContent = "Make my game";
+  makeGame.removeAttribute("aria-busy");
+  forgetDrawing.disabled = false;
+  forgetDrawing.hidden = true;
+  saveGame.disabled = true;
+  objectiveTitle.textContent = "Game preview";
+  objectiveDetail.textContent = "Your game will appear here after you choose a drawing.";
+  showCaptureStatus(message);
+
+  window.requestAnimationFrame(() => drawingInput.focus());
+}
+
 function showGenerationStage(stage: GenerationStage): void {
   const index = STAGES.findIndex((item) => item.id === stage);
   const current = STAGES[index];
@@ -178,6 +249,7 @@ function startGenerationProgress(): void {
   window.clearInterval(generationProgressTimer);
   generationStartedAt = performance.now();
   showGenerationStage("checking");
+  cancelGeneration.hidden = false;
   progressTime.textContent = "Just started";
   generationProgressTimer = window.setInterval(() => {
     const seconds = Math.floor((performance.now() - generationStartedAt) / 1_000);
@@ -190,6 +262,7 @@ function startGenerationProgress(): void {
 function stopGenerationProgress(): void {
   window.clearInterval(generationProgressTimer);
   generationProgressTimer = undefined;
+  cancelGeneration.hidden = true;
   for (const element of document.querySelectorAll<HTMLElement>(".progress-steps [data-stage]")) {
     element.classList.remove("active");
     element.removeAttribute("aria-current");
@@ -205,7 +278,10 @@ function errorMessage(code?: string): string {
   return "We could not finish this game right now. The drawing was not posted or shared. Please try again.";
 }
 
-async function readGenerationStream(response: Response): Promise<unknown> {
+async function readGenerationStream(
+  response: Response,
+  isCurrent: () => boolean,
+): Promise<unknown> {
   if (!response.body) throw new Error(errorMessage());
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -213,6 +289,7 @@ async function readGenerationStream(response: Response): Promise<unknown> {
   try {
     while (true) {
       const next = await reader.read();
+      if (!isCurrent()) throw new DOMException("Generation cancelled", "AbortError");
       if (next.done) break;
       buffer += decoder.decode(next.value, { stream: true });
       while (true) {
@@ -229,6 +306,7 @@ async function readGenerationStream(response: Response): Promise<unknown> {
           throw new Error(errorMessage());
         }
         if (event.type === "progress" && event.stage) {
+          if (!isCurrent()) throw new DOMException("Generation cancelled", "AbortError");
           showGenerationStage(event.stage);
           continue;
         }
@@ -245,6 +323,10 @@ async function readGenerationStream(response: Response): Promise<unknown> {
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
+  // A file input does not fire change when the same file is selected twice.
+  // The File object remains usable after clearing the control value.
+  fileInput.value = "";
+  if (activeGeneration) cancelActiveGeneration();
   try {
     currentSpec = JSON.parse(await file.text()) as unknown;
     play(currentSpec);
@@ -271,6 +353,8 @@ saveGame.addEventListener("click", () => {
 drawingInput.addEventListener("change", async () => {
   const file = drawingInput.files?.[0];
   if (!file) return;
+  drawingInput.value = "";
+  if (activeGeneration) cancelActiveGeneration();
   preparedDrawing = undefined;
   makeGame.disabled = true;
   drawingPreview.hidden = true;
@@ -293,6 +377,10 @@ drawingInput.addEventListener("change", async () => {
 
 makeGame.addEventListener("click", async () => {
   if (!preparedDrawing) return;
+  activeGeneration?.controller.abort();
+  const controller = new AbortController();
+  const sequence = ++generationSequence;
+  activeGeneration = { controller, sequence };
   makeGame.disabled = true;
   makeGame.textContent = "Making game…";
   makeGame.setAttribute("aria-busy", "true");
@@ -306,7 +394,9 @@ makeGame.addEventListener("click", async () => {
       body: JSON.stringify({
         image: preparedDrawing.dataUrl,
       }),
+      signal: controller.signal,
     });
+    if (sequence !== generationSequence) return;
     if (!response.ok) {
       let body: { error?: string } = {};
       try {
@@ -318,13 +408,15 @@ makeGame.addEventListener("click", async () => {
       throw new Error(errorMessage(body.error));
     }
     currentSpec = response.headers.get("content-type")?.startsWith("text/event-stream")
-      ? await readGenerationStream(response)
+      ? await readGenerationStream(response, () => sequence === generationSequence)
       : (await response.json() as { playableGame?: unknown }).playableGame;
+    if (sequence !== generationSequence) return;
     if (!currentSpec) throw new Error(errorMessage());
     play(currentSpec);
     saveGame.disabled = false;
     forgetPreparedDrawing("Your drawing is now a playable game.");
   } catch (error) {
+    if (sequence !== generationSequence || controller.signal.aborted) return;
     progressPanel.hidden = true;
     const message = error instanceof Error
       ? error.message
@@ -333,15 +425,26 @@ makeGame.addEventListener("click", async () => {
     captureStatus.setAttribute("tabindex", "-1");
     captureStatus.focus();
   } finally {
-    stopGenerationProgress();
-    makeGame.disabled = preparedDrawing === undefined;
-    makeGame.textContent = "Make my game";
-    makeGame.removeAttribute("aria-busy");
-    forgetDrawing.disabled = false;
+    if (activeGeneration?.sequence === sequence) activeGeneration = undefined;
+    if (sequence === generationSequence) {
+      stopGenerationProgress();
+      makeGame.disabled = preparedDrawing === undefined;
+      makeGame.textContent = "Make my game";
+      makeGame.removeAttribute("aria-busy");
+      forgetDrawing.disabled = false;
+    }
   }
 });
 
 forgetDrawing.addEventListener("click", () => forgetPreparedDrawing());
+
+cancelGeneration.addEventListener("click", () => {
+  if (!activeGeneration) return;
+  cancelActiveGeneration();
+  makeGame.disabled = preparedDrawing === undefined;
+  showCaptureStatus("Stopped. Your photo is still ready whenever you want to try again.");
+  makeGame.focus();
+});
 
 restart.addEventListener("click", () => {
   restart.blur();
@@ -349,11 +452,7 @@ restart.addEventListener("click", () => {
 });
 
 makeAnother.addEventListener("click", () => {
-  currentSpec = null;
-  saveGame.disabled = true;
-  showGameWaiting();
-  showCaptureStatus("Take a clear photo of your next drawing. No account needed.");
-  window.requestAnimationFrame(() => drawingInput.focus());
+  startFreshDrawingSession();
 });
 
 if (!document.fullscreenEnabled) fullscreenGame.hidden = true;

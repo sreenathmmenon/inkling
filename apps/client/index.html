@@ -3,39 +3,132 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="description" content="Inkling turns a drawing into a private playable game. No account needed." />
+    <meta name="robots" content="noindex, nofollow, noarchive" />
     <link rel="icon" href="data:," />
     <title>Inkling Lane A</title>
     <style>
-      :root { color-scheme: light; font-family: system-ui, sans-serif; background: #f3ead7; color: #263238; }
+      :root { color-scheme: light; font-family: Inter, ui-rounded, "SF Pro Rounded", system-ui, sans-serif; background: #f7f4ff; color: #211c38; }
       * { box-sizing: border-box; }
-      body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 16px; }
-      main { width: min(100%, 1000px); }
-      header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-bottom: 12px; }
-      h1 { font-size: clamp(1.25rem, 3vw, 2rem); margin: 0 auto 0 0; }
-      button, .file-label { border: 2px solid #263238; border-radius: 999px; background: #fffaf0; color: #263238; cursor: pointer; font: inherit; font-weight: 700; padding: 8px 14px; }
-      button:hover, .file-label:hover { background: #ffedb5; }
+      body { margin: 0; min-height: 100vh; min-height: 100svh; padding: max(18px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(24px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); background: radial-gradient(circle at 8% 8%, #d9d3ff 0, transparent 28rem), radial-gradient(circle at 92% 18%, #ffe6af 0, transparent 26rem), #f7f4ff; }
+      main { width: min(100%, 1080px); margin: 0 auto; }
+      header { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin: 0 0 24px; }
+      .brand { display: inline-flex; align-items: center; gap: 10px; font-size: 1.25rem; font-weight: 900; letter-spacing: -0.04em; }
+      .brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 11px; color: #fff; background: linear-gradient(145deg, #5d46ea, #8a3ffc); box-shadow: 0 6px 14px #5d46ea50; }
+      .header-actions { display: flex; align-items: center; gap: 8px; }
+      button, .file-label { min-height: 46px; border: 0; border-radius: 14px; background: #f0edff; color: #292248; cursor: pointer; font: inherit; font-weight: 800; padding: 10px 15px; touch-action: manipulation; transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease; }
+      button:hover, .file-label:hover { background: #e3ddff; transform: translateY(-1px); }
+      button:disabled { cursor: not-allowed; opacity: 0.48; }
+      button:focus-visible, .file-label:focus-within, summary:focus-visible { outline: 3px solid #fd9c35; outline-offset: 3px; }
       input[type="file"] { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-      #game-shell { overflow: hidden; border: 4px solid #263238; border-radius: 18px; background: #fffaf0; box-shadow: 0 12px 30px #26323830; }
+      .dev-tools { position: relative; }
+      .dev-tools summary { color: #6c6687; cursor: pointer; font-size: 0.82rem; font-weight: 750; list-style: none; }
+      .dev-tools summary::-webkit-details-marker { display: none; }
+      .dev-tools[open] > div { position: absolute; z-index: 5; right: 0; top: 28px; display: grid; gap: 8px; min-width: 200px; padding: 12px; border: 1px solid #ddd6f7; border-radius: 14px; background: #fff; box-shadow: 0 12px 32px #211c3820; }
+      #capture-panel { display: grid; grid-template-columns: minmax(0, 1.06fr) minmax(280px, .94fr); gap: 28px; align-items: center; margin: 0 0 28px; padding: clamp(24px, 5vw, 52px); border: 1px solid #e2ddfa; border-radius: 28px; background: #fff; box-shadow: 0 22px 60px #493f8620; }
+      .eyebrow { margin: 0 0 9px; color: #644de5; font-size: .78rem; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+      #capture-title { max-width: 12ch; margin: 0; font-size: clamp(2rem, 5vw, 4rem); line-height: .96; letter-spacing: -.07em; }
+      #capture-status { max-width: 42ch; margin: 18px 0 0; color: #5e5875; line-height: 1.55; }
+      #privacy-promise { margin: 14px 0 0; color: #7d7692; font-size: .86rem; line-height: 1.45; }
+      .capture-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+      .primary-action { color: #fff; background: linear-gradient(135deg, #5c46e8, #8740f5); box-shadow: 0 9px 20px #5d46ea45; }
+      .primary-action:hover { color: #fff; background: linear-gradient(135deg, #4d37dc, #7830e9); }
+      .preview-stage { position: relative; display: grid; min-height: 270px; place-items: center; overflow: hidden; border-radius: 23px; background: linear-gradient(145deg, #eeeaff, #fff0d1); }
+      .preview-stage::before { position: absolute; inset: 18px; border: 2px dashed #a299d9; border-radius: 17px; content: ""; }
+      #preview-empty { position: relative; z-index: 1; max-width: 19ch; color: #5b5283; font-weight: 750; line-height: 1.45; text-align: center; }
+      #preview-empty span { display: block; margin-bottom: 10px; font-size: 3rem; }
+      #drawing-preview { position: relative; z-index: 2; width: calc(100% - 36px); max-height: 300px; object-fit: contain; border-radius: 16px; box-shadow: 0 12px 28px #30275d28; }
+      #drawing-preview[hidden], #preview-empty[hidden], #progress-panel[hidden] { display: none; }
+      #progress-panel { grid-column: 1 / -1; padding-top: 28px; border-top: 1px solid #ece8f8; }
+      #progress-title { margin: 0; font-size: 1.25rem; letter-spacing: -.035em; }
+      #progress-detail { margin: 6px 0 20px; color: #6e6784; }
+      .progress-steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 9px; margin: 0; padding: 0; list-style: none; counter-reset: progress-step; }
+      .progress-steps li { min-height: 92px; padding: 14px; border: 1px solid #e7e3f5; border-radius: 14px; color: #807996; background: #fbfaff; font-size: .84rem; font-weight: 750; }
+      .progress-steps li::before { display: grid; width: 24px; height: 24px; place-items: center; margin-bottom: 8px; border-radius: 50%; background: #e7e2f5; color: #736a92; counter-increment: progress-step; content: counter(progress-step); }
+      .progress-steps li.active { border-color: #7358ee; color: #332969; background: #f1efff; }
+      .progress-steps li.active::before { color: #fff; background: #684fe8; content: "•"; font-size: 1.4rem; animation: pulse 1.1s infinite; }
+      .progress-steps li.done { color: #395c48; background: #f0fbf3; border-color: #b7e1c1; }
+      .progress-steps li.done::before { color: #fff; background: #4aa568; }
+      @keyframes pulse { 50% { transform: scale(1.22); } }
+      #game-shell { overflow: hidden; border: 1px solid #dfdaf5; border-radius: 24px; background: #fff; box-shadow: 0 18px 42px #30275d17; }
       #game { width: 100%; aspect-ratio: 16 / 9; }
+      #game-empty { display: grid; place-items: center; min-height: 290px; padding: 28px; text-align: center; background: radial-gradient(circle at 50% 40%, #f0edff, #fff 62%); }
+      #game-empty h2 { margin: 0 0 8px; font-size: clamp(1.35rem, 4vw, 2rem); letter-spacing: -.045em; }
+      #game-empty p { max-width: 38ch; margin: 0; color: #716b84; line-height: 1.5; }
+      #game-empty[hidden] { display: none; }
       #game canvas { display: block; width: 100% !important; height: 100% !important; }
-      #game-status { margin: 10px 4px 0; font-weight: 750; }
-      .hint { margin: 4px; color: #52636b; }
-      .error { color: #a32020; }
+      #game-status { margin: 13px 4px 0; font-weight: 800; }
+      .hint { margin: 5px 4px; color: #716b84; line-height: 1.45; }
+      .error { color: #b12b4c !important; }
+      #forget-drawing[hidden] { display: none; }
+      @media (max-width: 680px) {
+        body { padding: max(14px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(20px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
+        header { margin-bottom: 16px; }
+        .header-actions { gap: 5px; }
+        #capture-panel { grid-template-columns: 1fr; gap: 23px; padding: 25px; border-radius: 22px; }
+        #capture-title { max-width: 10ch; font-size: clamp(2.35rem, 13vw, 3.25rem); }
+        .capture-actions > * { flex: 1 1 160px; text-align: center; }
+        .preview-stage { min-height: 210px; }
+        .progress-steps { grid-template-columns: 1fr 1fr; }
+        #game { min-height: 190px; }
+      }
     </style>
   </head>
   <body>
     <main>
       <header>
-        <h1>Inkling: your drawing is playable</h1>
-        <label class="file-label" for="spec-file">Load GameSpec JSON</label>
-        <input id="spec-file" type="file" accept="application/json,.json" />
-        <button id="restart" type="button">Restart game</button>
+        <div class="brand" aria-label="Inkling"><span class="brand-mark" aria-hidden="true">✦</span>Inkling</div>
+        <div class="header-actions">
+          <button id="save-game" type="button" disabled>Save game</button>
+          <button id="restart" type="button" disabled>Play again</button>
+          <details class="dev-tools">
+            <summary>Developer tools</summary>
+            <div>
+              <label class="file-label" for="spec-file">Load saved GameSpec</label>
+              <input id="spec-file" type="file" accept="application/json,.json" />
+            </div>
+          </details>
+        </div>
       </header>
-      <section id="game-shell" aria-label="Playable Inkling game">
-        <div id="game" tabindex="0"></div>
+      <section id="capture-panel" aria-labelledby="capture-title">
+        <div class="capture-copy">
+          <p class="eyebrow">Your world starts here</p>
+          <h1 id="capture-title">Draw it.<br />Play it.</h1>
+          <p id="capture-status" aria-live="polite">Take a clear photo of your drawing. No account needed.</p>
+          <p id="privacy-promise">Please leave out faces, names, and personal details. Your game stays private.</p>
+          <div class="capture-actions">
+            <label class="file-label" for="drawing-file">Take or choose drawing</label>
+            <input id="drawing-file" type="file" accept="image/gif,image/jpeg,image/png,image/webp" capture="environment" />
+            <button id="make-game" class="primary-action" type="button" disabled>Make my game</button>
+            <button id="forget-drawing" type="button" hidden>Forget drawing</button>
+          </div>
+        </div>
+        <div class="preview-stage">
+          <div id="preview-empty"><span aria-hidden="true">✎</span>Your drawing will stay wonderfully yours.</div>
+          <img id="drawing-preview" alt="Prepared crop of your drawing" hidden />
+        </div>
+        <section id="progress-panel" aria-live="polite" hidden>
+          <h2 id="progress-title">Getting your game ready</h2>
+          <p id="progress-detail">We will show each real step as it starts.</p>
+          <ol class="progress-steps">
+            <li data-stage="checking">Checking drawing</li>
+            <li data-stage="understanding">Understanding your world</li>
+            <li data-stage="animating">Bringing art to life</li>
+            <li data-stage="testing">Testing it can be won</li>
+          </ol>
+        </section>
       </section>
-      <p id="game-status" data-game-state="loading" aria-live="polite">Loading Lane A…</p>
-      <p class="hint">Move with A/D or arrow keys. Jump with W, ↑, Space, or the touch controls.</p>
+      <section id="game-shell" aria-label="Playable Inkling game">
+        <div id="game-empty">
+          <div>
+            <h2>Your game will appear here</h2>
+            <p>Take or choose a drawing above, then tap <strong>Make my game</strong>. No account needed.</p>
+          </div>
+        </div>
+        <div id="game" tabindex="0" hidden></div>
+      </section>
+      <p id="game-status" data-game-state="waiting" aria-live="polite">Ready when your drawing is.</p>
+      <p id="controls-hint" class="hint" hidden>Move with A/D or arrow keys. Jump with W, ↑, Space, or the touch controls.</p>
     </main>
     <script type="module" src="/src/main.ts"></script>
   </body>

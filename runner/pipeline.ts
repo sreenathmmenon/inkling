@@ -14,6 +14,7 @@ import {
   loadSchema,
   loadText,
 } from "./spec.js";
+import { validateJsonSchema } from "./schema-validation.js";
 import type {
   BehaviorPatch,
   GameSpec,
@@ -142,6 +143,7 @@ function dryRunGameSpec(): GameSpec {
         role: "mover",
         bbox: [0.15, 0.55, 0.32, 0.72],
         behavior: "patrol",
+        linked_to: null,
         style_ref: "source-strokes",
       },
       {
@@ -149,6 +151,7 @@ function dryRunGameSpec(): GameSpec {
         role: "goal",
         bbox: [0.31, 0.5, 0.45, 0.7],
         behavior: "static",
+        linked_to: null,
         style_ref: "source-strokes",
       },
     ],
@@ -428,11 +431,26 @@ class PipelineRunner {
     return this.client.responses.create(request);
   }
 
+  private validateStructuredResult(call: PipelineCall, result: unknown): void {
+    const document = loadSchema(this.root, call);
+    if (!document) return;
+    const issues = validateJsonSchema(result, document.schema);
+    if (issues.length > 0) {
+      const summary = issues
+        .slice(0, 3)
+        .map((issue) => `${issue.path} ${issue.message}`)
+        .join("; ");
+      throw new ModelOutputError(call.id, `response does not match ${document.name}: ${summary}`);
+    }
+  }
+
   async structured(call: PipelineCall, state: ExecutionState): Promise<unknown> {
     if (!expressionIsTrue(call.run_if, state)) return null;
     let request = this.buildRequest(call, state);
     let response = await this.send(call, request);
     let result = parseStructured(response, call);
+    this.validateStructuredResult(call, result);
+    this.options.onResult?.(call.id, clone(result));
     if (
       call.escalate_to &&
       isRecord(result) &&
@@ -441,6 +459,7 @@ class PipelineRunner {
       request = this.buildRequest(call, state, { effort: call.escalate_to });
       response = await this.send(call, request);
       result = parseStructured(response, call);
+      this.validateStructuredResult(call, result);
     }
     return result;
   }
@@ -593,6 +612,7 @@ class PipelineRunner {
     let solvability: JsonObject | undefined;
     let playtestReport = runPlaytest(gameSpec);
     const iterations = p8.max_iterations ?? 1;
+    let objectiveFallbackApplied = false;
     for (let iteration = 0; iteration < iterations; iteration += 1) {
       playtestReport = runPlaytest(gameSpec);
       state.playtest_report = playtestReport;
@@ -608,22 +628,37 @@ class PipelineRunner {
       }
       if (verdict.verdict === "repair") {
         const repairResult = applyBoundedRepairs(gameSpec, verdict.repairs);
-        if (repairResult.applied === 0) {
-          throw new SolvabilityError(`P8 proposed no applicable bounded repair: ${repairResult.rejected.join(",")}`);
+        if (repairResult.applied > 0) {
+          continue;
         }
+        this.degraded.push(`P8:no_applicable_repair:${repairResult.rejected.join(",")}`);
+      }
+      if (!objectiveFallbackApplied && (
+        verdict.verdict === "unsolvable_by_design" || verdict.verdict === "repair"
+      )) {
+        // A child can draw a world without declaring an explicit finish line.
+        // Use the GameSpec's own semantic inventory before falling back to a
+        // timer: found collectibles become the objective. P8 still reruns and
+        // must approve; this never skips or reorders the gate.
+        const hasCollectibles = gameSpec.entities.some((entity) => entity.role === "collectible");
+        gameSpec.goal = hasCollectibles
+          ? { kind: "collect_all", target_id: null }
+          : { kind: "survive", target_id: null };
+        const fallbackFlag = hasCollectibles ? "collect_all_fallback" : "survive_mode_fallback";
+        if (!gameSpec.flags.includes(fallbackFlag)) gameSpec.flags.push(fallbackFlag);
+        objectiveFallbackApplied = true;
         continue;
       }
-      if (verdict.verdict === "unsolvable_by_design" && verdict.fallback === "survive_mode") {
-        gameSpec.goal = { kind: "survive" };
-        if (!gameSpec.flags.includes("survive_mode_fallback")) {
-          gameSpec.flags.push("survive_mode_fallback");
-        }
-        continue;
-      }
-      throw new SolvabilityError(`P8 did not approve the game: ${String(verdict.verdict)}`);
+      throw new SolvabilityError(
+        `P8 did not approve the game: ${String(verdict.verdict)}; ` +
+        `headless blocker: ${playtestReport.first_blocker ?? "none"}`,
+      );
     }
     if (!solvability || solvability.verdict !== "ready") {
-      throw new SolvabilityError("P8 exhausted its repair loop before ready");
+      throw new SolvabilityError(
+        `P8 exhausted its repair loop before ready; ` +
+        `headless blocker: ${playtestReport?.first_blocker ?? "none"}`,
+      );
     }
 
     return {

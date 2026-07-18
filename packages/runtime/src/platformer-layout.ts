@@ -1,4 +1,5 @@
 import type { GameSpec } from "../../../runner/types.js";
+import { contractForGenre, type GameContract } from "./game-contract.js";
 
 export const WORLD_WIDTH = 960;
 export const WORLD_HEIGHT = 540;
@@ -12,6 +13,7 @@ const PLATFORM_ROLES = new Set([
   "door",
 ]);
 const HAZARD_ROLES = new Set(["hazard", "water", "enemy", "boss"]);
+const COLLECTIBLE_ROLES = new Set(["collectible", "key"]);
 
 type BBox = [number, number, number, number];
 
@@ -27,10 +29,13 @@ export interface PlannedEntity {
 
 export interface PlatformerPlan {
   title: string;
+  primaryGenre: string;
+  contract: GameContract;
   mood: string;
   palette: string[];
   lives: number;
   goalKind: string;
+  modifiers: string[];
   hero: PlannedEntity;
   platforms: PlannedEntity[];
   hazards: PlannedEntity[];
@@ -161,6 +166,50 @@ function snapOntoSurface(
   return { ...entity, y: surfaceTop(surface) - entity.height / 2 - 2 };
 }
 
+function safeSpawn(
+  hero: PlannedEntity,
+  hazards: PlannedEntity[],
+): PlannedEntity {
+  const overlapsHazard = (x: number, hazard: PlannedEntity): boolean => (
+    Math.abs(x - hazard.x) * 2 < hero.width + hazard.width * 0.72 + 20 &&
+    Math.abs(hero.y - hazard.y) * 2 < hero.height + hazard.height * 0.72 + 12
+  );
+  if (!hazards.some((hazard) => overlapsHazard(hero.x, hazard))) return hero;
+  const candidates: number[] = [];
+  for (let offset = 0; offset <= WORLD_WIDTH; offset += 24) {
+    candidates.push(hero.x - offset, hero.x + offset);
+  }
+  const x = candidates
+    .map((candidate) => clamp(candidate, hero.width / 2, WORLD_WIDTH - hero.width / 2))
+    .find((candidate) => !hazards.some((hazard) => overlapsHazard(candidate, hazard)));
+  return x === undefined ? hero : { ...hero, x };
+}
+
+function safeFreeSpawn(
+  hero: PlannedEntity,
+  hazards: PlannedEntity[],
+  colliderScale: number,
+): PlannedEntity {
+  const collisionWidth = hero.width * colliderScale;
+  const collisionHeight = hero.height * colliderScale;
+  const overlapsHazard = (x: number, y: number, hazard: PlannedEntity): boolean => (
+    Math.abs(x - hazard.x) * 2 < collisionWidth + hazard.width * 0.72 + 12 &&
+    Math.abs(y - hazard.y) * 2 < collisionHeight + hazard.height * 0.72 + 12
+  );
+  if (!hazards.some((hazard) => overlapsHazard(hero.x, hero.y, hazard))) return hero;
+
+  const candidates: Array<{ x: number; y: number; distance: number }> = [];
+  for (let y = collisionHeight / 2; y <= WORLD_HEIGHT - collisionHeight / 2; y += 24) {
+    for (let x = collisionWidth / 2; x <= WORLD_WIDTH - collisionWidth / 2; x += 24) {
+      candidates.push({ x, y, distance: Math.hypot(x - hero.x, y - hero.y) });
+    }
+  }
+  const safe = candidates
+    .sort((left, right) => left.distance - right.distance || left.y - right.y || left.x - right.x)
+    .find((candidate) => !hazards.some((hazard) => overlapsHazard(candidate.x, candidate.y, hazard)));
+  return safe ? { ...hero, x: safe.x, y: safe.y } : hero;
+}
+
 function safePalette(value: unknown): string[] {
   if (!Array.isArray(value)) return [...FALLBACK_SPEC.palette];
   const colors = value.filter(
@@ -169,12 +218,43 @@ function safePalette(value: unknown): string[] {
   return colors.length > 0 ? colors.slice(0, 8) : [...FALLBACK_SPEC.palette];
 }
 
+function contractForSpec(spec: GameSpec): GameContract {
+  const declared = contractForGenre(spec.primary_genre);
+  if (declared.movement !== "auto_ground") return declared;
+  const [heroLeft, _heroTop, heroRight, heroBottom] = normalizeBBox(
+    spec.hero.bbox,
+    FALLBACK_SPEC.hero.bbox,
+  );
+  const heroX = (heroLeft + heroRight) / 2;
+  const hasDrawnSupport = spec.entities.some((entity) => {
+    if (!PLATFORM_ROLES.has(entity.role)) return false;
+    const [left, top, right] = normalizeBBox(entity.bbox, [0, 0, 0, 0]);
+    return heroX >= left && heroX <= right && top >= heroBottom - 0.1;
+  });
+  return hasDrawnSupport
+    ? declared
+    : {
+      ...declared,
+      movement: "free",
+      colliderScale: 0.65,
+      touchControls: "four_way",
+      instruction: "Steer through your world",
+    };
+}
+
+function normalizedArea(value: unknown): number {
+  const [left, top, right, bottom] = normalizeBBox(value, [0, 0, 0, 0]);
+  return Math.max(0, right - left) * Math.max(0, bottom - top);
+}
+
 /**
  * Converts normalized GameSpec geometry into a deterministic fixed-size physics plan.
  * Invalid or incomplete input falls back to a complete, playable platformer.
  */
 export function createPlatformerPlan(input: unknown): PlatformerPlan {
   const spec = asGameSpec(input);
+  const modifiers = Array.isArray(spec.rules.modifiers) ? [...spec.rules.modifiers] : [];
+  const contract = contractForSpec(spec);
   const safetyFloor: PlannedEntity = {
     id: "lane_a_safety_floor",
     role: "platform",
@@ -203,17 +283,18 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     );
   platforms.push(safetyFloor);
 
-  const hero = snapOntoSurface(
-    planned(
+  const rawHero = planned(
       spec.hero.id,
       "hero",
       spec.hero.style_ref,
       spec.hero.bbox,
       FALLBACK_SPEC.hero.bbox,
-      { minWidth: 34, minHeight: 44, maxWidth: 64, maxHeight: 82 },
-    ),
-    platforms,
-  );
+      contract.movement === "free"
+        ? { minWidth: 64, minHeight: 84, maxWidth: 120, maxHeight: 160 }
+        : { minWidth: 34, minHeight: 44, maxWidth: 64, maxHeight: 82 },
+    );
+  const usesFreeMovement = contract.movement === "free" || contract.movement === "launch";
+  const surfaceHero = usesFreeMovement ? rawHero : snapOntoSurface(rawHero, platforms);
 
   const targetId = spec.goal.target_id ?? entities.find((entity) => entity.role === "goal")?.id;
   const target = entities.find((entity) => entity.id === targetId) ?? {
@@ -222,61 +303,78 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     styleRef: "lane-a-placeholder",
     bbox: [0.86, 0.66, 0.94, 0.82] as BBox,
   };
-  const goal = snapOntoSurface(
-    planned(target.id, "goal", target.styleRef, target.bbox, [0.86, 0.66, 0.94, 0.82], {
+  const rawGoal = planned(target.id, "goal", target.styleRef, target.bbox, [0.86, 0.66, 0.94, 0.82], {
       minWidth: 38,
       minHeight: 54,
       maxWidth: 72,
       maxHeight: 96,
-    }),
-    platforms,
-  );
+    });
+  const goal = usesFreeMovement ? rawGoal : snapOntoSurface(rawGoal, platforms);
 
   const hazards = entities
     .filter(
       (entity) =>
         HAZARD_ROLES.has(entity.role) &&
+        // World-sized zones are environmental art, not discrete collision
+        // bodies. A localized region remains hazardous; a page-wide region
+        // would otherwise make any deterministic template impossible.
+        normalizedArea(entity.bbox) < 0.24 &&
         !(spec.goal.kind === "defeat_boss" && entity.id === target.id),
     )
-    .map((entity) =>
-      snapOntoSurface(
-        planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.45, 0.7, 0.55, 0.82], {
+    .map((entity) => {
+      const hazard = planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.45, 0.7, 0.55, 0.82], {
           minWidth: 32,
           minHeight: 28,
           maxWidth: 88,
           maxHeight: 64,
-        }),
-        platforms,
-      ),
-    );
+        });
+      return usesFreeMovement ? hazard : snapOntoSurface(hazard, platforms);
+    });
+  const hero = usesFreeMovement
+    ? safeFreeSpawn(surfaceHero, hazards, contract.colliderScale)
+    : safeSpawn(surfaceHero, hazards);
   const collectibles = entities
-    .filter((entity) => entity.role === "collectible")
-    .map((entity) =>
-      planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.45, 0.64, 0.5, 0.72], {
+    .filter((entity) => COLLECTIBLE_ROLES.has(entity.role))
+    .map((entity) => {
+      const collectible = planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.45, 0.64, 0.5, 0.72], {
         minWidth: 24,
         minHeight: 24,
         maxWidth: 42,
         maxHeight: 42,
-      }),
-    );
+      });
+      return usesFreeMovement ? collectible : snapOntoSurface(collectible, platforms);
+    });
 
-  const floorTop = surfaceTop(safetyFloor);
-  const triggerTop = Math.max(0, goal.y - goal.height / 2);
-  const goalTrigger: PlannedEntity = {
-    ...goal,
-    id: `${goal.id}_trigger`,
-    styleRef: "lane-a-goal-trigger",
-    y: (triggerTop + floorTop) / 2,
-    width: Math.max(64, goal.width),
-    height: Math.max(goal.height, floorTop - triggerTop),
-  };
+  const goalTrigger: PlannedEntity = usesFreeMovement
+    ? {
+      ...goal,
+      id: `${goal.id}_trigger`,
+      styleRef: "lane-a-goal-trigger",
+      width: Math.max(64, goal.width),
+      height: Math.max(64, goal.height),
+    }
+    : (() => {
+      const floorTop = surfaceTop(safetyFloor);
+      const triggerTop = Math.max(0, goal.y - goal.height / 2);
+      return {
+        ...goal,
+        id: `${goal.id}_trigger`,
+        styleRef: "lane-a-goal-trigger",
+        y: (triggerTop + floorTop) / 2,
+        width: Math.max(64, goal.width),
+        height: Math.max(goal.height, floorTop - triggerTop),
+      };
+    })();
 
   return {
     title: spec.hero.name,
+    primaryGenre: spec.primary_genre,
+    contract,
     mood: spec.mood ?? "playful",
     palette: safePalette(spec.palette),
     lives: clamp(Math.round(spec.rules.lives || 3), 1, 9),
     goalKind: spec.goal.kind || "reach_goal",
+    modifiers,
     hero,
     platforms,
     hazards,

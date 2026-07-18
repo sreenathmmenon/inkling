@@ -127,11 +127,39 @@ governs behavior and invariants, not setup.
 > self-verify instead of guessing.
 ```
 Install:   npm install
-Dev:       npm run play -- examples/live-scan-gamespec.json
+Dev:       npm run dev
 Test:      npm test          # run before finishing any change
 Lint/type: npm run typecheck
 Headless solvability: npm run solvability
 ```
+
+### Product ownership and real-customer validation
+
+- **Think as the product owner and architect.** When one failure is found,
+  identify the whole failure class, every runtime path it can affect, and the
+  invariant that prevents it from recurring. Never ship a drawing-, filename-,
+  character-, or object-specific patch.
+- **Kids are the primary customer.** A child must not become stuck because of
+  collision geometry, jump timing, control sizing, multi-touch behavior,
+  unreachable objectives, unclear feedback, or any other implementation
+  detail. P8 is the minimum proof; the interactive runtime must be at least as
+  capable and forgiving as the solver.
+- **Validate like a real customer.** Exercise the visible upload, progress,
+  game, retry, save/load, keyboard, and touch flows at realistic desktop and
+  mobile sizes. Test ordinary taps, holds, early/late inputs, repeated actions,
+  mistakes, recovery, and replay—not only exact scripted success paths.
+- **Separate evidence honestly.** Automated tests, headless solvability,
+  browser automation, and real child usability sessions are different kinds
+  of evidence. Never describe automation as a real-user test or claim a child
+  study that did not happen.
+- **Treat UX quality as a product invariant.** Controls, progress, feedback,
+  layout, readability, motion, and recovery must feel intentional, welcoming,
+  and polished on mobile and web. Merely functional or technically passing is
+  not done.
+- **Design recovery, not dead ends.** Use general, deterministic safeguards
+  such as safe spawn, forgiving input windows, reachable collision geometry,
+  and clear retry/assist paths. No generated game may leave a player trapped
+  with restart as the only unexplained option.
 
 ---
 

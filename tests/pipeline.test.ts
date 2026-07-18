@@ -5,6 +5,7 @@ import test from "node:test";
 import type { Responses } from "openai/resources/responses/responses";
 
 import {
+  ModelOutputError,
   PipelineBlocked,
   runMultipageStitch,
   runPhotoScan,
@@ -12,6 +13,13 @@ import {
   runShareModeration,
   runVoiceEdit,
 } from "../runner/pipeline.js";
+import { validateJsonSchema } from "../runner/schema-validation.js";
+import { generateDrawingGame } from "../services/gen/src/drawing-service.js";
+import {
+  createDrawingGenerationHandler,
+  createDrawingGenerationStreamHandler,
+} from "../services/gen/src/http.js";
+import { moderateShareCandidate } from "../services/share/src/share-service.js";
 import {
   findProjectRoot,
   loadJson,
@@ -23,6 +31,8 @@ import type {
   ResponsesClient,
   SchemaDocument,
 } from "../runner/types.js";
+
+const SERVICE_SAFETY_ID = "a".repeat(64);
 
 const root = findProjectRoot();
 const spec = loadPipelineSpec(root);
@@ -93,6 +103,22 @@ test("pipeline materialization is complete, strict, and acyclic", () => {
     assert.match(document.name, /^[A-Za-z0-9_-]{1,64}$/);
     assertSchemaNode(document.schema, call.schema);
   }
+});
+
+test("response schemas reject malformed values before they can affect the pipeline", () => {
+  const gameSpec = loadJson<SchemaDocument>(root, "spec/schemas/gamespec.json");
+  const issues = validateJsonSchema(
+    {
+      primary_genre: "not-a-genre",
+      genre_confidence: 1.5,
+      unexpected: true,
+    },
+    gameSpec.schema,
+  );
+  assert.ok(issues.some((issue) => issue.path === "$.unexpected"));
+  assert.ok(issues.some((issue) => issue.path === "$.primary_genre"));
+  assert.ok(issues.some((issue) => issue.path === "$.genre_confidence"));
+  assert.ok(issues.some((issue) => issue.path === "$.hero" && issue.message === "is required"));
 });
 
 test("drawing dry-run follows gates and declared model/effort routing", async () => {
@@ -226,4 +252,162 @@ test("an uncertain safety result fails closed after its declared escalation", as
     (error: unknown) => error instanceof PipelineBlocked && error.callId === "P1",
   );
   assert.deepEqual(efforts, ["none", "low"]);
+});
+
+test("a malformed safety verdict fails closed before extraction", async () => {
+  const calls: string[] = [];
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        return {
+          id: "malformed-safety",
+          output_text: JSON.stringify({ verdict: "allow" }),
+          output: [],
+        };
+      },
+    },
+  };
+
+  await assert.rejects(
+    runPipeline(
+      { image: "data:image/png;base64,malformed-safety" },
+      {
+        safetyId: "malformed-safety-user",
+        client,
+        onRequest(trace) {
+          calls.push(trace.callId);
+        },
+      },
+    ),
+    (error: unknown) => error instanceof ModelOutputError && error.callId === "P1",
+  );
+  assert.deepEqual(calls, ["P1"]);
+});
+
+test("drawing generation returns original artwork only after the mandatory gates pass", async () => {
+  const image = "data:image/png;base64,aGVsbG8=";
+  const result = await generateDrawingGame(
+    { image, safetyId: SERVICE_SAFETY_ID, context: { capture_surface: "paper" } },
+    { dryRun: true },
+  );
+
+  assert.equal(result.playableGame.format, "inkling-playable-game-v1");
+  assert.equal(result.playableGame.gameSpec, result.scan.gameSpec);
+  assert.equal(result.playableGame.artwork?.sourceDataUrl, image);
+  assert.deepEqual(result.playableGame.artwork?.entityCrops.hero_1, [0.05, 0.55, 0.15, 0.75]);
+  assert.equal(result.playableGame.artwork?.heroRig?.tier, "squash_stretch_puppet");
+  assert.equal(result.playableGame.readinessEvidence?.solvability.verdict, "ready");
+  assert.equal(result.playableGame.readinessEvidence?.playtestReport.reached_goal, true);
+});
+
+test("drawing generation rejects remote or oversized image input before P1", async () => {
+  await assert.rejects(
+    generateDrawingGame({ image: "https://example.com/drawing.png", safetyId: SERVICE_SAFETY_ID }),
+    /inline GIF, JPEG, PNG, or WebP/,
+  );
+  await assert.rejects(
+    generateDrawingGame(
+      { image: "data:image/png;base64,aGVsbG8=", safetyId: SERVICE_SAFETY_ID },
+      { maxImageBytes: 1, dryRun: true },
+    ),
+    /service limit/,
+  );
+  await assert.rejects(
+    generateDrawingGame({ image: "data:image/png;base64,aGVsbG8=", safetyId: "child@example.com" }),
+    /privacy-preserving SHA-256 hash/,
+  );
+});
+
+test("HTTP generation derives safety identity on the server and returns no-store playable games", async () => {
+  const handler = createDrawingGenerationHandler({
+    dryRun: true,
+    resolveSafetyId() {
+      return SERVICE_SAFETY_ID;
+    },
+  });
+  const response = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", safetyId: "do-not-trust-this" }),
+  }));
+  assert.equal(response.status, 201);
+  assert.equal(response.headers.get("cache-control"), "no-store");
+  const body = await response.json() as { playableGame?: { format?: string } };
+  assert.equal(body.playableGame?.format, "inkling-playable-game-v1");
+
+  const crossOrigin = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin: "https://not-inkling.test" },
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=" }),
+  }));
+  assert.equal(crossOrigin.status, 403);
+
+  const missingSession = createDrawingGenerationHandler({
+    dryRun: true,
+    resolveSafetyId() {
+      return undefined;
+    },
+  });
+  const rejected = await missingSession(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=" }),
+  }));
+  assert.equal(rejected.status, 401);
+});
+
+test("streaming generation exposes only coarse pipeline stages before its playable result", async () => {
+  const handler = createDrawingGenerationStreamHandler({
+    dryRun: true,
+    resolveSafetyId() {
+      return SERVICE_SAFETY_ID;
+    },
+  });
+  const response = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=" }),
+  }));
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
+  const events = (await response.text()).trim().split("\n\n").map((line) => {
+    const data = line.slice("data: ".length);
+    return JSON.parse(data) as { type: string; stage?: string; playableGame?: { format?: string } };
+  });
+  assert.equal(events[0]?.type, "progress");
+  assert.equal(events[0]?.stage, "checking");
+  assert.ok(events.some((event) => event.stage === "understanding"));
+  assert.ok(events.some((event) => event.stage === "animating"));
+  assert.ok(events.some((event) => event.stage === "testing"));
+  assert.equal(events.at(-1)?.type, "complete");
+  assert.equal(events.at(-1)?.playableGame?.format, "inkling-playable-game-v1");
+});
+
+test("share moderation cannot be reached without passing P8 evidence", async () => {
+  const calls: string[] = [];
+  await assert.rejects(
+    moderateShareCandidate({
+      renderedGame: "data:image/png;base64,aGVsbG8=",
+      title: "My game",
+      playtestReport: { reached_goal: false, first_blocker: "blocked", time_to_win: null, seed: 1, visited: [] },
+      solvability: { verdict: "repair" },
+      safetyId: SERVICE_SAFETY_ID,
+    }, {
+      dryRun: true,
+      onRequest(trace) {
+        calls.push(trace.callId);
+      },
+    }),
+    /passing P8 evidence/,
+  );
+  assert.deepEqual(calls, []);
+
+  const verdict = await moderateShareCandidate({
+    renderedGame: "data:image/png;base64,aGVsbG8=",
+    title: "My game",
+    playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 4, seed: 1, visited: ["hero"] },
+    solvability: { verdict: "ready" },
+    safetyId: SERVICE_SAFETY_ID,
+  }, { dryRun: true });
+  assert.equal(verdict.publishable, true);
 });

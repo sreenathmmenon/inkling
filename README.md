@@ -100,13 +100,107 @@ You can also load another saved GameSpec using the browser's JSON file picker.
 To close the complete drawing-to-game loop:
 
 ```bash
-npm run scan -- /absolute/path/to/drawing.png --out examples/my-game.json
+npm run scan -- /absolute/path/to/drawing.png --out examples/my-gamespec.json --playable-out examples/my-game.json
 npm run play -- examples/my-game.json
 ```
+
+`--out` remains a plain GameSpec for integrations. `--playable-out` writes a
+local `inkling-playable-game-v1` document containing that GameSpec and an
+inline copy of the original drawing. Lane A crops the original drawing by each
+entity's normalized GameSpec bounds and renders those untouched crops over its
+deterministic collision shapes. It accepts only inline image data for this
+local document, never a remote artwork URL, so playback remains network-free.
+The browser player can also save its currently loaded/generated game as JSON
+and load that file later. A saved playable document keeps the GameSpec, source
+artwork crop map, and optional P3 motion plan together.
+Generated playable documents also carry the P8 playtest/solvability evidence
+that produced them. Local evidence is useful for restoration and inspection;
+public sharing still requires the server-owned P8/P11 gate evidence.
+
+## Generation service boundary
+
+`services/gen/src/drawing-service.ts` is the server-side entry point for a
+cropped drawing. It accepts bounded inline image data only, runs the mandatory
+P1 → generation → P8 sequence, and returns a `inkling-playable-game-v1`
+document only after those gates pass. It requires a 64-character SHA-256
+`safetyId`; production code must derive that identifier from its authenticated
+or anonymous server session, never from browser JSON.
+
+`services/gen/src/http.ts` exposes a framework-neutral `Request` → `Response`
+adapter for `POST /api/games/drawing`. A deployment adapter must provide
+`resolveSafetyId`, authentication/session handling, rate/request-size limits,
+asset retention/deletion policy, and safe secret configuration. The browser
+calls this same-origin endpoint and does not contain an OpenAI API key.
+
+For the complete local browser loop (with a real API call only after the child
+taps **Make my game**), run:
+
+```bash
+npm run dev
+```
+
+It creates an opaque, HttpOnly local session cookie and HMACs it server-side
+into the required safety identifier. This development adapter is intentionally
+local-only; a production host must replace its session, retention, rate-limit,
+and secret-management mechanisms with its approved infrastructure.
+
+The client capture screen validates supported image formats and size, detects
+the drawing-content bounds, and creates a local PNG crop before a child taps
+**Make my game**. Its crop operation does not apply art-restyling filters.
+
+## Kid-first, no-account web flow
+
+The primary player is deliberately usable without an account: a child can take
+or choose a drawing, generate a private playable game, play it, and save the
+result to their device. The web client sends only the prepared inline image;
+it does not send a name, email, age, or arbitrary browser metadata. A visible
+**Forget drawing** action clears the prepared image from the page before it is
+ever sent or after a successful generation. The local development adapter uses
+an opaque, session-only, `HttpOnly; SameSite=Strict` cookie solely to derive a
+server-side safety identifier; it contains no child profile and is not a
+durable account.
+
+Generation responses and the local development player use `no-store`,
+same-origin upload checks, a restrictive Content Security Policy, no-referrer,
+and unused-device-permission denial headers. The development server remains a
+local test tool, not production hosting. Production must additionally provide
+HTTPS (`Secure` cookies), rate limits, abuse monitoring, deletion jobs,
+approved asset storage, incident response, and a reviewed regional privacy
+program.
+
+Saving in a parent cloud library and every sharing feature are intentionally
+out of the anonymous path. A future parent-controlled flow may offer those
+features only after its applicable consent and age/privacy review. Public
+profiles, comments, chat, advertising, and searchable galleries are not part
+of this product boundary.
+
+### Mobile web now; native app later
+
+The no-account capture/player path is responsive, uses the device camera
+chooser when available, keeps touch targets at least 44 CSS pixels, respects
+safe-area insets, and has in-game touch controls. It is the first production
+surface because a shared link can play in a browser with no install.
+
+A future mobile app should keep this contract: on-device crop before upload,
+the same server-side anonymous session/safety boundary, the same pipeline,
+and the same deterministic `packages/runtime` Lane A player. Native capture,
+local encrypted drafts, parent library, notifications, and platform sharing
+adapters belong in an app shell around those shared packages—not inside
+Phaser, model prompts, or model routing.
+
+## Sharing gate
+
+`services/share/src/share-service.ts` is deliberately moderation-only. It
+requires both P8's ready verdict and replay evidence showing the goal was
+reached, then calls P11. It does not create a public link or store assets.
+Publishing infrastructure must call this gate first and retain immutable
+P8/P11 evidence with the saved game it publishes.
 
 P7 patch operations are held in memory, validated statically, and simulated in
 a Node permission sandbox with no network, project/data filesystem access,
 filesystem writes, child processes, or inherited environment. Invalid modules return a `static`
 fallback and are never installed. The deterministic playtest report is produced
-before each P8 iteration; bounded repairs are applied and replayed until P8 is
-ready or the configured iteration limit is exhausted.
+before each P8 iteration by a fixed-step Lane A simulation that shares the
+platformer's world dimensions, gravity, jump, collision plan, hazards, lives,
+collectibles, goal trigger, and survival timer. Bounded repairs are applied and
+replayed until P8 is ready or the configured iteration limit is exhausted.

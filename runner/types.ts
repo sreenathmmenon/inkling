@@ -98,6 +98,8 @@ export interface RunnerOptions {
     trace: RequestTrace,
     request: Responses.ResponseCreateParamsNonStreaming,
   ) => void;
+  /** Local/server observability hook for validated structured results. */
+  onResult?: (callId: string, result: unknown) => void;
 }
 
 export interface BoundingEntity {

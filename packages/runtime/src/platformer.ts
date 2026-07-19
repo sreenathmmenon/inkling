@@ -17,6 +17,10 @@ import {
   PLATFORMER_PHYSICS,
 } from "./platformer-physics.js";
 import {
+  surfaceJumpVelocity,
+  surfaceVelocityX,
+} from "./platformer-materials.js";
+import {
   createTouchControlLayout,
   type TouchControlLayout,
 } from "./platformer-controls.js";
@@ -41,6 +45,8 @@ export interface PlatformerState {
   lives: number;
   collected: number;
   collectibleTotal: number;
+  assistAvailable: boolean;
+  assistActive: boolean;
 }
 
 export interface PlatformerOptions {
@@ -76,7 +82,9 @@ class PlatformerScene extends Phaser.Scene {
   private hero!: Phaser.GameObjects.Rectangle;
   private heroArtwork: Phaser.GameObjects.Image | undefined;
   private readonly artworkByEntity = new Map<string, Phaser.GameObjects.Image>();
+  private readonly doorObjects = new Map<string, Phaser.GameObjects.Rectangle>();
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
+  private doors!: Phaser.Physics.Arcade.StaticGroup;
   private hazards!: Phaser.Physics.Arcade.StaticGroup;
   private collectibles!: Phaser.Physics.Arcade.StaticGroup;
   private goalTrigger!: Phaser.Physics.Arcade.StaticGroup;
@@ -85,6 +93,7 @@ class PlatformerScene extends Phaser.Scene {
   private hud!: Phaser.GameObjects.Text;
   private goalGuide: Phaser.GameObjects.Text | undefined;
   private message!: Phaser.GameObjects.Text;
+  private recoveryGuide: Phaser.GameObjects.Text | undefined;
   private controls: Controls = {};
   private touch = { left: false, right: false, jump: false, down: false, action: false };
   private touchButtons: Phaser.GameObjects.Container[] = [];
@@ -92,6 +101,7 @@ class PlatformerScene extends Phaser.Scene {
   private jumpWasDown = false;
   private lives = 3;
   private collected = 0;
+  private readonly collectedIds = new Set<string>();
   private elapsedMs = 0;
   private invulnerableUntil = 0;
   private lastGroundedAt = 0;
@@ -101,6 +111,14 @@ class PlatformerScene extends Phaser.Scene {
   private lastProjectileAt = -Infinity;
   private projectileFeedbackShown = false;
   private lastGoalBlockedAt = -Infinity;
+  private lastSurfaceId: string | undefined;
+  private wasInsideWater = false;
+  private meaningfulInputSeen = false;
+  private lastProgressAt = 0;
+  private bestObjectiveDistance = Infinity;
+  private stuckCueShown = false;
+  private assistAvailable = false;
+  private assistActiveUntil = -Infinity;
   private status: PlatformerStatus = "playing";
   private frame = 0;
   private runtimeSequence = 0;
@@ -115,6 +133,16 @@ class PlatformerScene extends Phaser.Scene {
   setExternalControl(control: PlatformerControl, pressed: boolean): void {
     this.touch[control] = pressed;
     if (pressed) this.acceptCoachedControl(control);
+  }
+
+  requestAssist(): void {
+    if (this.status !== "playing" || !this.assistAvailable) return;
+    this.assistAvailable = false;
+    this.assistActiveUntil = this.elapsedMs + PLATFORMER_PHYSICS.assistDurationMs;
+    this.recoveryGuide?.destroy();
+    this.recoveryGuide = undefined;
+    this.emitFeedback("assist_activated", null, false);
+    this.publishState();
   }
 
   private get usesFreeMovement(): boolean {
@@ -144,6 +172,8 @@ class PlatformerScene extends Phaser.Scene {
     this.status = "playing";
     this.lives = this.plan.lives;
     this.collected = 0;
+    this.collectedIds.clear();
+    this.doorObjects.clear();
     this.elapsedMs = 0;
     this.invulnerableUntil = 0;
     this.lastGroundedAt = 0;
@@ -154,6 +184,16 @@ class PlatformerScene extends Phaser.Scene {
     this.jumpWasDown = false;
     this.projectileFeedbackShown = false;
     this.lastGoalBlockedAt = -Infinity;
+    this.lastSurfaceId = undefined;
+    this.wasInsideWater = false;
+    this.meaningfulInputSeen = false;
+    this.lastProgressAt = 0;
+    this.bestObjectiveDistance = Infinity;
+    this.stuckCueShown = false;
+    this.assistAvailable = false;
+    this.assistActiveUntil = -Infinity;
+    this.recoveryGuide?.destroy();
+    this.recoveryGuide = undefined;
     this.frame = 0;
     this.runtimeSequence = 0;
 
@@ -200,7 +240,11 @@ class PlatformerScene extends Phaser.Scene {
     for (const platform of this.plan.platforms) {
       if (this.usesFreeMovement && platform.id === "lane_a_safety_floor") continue;
       const alpha = platform.id === "lane_a_safety_floor" ? 0.5 : 1;
-      const shape = this.rectangle(platform, platformColor, ink, alpha);
+      const materialColor = platform.role === "ice" ? 0x9ee7ff
+        : platform.role === "cloud" ? 0xffffff
+        : platform.role === "launchpad" ? 0xff7bbd
+        : platformColor;
+      const shape = this.rectangle(platform, materialColor, ink, alpha);
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
       // Drawn platforms are landing surfaces. Let the hero pass through their
@@ -231,6 +275,21 @@ class PlatformerScene extends Phaser.Scene {
       this.cameras.main.startFollow(this.hero, true, 0.16, 0.16);
     }
     if (!this.usesFreeMovement) this.physics.add.collider(this.hero, this.platforms);
+
+    this.doors = this.physics.add.staticGroup();
+    for (const door of this.plan.doors) {
+      const shape = this.rectangle(door, 0x8f6bd7, ink, 0.92);
+      this.physics.add.existing(shape, true);
+      this.doors.add(shape);
+      this.doorObjects.set(door.id, shape);
+      this.addArtwork(door, 6, 1);
+    }
+    this.physics.add.collider(this.hero, this.doors);
+
+    for (const water of this.plan.waterVolumes) {
+      this.rectangle(water, 0x58bde8, ink, 0.34).setDepth(1);
+      this.addArtwork(water, 1, 0.68);
+    }
 
     this.hazards = this.physics.add.staticGroup();
     for (const hazard of this.plan.hazards) {
@@ -399,6 +458,7 @@ class PlatformerScene extends Phaser.Scene {
         down: replay.down,
         action: replay.action,
       };
+      if (replay.assist) this.requestAssist();
     } else if (this.replayFrames.size > 0) {
       this.touch = { left: false, right: false, jump: false, down: false, action: false };
     }
@@ -421,6 +481,7 @@ class PlatformerScene extends Phaser.Scene {
         this.surviveRemainingMs -= delta;
         if (this.surviveRemainingMs <= 0) this.win();
       }
+      this.trackRecovery();
       this.updateHud();
       return;
     }
@@ -432,13 +493,35 @@ class PlatformerScene extends Phaser.Scene {
     const movingRight = Boolean(this.controls.cursors?.right.isDown || this.controls.right?.isDown || this.touch.right);
     if (movingLeft) this.acceptCoachedControl("left");
     if (movingRight) this.acceptCoachedControl("right");
-    if (this.plan.contract.movement === "auto_ground") {
+    const surface = this.surfaceUnderHero();
+    const surfaceRole = surface?.role;
+    const inWater = this.isInsideWater();
+    if (inWater && !this.wasInsideWater) this.emitRuntimeEvent("water_entered", null, false);
+    this.wasInsideWater = inWater;
+    if ((body.blocked.down || body.touching.down) && surface) {
+      if (surface.id !== this.lastSurfaceId) {
+        this.emitRuntimeEvent("surface_landed", surface.id, surface.id !== "lane_a_safety_floor");
+        if (surface.role === "ice" || surface.role === "cloud" || surface.role === "launchpad") {
+          this.emitRuntimeEvent("material_effect", surface.id, false);
+        }
+      }
+      this.lastSurfaceId = surface.id;
+    } else if (!inWater) {
+      this.lastSurfaceId = undefined;
+    }
+    body.setGravityY(inWater ? PLATFORMER_PHYSICS.waterGravityY - PLATFORMER_PHYSICS.gravityY : 0);
+    const direction: -1 | 0 | 1 = movingLeft === movingRight ? 0 : movingLeft ? -1 : 1;
+    const assistActive = this.elapsedMs < this.assistActiveUntil;
+    if (inWater) {
+      body.setVelocityX(direction * PLATFORMER_PHYSICS.waterMoveVelocityX * (assistActive ? 1.16 : 1));
+    } else if (this.plan.contract.movement === "auto_ground") {
       // Runners advance by default, but the same left/right controls remain
       // available so a required item behind the hero never makes the game
       // impossible. This is part of the genre contract, not drawing-specific.
       body.setVelocityX(movingLeft ? -PLATFORMER_PHYSICS.moveVelocityX : PLATFORMER_PHYSICS.moveVelocityX);
-    } else if (movingLeft === movingRight) body.setVelocityX(0);
-    else body.setVelocityX(movingLeft ? -PLATFORMER_PHYSICS.moveVelocityX : PLATFORMER_PHYSICS.moveVelocityX);
+    } else {
+      body.setVelocityX(surfaceVelocityX(body.velocity.x, direction, surfaceRole, assistActive));
+    }
 
     const jumpDown = Boolean(
       this.controls.cursors?.up.isDown ||
@@ -446,6 +529,7 @@ class PlatformerScene extends Phaser.Scene {
         this.controls.space?.isDown ||
         this.touch.jump,
     );
+    if (inWater && !jumpDown) this.jumpsRemaining = PLATFORMER_PHYSICS.maxJumps;
     if (jumpDown) this.acceptCoachedControl("jump");
     if (jumpDown && !this.jumpWasDown) this.lastJumpPressedAt = this.elapsedMs;
     if (
@@ -455,7 +539,9 @@ class PlatformerScene extends Phaser.Scene {
         this.jumpsRemaining > 0
       )
     ) {
-      body.setVelocityY(PLATFORMER_PHYSICS.jumpVelocityY);
+      body.setVelocityY(inWater
+        ? PLATFORMER_PHYSICS.waterJumpVelocityY * (assistActive ? 1.12 : 1)
+        : surfaceJumpVelocity(surfaceRole, assistActive));
       this.jumpsRemaining = Math.max(0, this.jumpsRemaining - 1);
       this.lastJumpPressedAt = -Infinity;
       this.lastGroundedAt = -Infinity;
@@ -467,7 +553,94 @@ class PlatformerScene extends Phaser.Scene {
       this.surviveRemainingMs -= delta;
       if (this.surviveRemainingMs <= 0) this.win();
     }
+    this.trackRecovery();
     this.updateHud();
+  }
+
+  private recoveryTarget(): PlannedEntity | undefined {
+    const required = this.plan.collectibles.filter((entity) => (
+      this.plan.requiredCollectibleIds.includes(entity.id) && !this.collectedIds.has(entity.id)
+    ));
+    const outstanding = this.plan.goalKind === "collect_all"
+      ? this.plan.collectibles.filter((entity) => !this.collectedIds.has(entity.id))
+      : required;
+    return outstanding
+      .sort((left, right) => (
+        Math.hypot(left.x - this.hero.x, left.y - this.hero.y) -
+          Math.hypot(right.x - this.hero.x, right.y - this.hero.y) ||
+        left.id.localeCompare(right.id)
+      ))[0] ?? this.plan.goal;
+  }
+
+  private trackRecovery(): void {
+    if (this.status !== "playing" || this.plan.goalKind === "survive") return;
+    const attempted = this.touch.left || this.touch.right || this.touch.jump || this.touch.down || this.touch.action ||
+      Boolean(this.controls.cursors?.left.isDown || this.controls.cursors?.right.isDown || this.controls.cursors?.up.isDown ||
+        this.controls.cursors?.down.isDown || this.controls.left?.isDown || this.controls.right?.isDown ||
+        this.controls.jump?.isDown || this.controls.down?.isDown || this.controls.space?.isDown);
+    if (attempted && !this.meaningfulInputSeen) {
+      this.meaningfulInputSeen = true;
+      this.lastProgressAt = this.elapsedMs;
+    }
+    const target = this.recoveryTarget();
+    if (!target) return;
+    const distance = Math.hypot(target.x - this.hero.x, target.y - this.hero.y);
+    if (distance <= this.bestObjectiveDistance - PLATFORMER_PHYSICS.progressDistance) {
+      this.bestObjectiveDistance = distance;
+      this.lastProgressAt = this.elapsedMs;
+      this.stuckCueShown = false;
+      if (this.assistAvailable) {
+        this.assistAvailable = false;
+        this.publishState();
+      }
+      this.recoveryGuide?.destroy();
+      this.recoveryGuide = undefined;
+      return;
+    }
+    if (!this.meaningfulInputSeen) return;
+    const stuckFor = this.elapsedMs - this.lastProgressAt;
+    if (!this.stuckCueShown && stuckFor >= PLATFORMER_PHYSICS.stuckCueAfterMs) {
+      this.stuckCueShown = true;
+      const deltaX = target.x - this.hero.x;
+      const deltaY = target.y - this.hero.y;
+      const arrow = Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX < 0 ? "←" : "→" : deltaY < 0 ? "↑" : "↓";
+      this.recoveryGuide = this.add
+        .text(this.scale.width / 2, 112, `Try ${arrow} toward the glow`, {
+          color: "#211c38",
+          fontFamily: "system-ui, sans-serif",
+          fontSize: "17px",
+          fontStyle: "bold",
+          backgroundColor: "rgba(255,213,86,0.96)",
+          padding: { x: 10, y: 6 },
+        })
+        .setOrigin(0.5)
+        .setScrollFactor(0)
+        .setDepth(150);
+      this.emitFeedback("stuck_cue", target.id, false);
+    }
+    if (!this.assistAvailable && stuckFor >= PLATFORMER_PHYSICS.assistOfferAfterMs) {
+      this.assistAvailable = true;
+      this.emitFeedback("assist_available", target.id, false);
+      this.publishState();
+    }
+  }
+
+  private surfaceUnderHero(): PlannedEntity | undefined {
+    const heroBottom = this.hero.y + this.plan.hero.height / 2;
+    return this.plan.platforms
+      .filter((platform) => (
+        this.hero.x + this.plan.hero.width * 0.35 >= platform.x - platform.width / 2 &&
+        this.hero.x - this.plan.hero.width * 0.35 <= platform.x + platform.width / 2 &&
+        Math.abs(heroBottom - (platform.y - platform.height / 2)) <= 12
+      ))
+      .sort((left, right) => left.y - right.y)[0];
+  }
+
+  private isInsideWater(): boolean {
+    return this.plan.waterVolumes.some((water) => (
+      Math.abs(this.hero.x - water.x) * 2 < this.plan.hero.width * 0.7 + water.width &&
+      Math.abs(this.hero.y - water.y) * 2 < this.plan.hero.height * 0.7 + water.height
+    ));
   }
 
   private updateFreeMovementControls(body: Phaser.Physics.Arcade.Body): void {
@@ -1105,10 +1278,17 @@ class PlatformerScene extends Phaser.Scene {
     const entityId = gameObject.getData("entityId");
     if (typeof entityId === "string") this.artworkByEntity.get(entityId)?.setVisible(false);
     this.collected += 1;
+    if (typeof entityId === "string") {
+      this.collectedIds.add(entityId);
+      this.unlockLinkedDoors(entityId);
+    }
+    this.markObjectiveProgress();
     this.emitFeedback(
       "pickup",
       typeof entityId === "string" ? entityId : null,
-      this.plan.goalKind === "collect_all",
+      this.plan.goalKind === "collect_all" || (
+        typeof entityId === "string" && this.plan.requiredCollectibleIds.includes(entityId)
+      ),
       pickupX,
       pickupY,
     );
@@ -1122,12 +1302,41 @@ class PlatformerScene extends Phaser.Scene {
     this.publishState();
   }
 
+  private unlockLinkedDoors(keyId: string): void {
+    for (const relationship of this.plan.relationships) {
+      if (relationship.keyId !== keyId) continue;
+      const door = this.doorObjects.get(relationship.doorId);
+      const body = door?.body as Phaser.Physics.Arcade.StaticBody | null | undefined;
+      if (!door || !body?.enable) continue;
+      body.enable = false;
+      door.setVisible(false);
+      this.artworkByEntity.get(relationship.doorId)?.setVisible(false);
+      this.emitFeedback("unlock", relationship.doorId, true, door.x, door.y);
+    }
+  }
+
+  private markObjectiveProgress(): void {
+    this.bestObjectiveDistance = Infinity;
+    this.lastProgressAt = this.elapsedMs;
+    this.stuckCueShown = false;
+    this.assistAvailable = false;
+    this.recoveryGuide?.destroy();
+    this.recoveryGuide = undefined;
+  }
+
   private touchGoal(): void {
     if (this.plan.goalKind === "survive") return;
     if (
       this.plan.goalKind === "collect_all" &&
       this.collected < this.plan.collectibles.length
     ) {
+      if (this.elapsedMs - this.lastGoalBlockedAt >= 1_000) {
+        this.lastGoalBlockedAt = this.elapsedMs;
+        this.emitFeedback("goal_blocked", this.plan.goal.id, true, this.hero.x, this.hero.y - 22);
+      }
+      return;
+    }
+    if (this.plan.requiredCollectibleIds.some((id) => !this.collectedIds.has(id))) {
       if (this.elapsedMs - this.lastGoalBlockedAt >= 1_000) {
         this.lastGoalBlockedAt = this.elapsedMs;
         this.emitFeedback("goal_blocked", this.plan.goal.id, true, this.hero.x, this.hero.y - 22);
@@ -1157,6 +1366,7 @@ class PlatformerScene extends Phaser.Scene {
     body.setVelocity(0, 0);
     this.jumpsRemaining = PLATFORMER_PHYSICS.maxJumps;
     this.lastJumpPressedAt = -Infinity;
+    this.markObjectiveProgress();
   }
 
   private win(): void {
@@ -1178,8 +1388,11 @@ class PlatformerScene extends Phaser.Scene {
 
   private updateHud(): void {
     const objective = createObjectiveContract(this.plan);
+    const objectiveCollected = objective.requiredTotal > 0
+      ? this.plan.requiredCollectibleIds.filter((id) => this.collectedIds.has(id)).length
+      : this.collected;
     const collectibleText = objective.counterLabel
-      ? `  ${objective.counterLabel} ${this.collected}/${this.plan.collectibles.length}`
+      ? `  ${objective.counterLabel} ${objectiveCollected}/${objective.requiredTotal || this.plan.collectibles.length}`
       : "";
     const surviveText = this.plan.goalKind === "survive"
       ? `  Time ${Math.max(0, Math.ceil(this.surviveRemainingMs / 1000))}`
@@ -1195,11 +1408,17 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   private currentState(): PlatformerState {
+    const objective = createObjectiveContract(this.plan);
+    const objectiveCollected = objective.requiredTotal > 0
+      ? this.plan.requiredCollectibleIds.filter((id) => this.collectedIds.has(id)).length
+      : this.collected;
     return {
       status: this.status,
       lives: this.lives,
-      collected: this.collected,
-      collectibleTotal: this.plan.collectibles.length,
+      collected: objectiveCollected,
+      collectibleTotal: objective.requiredTotal || this.plan.collectibles.length,
+      assistAvailable: this.assistAvailable,
+      assistActive: this.elapsedMs < this.assistActiveUntil,
     };
   }
 
@@ -1276,4 +1495,11 @@ export function setPlatformerControl(
   if (!game) return;
   const scene = game.scene.getScene("lane-a-platformer");
   if (scene instanceof PlatformerScene) scene.setExternalControl(control, pressed);
+}
+
+/** Activates only an already-offered deterministic assist; it never auto-plays. */
+export function requestPlatformerAssist(game: Phaser.Game | undefined): void {
+  if (!game) return;
+  const scene = game.scene.getScene("lane-a-platformer");
+  if (scene instanceof PlatformerScene) scene.requestAssist();
 }

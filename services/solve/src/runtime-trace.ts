@@ -63,6 +63,19 @@ export function validateRuntimeTrace(
   if (!final) blockers.push("runtime_trace_is_empty");
   if (!terminalSeen) blockers.push("runtime_trace_has_no_terminal_state");
   if (playContract.outcome !== "faithful_ready") blockers.push("play_contract_is_not_faithful_ready");
+  if (
+    playContract.requiredCapabilities.includes("key_door_unlock") &&
+    !events.some((event) => event.kind === "unlock")
+  ) {
+    blockers.push("key_door_goal_completed_without_unlock_event");
+  }
+  if (
+    (playContract.effectiveMovement === "ground" || playContract.effectiveMovement === "auto_ground") &&
+    terminalSeen &&
+    !events.some((event) => event.kind === "surface_landed" && event.entityId !== "lane_a_safety_floor")
+  ) {
+    blockers.push("faithful_route_used_no_drawn_support");
+  }
 
   return {
     format: "inkling-runtime-trace-report-v1",

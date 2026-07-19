@@ -3,7 +3,7 @@ import {
   type InputFrame,
 } from "../../../packages/runtime/src/input-frame.js";
 
-export type ReplayPolicyId = "baseline" | "idle" | "delayed_noisy" | "recovery";
+export type ReplayPolicyId = "baseline" | "idle" | "delayed_noisy" | "recovery" | "assist_recovery";
 
 function copyAt(input: InputFrame, frame: number): InputFrame {
   return { ...input, frame };
@@ -16,6 +16,18 @@ export function applyReplayPolicy(
 ): InputFrame[] {
   if (policy === "baseline") return inputFrames.map((input) => ({ ...input }));
   if (policy === "idle") return inputFrames.map((input) => emptyInputFrame(input.frame));
+  if (policy === "assist_recovery") {
+    const prefix = Array.from({ length: 720 }, (_, index) => {
+      const input = emptyInputFrame(index + 1);
+      input.left = true;
+      input.assist = index === 719;
+      return input;
+    });
+    return [
+      ...prefix,
+      ...inputFrames.map((input, index) => copyAt(input, prefix.length + index + 1)),
+    ];
+  }
 
   const prefixFrames = policy === "recovery" ? 45 : 12;
   const prefix = Array.from({ length: prefixFrames }, (_, index) => {

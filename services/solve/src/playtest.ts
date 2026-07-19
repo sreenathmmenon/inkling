@@ -4,6 +4,10 @@ import {
 } from "../../../packages/runtime/src/platformer-layout.js";
 import { PLATFORMER_PHYSICS } from "../../../packages/runtime/src/platformer-physics.js";
 import {
+  surfaceJumpVelocity,
+  surfaceVelocityX,
+} from "../../../packages/runtime/src/platformer-materials.js";
+import {
   emptyInputFrame,
   type InputFrame,
 } from "../../../packages/runtime/src/input-frame.js";
@@ -284,6 +288,12 @@ function executePlaytest(
       };
       const routeTarget = plan.goalKind === "collect_all"
         ? lowestOutstanding(body, plan.collectibles, collected) ?? triggerRouteTarget
+        : plan.requiredCollectibleIds.some((id) => !collected.has(id))
+          ? lowestOutstanding(
+            body,
+            plan.collectibles.filter((item) => plan.requiredCollectibleIds.includes(item.id)),
+            collected,
+          ) ?? triggerRouteTarget
         : plan.goalKind === "reach_goal"
           // A ground player only needs to enter the trigger's horizontal
           // span. Chasing its visual centre can make the solver climb onto
@@ -314,7 +324,15 @@ function executePlaytest(
       const direction = Math.sign(targetX - body.x);
       input.left = direction < 0;
       input.right = direction > 0;
-      body.velocityX = direction * PLATFORMER_PHYSICS.moveVelocityX;
+      const inWater = plan.waterVolumes.some((water) => overlaps(
+        body,
+        heroWidth * 0.7,
+        heroHeight * 0.7,
+        water,
+      ));
+      body.velocityX = inWater
+        ? direction * PLATFORMER_PHYSICS.waterMoveVelocityX
+        : surfaceVelocityX(body.velocityX, direction as -1 | 0 | 1, groundedPlatform?.role);
       const hazardAhead = plan.hazards.some((hazard) => {
         const distance = (hazard.x - body.x) * (direction || 1);
         const hazardHalfHeight = hazard.height * 0.36;
@@ -326,25 +344,43 @@ function executePlaytest(
           hazardBottom >= heroTop - 8 && hazardTop <= heroBottom + 120;
       });
       const targetIsAbove = routeTarget.y < body.y - heroHeight * 0.35;
-      if (grounded && !targetIsBelow && !descendingFrom && (targetIsAbove || hazardAhead)) {
+      if (
+        (grounded || (inWater && frame % 20 === 0)) &&
+        !targetIsBelow &&
+        !descendingFrom &&
+        (targetIsAbove || hazardAhead)
+      ) {
         input.jump = true;
-        body.velocityY = PLATFORMER_PHYSICS.jumpVelocityY;
+        body.velocityY = inWater
+          ? PLATFORMER_PHYSICS.waterJumpVelocityY
+          : surfaceJumpVelocity(groundedPlatform?.role);
         grounded = false;
         groundedPlatform = undefined;
       }
 
       const previousBottom = body.y + heroHeight / 2;
       body.velocityY = clamp(
-        body.velocityY + PLATFORMER_PHYSICS.gravityY * dt,
+        body.velocityY + (inWater ? PLATFORMER_PHYSICS.waterGravityY : PLATFORMER_PHYSICS.gravityY) * dt,
         -PLATFORMER_PHYSICS.maxVelocityY,
         PLATFORMER_PHYSICS.maxVelocityY,
       );
+      const previousX = body.x;
       body.x = clamp(
         body.x + body.velocityX * dt,
         heroWidth / 2,
         960 - heroWidth / 2,
       );
       body.y += body.velocityY * dt;
+      const lockedDoor = plan.doors.find((door) => {
+        const relationship = plan.relationships.find((item) => item.doorId === door.id);
+        const unlocked = relationship ? collected.has(relationship.keyId) : false;
+        return !unlocked && overlaps(body, heroWidth, heroHeight, door);
+      });
+      if (lockedDoor) {
+        body.x = previousX;
+        body.velocityX = 0;
+        visited.add(lockedDoor.id);
+      }
       grounded = false;
       groundedPlatform = undefined;
 
@@ -473,6 +509,7 @@ function executePlaytest(
     }
     if (
       (plan.goalKind !== "collect_all" || collected.size >= plan.collectibles.length) &&
+      plan.requiredCollectibleIds.every((id) => collected.has(id)) &&
       overlaps(body, heroWidth, heroHeight, plan.goalTrigger)
     ) {
       visited.add(plan.goal.id);

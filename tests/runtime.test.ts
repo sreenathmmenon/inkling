@@ -26,6 +26,11 @@ import {
 } from "../packages/runtime/src/feedback-contract.js";
 import { createCoachingContract } from "../packages/runtime/src/coaching-contract.js";
 import { createPlayContract } from "../packages/runtime/src/play-contract.js";
+import {
+  surfaceJumpVelocity,
+  surfaceVelocityX,
+} from "../packages/runtime/src/platformer-materials.js";
+import { keyDoorRelationships } from "../packages/runtime/src/relationship-contract.js";
 import { type GameSpec } from "../runner/types.js";
 import { findProjectRoot, loadJson } from "../runner/spec.js";
 
@@ -104,6 +109,37 @@ test("ground Lane A treats keys as required items and places them on reachable s
   assert.ok(key.y > WORLD_HEIGHT / 2, "ground-game key must be normalized into the reachable play area");
 });
 
+test("an explicit key-door relationship compiles into one faithful deterministic state machine", () => {
+  const spec: GameSpec = {
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.08, 0.6, 0.15, 0.75], style_ref: "source" },
+    entities: [
+      { id: "floor", role: "platform", bbox: [0, 0.78, 1, 0.86], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "key", role: "key", bbox: [0.3, 0.66, 0.35, 0.74], behavior: "static", linked_to: "door", style_ref: "source" },
+      { id: "door", role: "door", bbox: [0.55, 0.5, 0.61, 0.78], behavior: "static", linked_to: "key", style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.86, 0.62, 0.93, 0.78], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "chill", modifiers: [] },
+    palette: ["#ffffff", "#222222"], assumptions: [], flags: [],
+  };
+  assert.deepEqual(keyDoorRelationships(spec), [{ kind: "key_opens_door", keyId: "key", doorId: "door" }]);
+  const plan = createPlatformerPlan(spec);
+  assert.deepEqual(plan.requiredCollectibleIds, ["key"]);
+  assert.equal(plan.doors[0]?.id, "door");
+  assert.equal(createObjectiveContract(plan).headline, "Unlock the way");
+  assert.equal(createPlayContract(spec).outcome, "faithful_ready");
+});
+
+test("surface mechanics are deterministic and semantically distinct", () => {
+  assert.equal(surfaceVelocityX(0, 1, "platform"), PLATFORMER_PHYSICS.moveVelocityX);
+  const firstIceFrame = surfaceVelocityX(0, 1, "ice");
+  assert.equal(firstIceFrame, PLATFORMER_PHYSICS.iceAccelerationPerFrame);
+  assert.ok(surfaceVelocityX(firstIceFrame, 0, "ice") > 0, "ice must coast after release");
+  assert.ok(surfaceJumpVelocity("launchpad") < surfaceJumpVelocity("platform"));
+  assert.ok(surfaceJumpVelocity("cloud") > surfaceJumpVelocity("platform"));
+});
+
 test("world-sized regions stay environmental instead of becoming unavoidable hazards", () => {
   const spec = structuredClone(liveSpec) as GameSpec;
   spec.entities.push({
@@ -111,6 +147,7 @@ test("world-sized regions stay environmental instead of becoming unavoidable haz
   });
   const plan = createPlatformerPlan(spec);
   assert.equal(plan.hazards.some((entity) => entity.id === "world_zone"), false);
+  assert.equal(plan.waterVolumes.some((entity) => entity.id === "world_zone"), true);
 });
 
 test("Lane A honors a free-movement GameSpec instead of snapping it into a platformer", () => {
@@ -271,7 +308,7 @@ test("runner topology comes from drawn support geometry, not object names", () =
   assert.equal(createPlatformerPlan(unsupported).contract.movement, "auto_ground");
 });
 
-test("free-movement Lane A moves an overlapping start to the nearest safe position", () => {
+test("water remains a swim volume instead of silently becoming damage", () => {
   const game = structuredClone(liveSpec) as GameSpec;
   game.primary_genre = "roller";
   game.hero.bbox = [0.08, 0.46, 0.21, 0.66];
@@ -283,12 +320,10 @@ test("free-movement Lane A moves an overlapping start to the nearest safe positi
 
   const plan = createPlatformerPlan(game);
 
-  assert.notDeepEqual([plan.hero.x, plan.hero.y], [139.2, 302.4]);
-  const water = plan.hazards[0]!;
-  assert.ok(
-    Math.abs(plan.hero.x - water.x) * 2 >= plan.hero.width * plan.contract.colliderScale + water.width * 0.72 + 12 ||
-    Math.abs(plan.hero.y - water.y) * 2 >= plan.hero.height * plan.contract.colliderScale + water.height * 0.72 + 12,
-  );
+  assert.ok(Math.abs(plan.hero.x - 139.2) < 0.001);
+  assert.ok(Math.abs(plan.hero.y - 302.4) < 0.001);
+  assert.equal(plan.hazards.length, 0);
+  assert.equal(plan.waterVolumes[0]?.id, "water");
 });
 
 test("touch controls keep a child-sized tap target without dominating desktop play", () => {

@@ -31,7 +31,14 @@ function event(
     kind,
     entityId: kind === "win" ? "finish" : null,
     required: kind === "win",
-    state: { status, lives: 3, collected: 0, collectibleTotal: 0 },
+    state: {
+      status,
+      lives: 3,
+      collected: 0,
+      collectibleTotal: 0,
+      assistAvailable: false,
+      assistActive: false,
+    },
   };
 }
 
@@ -49,8 +56,9 @@ test("real-runtime trace evidence accepts a legal input-backed win", () => {
   const report = validateRuntimeTrace([
     event(0, 0, "state_changed", "playing"),
     event(1, 3, "input_accepted", "playing"),
-    event(2, 180, "win", "won"),
-    event(3, 180, "state_changed", "won"),
+    { ...event(2, 4, "surface_landed", "playing"), entityId: "floor", required: true },
+    event(3, 180, "win", "won"),
+    event(4, 180, "state_changed", "won"),
   ], createPlayContract(gameSpec));
   assert.deepEqual(report.blockers, []);
   assert.equal(report.valid, true);

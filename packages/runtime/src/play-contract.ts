@@ -3,6 +3,7 @@ import {
   createPlatformerPlan,
   type PlatformerPlan,
 } from "./platformer-layout.js";
+import { keyDoorRelationships } from "./relationship-contract.js";
 
 export type RuntimeCapability =
   | "ground_movement"
@@ -25,7 +26,12 @@ export type RuntimeCapability =
   | "dynamic_entity_behavior"
   | "linked_entity_rules"
   | "key_door_unlock"
-  | "declared_rule_modifiers";
+  | "declared_rule_modifiers"
+  | "water_swim_volume"
+  | "surface_ice"
+  | "surface_cloud"
+  | "surface_launchpad"
+  | "moving_platforms";
 
 export type PlayContractOutcome =
   | "faithful_ready"
@@ -70,11 +76,16 @@ export const LANE_A_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
     "collect_all",
     "survive_timer",
     "aimed_projectile",
+    "key_door_unlock",
+    "water_swim_volume",
+    "surface_ice",
+    "surface_cloud",
+    "surface_launchpad",
   ],
 };
 
-const PLATFORM_ROLES = new Set(["platform", "ice", "cloud", "launchpad", "mover", "door"]);
-const HAZARD_ROLES = new Set(["hazard", "water", "enemy", "boss"]);
+const PLATFORM_ROLES = new Set(["platform", "ice", "cloud", "launchpad", "mover"]);
+const HAZARD_ROLES = new Set(["hazard", "enemy", "boss"]);
 
 function pushUnique(values: RuntimeCapability[], capability: RuntimeCapability): void {
   if (!values.includes(capability)) values.push(capability);
@@ -93,6 +104,11 @@ function requiredForGenre(spec: GameSpec, plan: PlatformerPlan): RuntimeCapabili
   if (spec.entities.some((entity) => HAZARD_ROLES.has(entity.role))) {
     pushUnique(required, "contact_hazards");
   }
+  if (spec.entities.some((entity) => entity.role === "water")) pushUnique(required, "water_swim_volume");
+  if (spec.entities.some((entity) => entity.role === "ice")) pushUnique(required, "surface_ice");
+  if (spec.entities.some((entity) => entity.role === "cloud")) pushUnique(required, "surface_cloud");
+  if (spec.entities.some((entity) => entity.role === "launchpad")) pushUnique(required, "surface_launchpad");
+  if (spec.entities.some((entity) => entity.role === "mover")) pushUnique(required, "moving_platforms");
 
   switch (spec.primary_genre) {
     case "maze":
@@ -132,13 +148,18 @@ function requiredForDeclaredRules(spec: GameSpec, required: RuntimeCapability[])
   if (spec.entities.some((entity) => entity.behavior !== "static" && entity.behavior !== "none")) {
     pushUnique(required, "dynamic_entity_behavior");
   }
-  if (spec.entities.some((entity) => entity.linked_to !== undefined && entity.linked_to !== null)) {
+  const relationships = keyDoorRelationships(spec);
+  const admittedLinks = new Set(relationships.flatMap((relationship) => [
+    `${relationship.keyId}\0${relationship.doorId}`,
+    `${relationship.doorId}\0${relationship.keyId}`,
+  ]));
+  if (spec.entities.some((entity) => {
+    if (entity.linked_to === undefined || entity.linked_to === null) return false;
+    return !admittedLinks.has(`${entity.id}\0${entity.linked_to}`);
+  })) {
     pushUnique(required, "linked_entity_rules");
   }
-  if (
-    spec.entities.some((entity) => entity.role === "key") &&
-    spec.entities.some((entity) => entity.role === "door")
-  ) {
+  if (relationships.length > 0) {
     pushUnique(required, "key_door_unlock");
   }
   if ((spec.rules.modifiers?.length ?? 0) > 0) {
@@ -172,11 +193,24 @@ function structuralBlockers(spec: GameSpec, plan: PlatformerPlan): string[] {
     blockers.push("ground_route_has_no_drawn_support");
   }
 
+  const admittedRelationshipLinks = new Set(keyDoorRelationships(spec).flatMap((relationship) => [
+    `${relationship.keyId}\0${relationship.doorId}`,
+    `${relationship.doorId}\0${relationship.keyId}`,
+  ]));
   const links = new Map<string, string>();
   for (const entity of spec.entities) {
     if (entity.linked_to === undefined || entity.linked_to === null) continue;
     if (!entityIds.has(entity.linked_to)) blockers.push("linked_entity_target_is_missing");
-    else links.set(entity.id, entity.linked_to);
+    else if (!admittedRelationshipLinks.has(`${entity.id}\0${entity.linked_to}`)) {
+      links.set(entity.id, entity.linked_to);
+    }
+  }
+  if (
+    spec.entities.some((entity) => entity.role === "key") &&
+    spec.entities.some((entity) => entity.role === "door") &&
+    keyDoorRelationships(spec).length === 0
+  ) {
+    blockers.push("key_door_relationship_is_missing");
   }
   for (const start of links.keys()) {
     const seen = new Set<string>();

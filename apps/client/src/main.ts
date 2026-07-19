@@ -6,6 +6,7 @@ import {
   createObjectiveContract,
   launchPlatformer,
   replayPlatformerInBrowser,
+  requestPlatformerAssist,
   resolvePlayableGame,
   setPlatformerControl,
   type PlatformerControl,
@@ -69,6 +70,7 @@ const gameShell = requireElement<HTMLElement>("#game-shell");
 const fullscreenGame = requireElement<HTMLButtonElement>("#fullscreen-game");
 const makeAnother = requireElement<HTMLButtonElement>("#make-another");
 const postPlayActions = requireElement<HTMLElement>("#post-play-actions");
+const assistGame = requireElement<HTMLButtonElement>("#assist-game");
 const accessibleControls = requireElement<HTMLElement>("#accessible-controls");
 const runtimeReplayHost = requireElement<HTMLElement>("#runtime-replay-host");
 
@@ -142,6 +144,7 @@ async function certifyGeneratedGame(value: unknown): Promise<unknown> {
 }
 
 function showState(state: PlatformerState): void {
+  assistGame.hidden = !state.assistAvailable || state.status !== "playing";
   status.dataset.gameState = state.status;
   status.classList.remove("error");
   if (state.status === "won") {
@@ -155,7 +158,7 @@ function showState(state: PlatformerState): void {
   const collectibles = state.collectibleTotal
     ? ` · ${activeCounterLabel ?? "Found"} ${state.collected}/${state.collectibleTotal}`
     : "";
-  status.textContent = `Lives ${state.lives}${collectibles}`;
+  status.textContent = `Lives ${state.lives}${collectibles}${state.assistActive ? " · Help boost on" : ""}`;
 }
 
 function enterPlayMode(): void {
@@ -226,6 +229,7 @@ function showGameWaiting(): void {
   controlsHint.hidden = true;
   accessibleControls.hidden = true;
   postPlayActions.hidden = true;
+  assistGame.hidden = true;
   playToolbar.hidden = true;
   interpretationNote.hidden = true;
   interpretationNote.textContent = "";
@@ -654,6 +658,12 @@ cancelGeneration.addEventListener("click", () => {
 restart.addEventListener("click", () => {
   restart.blur();
   play(currentSpec);
+});
+
+assistGame.addEventListener("click", () => {
+  requestPlatformerAssist(game);
+  assistGame.hidden = true;
+  parent.focus({ preventScroll: true });
 });
 
 makeAnother.addEventListener("click", () => {

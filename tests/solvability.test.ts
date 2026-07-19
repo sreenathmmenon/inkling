@@ -138,6 +138,23 @@ test("ground-mode P8 routes through required collectibles before finishing", () 
   assert.ok(report.visited.includes("item_2"));
 });
 
+test("P8 collects an explicit key before crossing its linked door", () => {
+  const game = fixture();
+  game.entities = [
+    { id: "floor", role: "platform", bbox: [0, 0.78, 1, 0.86], behavior: "static", linked_to: null, style_ref: "source" },
+    { id: "key", role: "key", bbox: [0.28, 0.66, 0.34, 0.75], behavior: "static", linked_to: "door", style_ref: "source" },
+    { id: "door", role: "door", bbox: [0.52, 0.48, 0.58, 0.78], behavior: "static", linked_to: "key", style_ref: "source" },
+    { id: "finish", role: "goal", bbox: [0.84, 0.62, 0.92, 0.78], behavior: "static", linked_to: null, style_ref: "source" },
+  ];
+  game.goal = { kind: "reach_goal", target_id: "finish" };
+
+  const report = runPlaytest(game, 42);
+
+  assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
+  assert.ok(report.visited.includes("key"));
+  assert.ok(report.visited.indexOf("key") < report.visited.indexOf("finish"));
+});
+
 test("ground-mode P8 walks off a high platform when the goal is below", () => {
   const game = fixture();
   game.hero.bbox = [0.68, 0.12, 0.76, 0.28];

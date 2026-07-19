@@ -71,6 +71,8 @@
       #make-another:hover { background: #4d37dc; }
       #post-play-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 12px 4px 0; }
       #post-play-actions[hidden] { display: none; }
+      #assist-game { color: #211c38; background: #9ee7ff; box-shadow: 0 7px 18px #58bde83d; }
+      #assist-game[hidden] { display: none; }
       #game-shell { overflow: hidden; border: 1px solid #dfdaf5; border-radius: 24px; background: #fff; box-shadow: 0 18px 42px #30275d17; }
       #game { width: 100%; aspect-ratio: 16 / 9; }
       #game-empty { display: grid; place-items: center; min-height: 290px; padding: 28px; text-align: center; background: radial-gradient(circle at 50% 40%, #f0edff, #fff 62%); }
@@ -225,6 +227,7 @@
       <p id="game-status" data-game-state="waiting" aria-live="polite" tabindex="-1">Ready when your drawing is.</p>
       <p id="controls-hint" class="hint" hidden>Move with A/D or arrow keys. Jump with W, ↑, Space, or the touch controls.</p>
       <div id="post-play-actions" hidden>
+        <button id="assist-game" type="button" hidden>Help me</button>
         <button id="restart" type="button" disabled>Play again</button>
         <button id="save-game" type="button" disabled>Save to this device</button>
         <button id="fullscreen-game" type="button">Bigger game</button>

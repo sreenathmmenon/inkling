@@ -14,6 +14,13 @@ export const PLATFORMER_PHYSICS = {
   // central body, not the entire visual bounding box.
   freeMovementColliderScale: 0.58,
   jumpVelocityY: -600,
+  launchpadVelocityY: -760,
+  cloudJumpVelocityY: -570,
+  iceAccelerationPerFrame: 18,
+  iceCoastRetention: 0.982,
+  waterGravityY: 260,
+  waterMoveVelocityX: 180,
+  waterJumpVelocityY: -360,
   maxJumps: 2,
   coyoteTimeMs: 150,
   jumpBufferMs: 180,
@@ -22,6 +29,10 @@ export const PLATFORMER_PHYSICS = {
   // is shared by Phaser and P8 so repeated overlap cannot consume all lives.
   invulnerabilityMs: 3_500,
   surviveDurationMs: 15_000,
+  stuckCueAfterMs: 6_000,
+  assistOfferAfterMs: 10_000,
+  assistDurationMs: 8_000,
+  progressDistance: 24,
   maxPlaytestSeconds: 30,
 } as const;
 

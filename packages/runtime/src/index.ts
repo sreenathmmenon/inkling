@@ -1,5 +1,6 @@
 export {
   launchPlatformer,
+  requestPlatformerAssist,
   setPlatformerControl,
   type PlatformerControl,
   type PlatformerOptions,
@@ -42,6 +43,16 @@ export {
   ONE_WAY_PLATFORM_COLLISION,
   PLATFORMER_PHYSICS,
 } from "./platformer-physics.js";
+export {
+  surfaceJumpVelocity,
+  surfaceMaterial,
+  surfaceVelocityX,
+  type SurfaceMaterial,
+} from "./platformer-materials.js";
+export {
+  keyDoorRelationships,
+  type KeyDoorRelationship,
+} from "./relationship-contract.js";
 export { createTouchControlLayout } from "./platformer-controls.js";
 export {
   createObjectiveContract,

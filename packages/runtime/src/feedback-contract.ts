@@ -1,6 +1,10 @@
 export type GameplayFeedbackKind =
   | "input_accepted"
   | "pickup"
+  | "unlock"
+  | "stuck_cue"
+  | "assist_available"
+  | "assist_activated"
   | "damage"
   | "goal_blocked"
   | "projectile"
@@ -42,6 +46,14 @@ export function feedbackCueFor(
         durationMs: 700,
         motion: motion("rise"),
       };
+    case "unlock":
+      return { label: "Unlocked!", color: 0x8fe8ff, durationMs: 820, motion: motion("pop") };
+    case "stuck_cue":
+      return { label: "Try the glowing direction", color: 0xffd556, durationMs: 1_300, motion: motion("pop") };
+    case "assist_available":
+      return { label: "Help is ready", color: 0x8fe8ff, durationMs: 1_000, motion: motion("pop") };
+    case "assist_activated":
+      return { label: "Extra jump + speed", color: 0x8fe8ff, durationMs: 1_000, motion: motion("rise") };
     case "damage":
       return { label: "Life lost", color: 0xff6b78, durationMs: 760, motion: motion("pop") };
     case "goal_blocked":

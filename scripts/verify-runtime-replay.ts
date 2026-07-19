@@ -50,11 +50,32 @@ verticalGameSpec.entities = [
 ];
 verticalGameSpec.goal = { kind: "collect_all", target_id: null };
 
+const keyDoorGameSpec = structuredClone(baseGameSpec);
+keyDoorGameSpec.entities = [
+  { id: "floor", role: "platform", bbox: [0, 0.74, 1, 0.82], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "key", role: "key", bbox: [0.28, 0.62, 0.34, 0.72], behavior: "static", linked_to: "door", style_ref: "source" },
+  { id: "door", role: "door", bbox: [0.52, 0.44, 0.59, 0.74], behavior: "static", linked_to: "key", style_ref: "source" },
+  { id: "finish", role: "goal", bbox: [0.82, 0.55, 0.9, 0.74], behavior: "static", linked_to: null, style_ref: "source" },
+];
+
+const iceGameSpec = structuredClone(baseGameSpec);
+iceGameSpec.entities[0] = {
+  id: "ice_floor", role: "ice", bbox: [0, 0.74, 1, 0.82], behavior: "static", linked_to: null, style_ref: "source",
+};
+
+const waterGameSpec = structuredClone(baseGameSpec);
+waterGameSpec.entities.splice(1, 0, {
+  id: "water", role: "water", bbox: [0.16, 0.5, 0.78, 0.8], behavior: "static", linked_to: null, style_ref: "source",
+});
+
 const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "reach", gameSpec: baseGameSpec },
   { id: "collect", gameSpec: collectGameSpec },
   { id: "hazard", gameSpec: hazardGameSpec },
   { id: "vertical", gameSpec: verticalGameSpec },
+  { id: "key-door", gameSpec: keyDoorGameSpec },
+  { id: "ice", gameSpec: iceGameSpec },
+  { id: "water", gameSpec: waterGameSpec },
 ];
 
 const publicRoot = resolve(findProjectRoot(), "build/client");
@@ -170,6 +191,23 @@ try {
       `${gameCase.id}/restart: ${restartedReport.blockers.join(", ")}`,
     );
     summaries.push(`${gameCase.id}/restart@${restartedReport.finalFrame}`);
+
+    if (gameCase.id === "reach") {
+      const assistedEvents = await page.evaluate(async (input) => {
+        const api = window.__INKLING_REPLAY__;
+        if (!api) throw new Error("Inkling runtime replay API is unavailable");
+        return api.run(input.gameSpec, input.inputFrames);
+      }, {
+        gameSpec: gameCase.gameSpec,
+        inputFrames: applyReplayPolicy(analytic.inputFrames, "assist_recovery"),
+      }) as RuntimeEvent[];
+      assert.ok(assistedEvents.some((event) => event.kind === "stuck_cue"));
+      assert.ok(assistedEvents.some((event) => event.kind === "assist_available"));
+      assert.ok(assistedEvents.some((event) => event.kind === "assist_activated"));
+      const assistedReport = validateRuntimeTrace(assistedEvents, playContract);
+      assert.equal(assistedReport.valid, true, `reach/assist: ${assistedReport.blockers.join(", ")}`);
+      summaries.push(`reach/assist@${assistedReport.finalFrame}`);
+    }
   }
   console.log(`Production Phaser policies passed: ${summaries.join(", ")}; all idle policies stayed playing.`);
 } finally {

@@ -24,6 +24,18 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
       optionalTotal: 0,
     };
   }
+  if (plan.requiredCollectibleIds.length > 0) {
+    const required = plan.requiredCollectibleIds.length;
+    return {
+      headline: "Unlock the way",
+      instruction: required === 1
+        ? "Find the drawn key, then reach the finish."
+        : `Find all ${required} drawn keys, then reach the finish.`,
+      counterLabel: "Found",
+      requiredTotal: required,
+      optionalTotal: Math.max(0, total - required),
+    };
+  }
   if (plan.goalKind === "survive") {
     return {
       headline: "Stay safe",

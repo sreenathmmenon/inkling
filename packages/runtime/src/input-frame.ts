@@ -6,6 +6,7 @@ export interface InputFrame {
   jump: boolean;
   down: boolean;
   action: boolean;
+  assist: boolean;
 }
 
 export function emptyInputFrame(frame: number): InputFrame {
@@ -17,5 +18,6 @@ export function emptyInputFrame(frame: number): InputFrame {
     jump: false,
     down: false,
     action: false,
+    assist: false,
   };
 }

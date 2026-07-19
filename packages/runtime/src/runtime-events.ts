@@ -2,7 +2,11 @@ import type { GameplayFeedbackEvent } from "./feedback-contract.js";
 import type { PlatformerState } from "./platformer.js";
 import type { PlayContract } from "./play-contract.js";
 
-export type RuntimeEventKind = GameplayFeedbackEvent["kind"] | "state_changed";
+export type RuntimeEventKind = GameplayFeedbackEvent["kind"] |
+  "state_changed" |
+  "surface_landed" |
+  "material_effect" |
+  "water_entered";
 
 /**
  * Small, deterministic evidence records emitted by the real Phaser scene.

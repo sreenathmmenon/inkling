@@ -1,5 +1,9 @@
 import type { GameSpec } from "../../../runner/types.js";
 import { contractForGenre, type GameContract } from "./game-contract.js";
+import {
+  keyDoorRelationships,
+  type KeyDoorRelationship,
+} from "./relationship-contract.js";
 
 export const WORLD_WIDTH = 960;
 export const WORLD_HEIGHT = 540;
@@ -10,9 +14,8 @@ const PLATFORM_ROLES = new Set([
   "cloud",
   "launchpad",
   "mover",
-  "door",
 ]);
-const HAZARD_ROLES = new Set(["hazard", "water", "enemy", "boss"]);
+const HAZARD_ROLES = new Set(["hazard", "enemy", "boss"]);
 const COLLECTIBLE_ROLES = new Set(["collectible", "key"]);
 
 type BBox = [number, number, number, number];
@@ -38,8 +41,12 @@ export interface PlatformerPlan {
   modifiers: string[];
   hero: PlannedEntity;
   platforms: PlannedEntity[];
+  doors: PlannedEntity[];
+  waterVolumes: PlannedEntity[];
   hazards: PlannedEntity[];
   collectibles: PlannedEntity[];
+  requiredCollectibleIds: string[];
+  relationships: KeyDoorRelationship[];
   goal: PlannedEntity;
   goalTrigger: PlannedEntity;
 }
@@ -271,6 +278,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     styleRef: typeof entity.style_ref === "string" ? entity.style_ref : "source-drawing",
     bbox: entity.bbox,
   }));
+  const relationships = keyDoorRelationships(spec);
   const platforms = entities
     .filter((entity) => PLATFORM_ROLES.has(entity.role))
     .map((entity) =>
@@ -282,6 +290,24 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       }),
     );
   platforms.push(safetyFloor);
+
+  const doors = entities
+    .filter((entity) => entity.role === "door")
+    .map((entity) => planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.66, 0.5, 0.72, 0.82], {
+      minWidth: 36,
+      minHeight: 64,
+      maxWidth: 96,
+      maxHeight: 220,
+    }));
+
+  const waterVolumes = entities
+    .filter((entity) => entity.role === "water")
+    .map((entity) => planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.35, 0.65, 0.65, 0.9], {
+      minWidth: 72,
+      minHeight: 56,
+      maxWidth: WORLD_WIDTH,
+      maxHeight: WORLD_HEIGHT,
+    }));
 
   const rawHero = planned(
       spec.hero.id,
@@ -344,6 +370,9 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       });
       return usesFreeMovement ? collectible : snapOntoSurface(collectible, platforms);
     });
+  const requiredCollectibleIds = spec.goal.kind === "collect_all"
+    ? collectibles.map((collectible) => collectible.id)
+    : relationships.map((relationship) => relationship.keyId);
 
   const goalTrigger: PlannedEntity = usesFreeMovement
     ? {
@@ -379,8 +408,12 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     modifiers,
     hero,
     platforms,
+    doors,
+    waterVolumes,
     hazards,
     collectibles,
+    requiredCollectibleIds: [...new Set(requiredCollectibleIds)],
+    relationships,
     goal,
     goalTrigger,
   };

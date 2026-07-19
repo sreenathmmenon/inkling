@@ -12,15 +12,18 @@ const baseline = Array.from({ length: 60 }, (_, index) => {
 });
 
 test("replay policy variants are deterministic, contiguous, and preserve their intent", () => {
-  for (const policy of ["baseline", "idle", "delayed_noisy", "recovery"] as const) {
+  for (const policy of ["baseline", "idle", "delayed_noisy", "recovery", "assist_recovery"] as const) {
     const first = applyReplayPolicy(baseline, policy);
     const second = applyReplayPolicy(baseline, policy);
     assert.deepEqual(first, second);
     assert.ok(first.every((input, index) => input.frame === index + 1));
   }
   assert.ok(applyReplayPolicy(baseline, "idle").every((input) => (
-    !input.left && !input.right && !input.jump && !input.down && !input.action
+    !input.left && !input.right && !input.jump && !input.down && !input.action && !input.assist
   )));
   assert.ok(applyReplayPolicy(baseline, "delayed_noisy").length > baseline.length);
   assert.ok(applyReplayPolicy(baseline, "recovery").slice(0, 45).every((input) => input.left));
+  const assisted = applyReplayPolicy(baseline, "assist_recovery");
+  assert.equal(assisted.filter((input) => input.assist).length, 1);
+  assert.ok(assisted.find((input) => input.assist)?.frame === 720);
 });

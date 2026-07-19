@@ -23,10 +23,11 @@ export function createCoachingContract(plan: PlatformerPlan): CoachingContract {
       objectiveLabel: "STAY SAFE",
     };
   }
-  const objectiveTarget = plan.goalKind === "collect_all"
-    ? plan.collectibles[0] ?? plan.goal
+  const firstRequired = plan.collectibles.find((entity) => plan.requiredCollectibleIds.includes(entity.id));
+  const objectiveTarget = plan.goalKind === "collect_all" || firstRequired
+    ? firstRequired ?? plan.collectibles[0] ?? plan.goal
     : plan.goal;
-  const objectiveLabel = plan.goalKind === "collect_all" ? "FIND" : "FINISH";
+  const objectiveLabel = plan.goalKind === "collect_all" || firstRequired ? "FIND" : "FINISH";
   if (plan.contract.movement === "auto_ground") {
     return { firstControl: "jump", objectiveTarget, objectiveLabel };
   }

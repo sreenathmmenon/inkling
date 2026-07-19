@@ -220,10 +220,10 @@ test("PlayContract distinguishes faithful execution from a merely playable fallb
 
   const maze = structuredClone(platformer);
   maze.primary_genre = "maze";
-  const fallback = createPlayContract(maze);
-  assert.equal(fallback.outcome, "related_fallback");
-  assert.ok(fallback.unsupportedCapabilities.includes("maze_collision_topology"));
-  assert.ok(fallback.supportedCapabilities.includes("four_way_movement"));
+  const recast = createPlayContract(maze);
+  assert.equal(recast.outcome, "needs_recast");
+  assert.ok(recast.blockers.includes("maze_topology_has_no_finishable_route"));
+  assert.ok(recast.supportedCapabilities.includes("maze_collision_topology"));
 
   const runner = structuredClone(platformer);
   runner.primary_genre = "runner";
@@ -253,6 +253,33 @@ test("PlayContract distinguishes faithful execution from a merely playable fallb
     finalFrame: 180,
   });
   assert.equal(resolvePlayableGame(certified).readinessOutcome, "faithful_ready");
+});
+
+test("maze readiness comes from clearance-aware drawn wall topology", () => {
+  const maze: GameSpec = {
+    primary_genre: "maze", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.08, 0.12, 0.15, 0.25], style_ref: "source" },
+    entities: [
+      { id: "wall", role: "platform", bbox: [0.47, 0, 0.53, 0.68], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.82, 0.12, 0.9, 0.25], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff", "#222222"], assumptions: [], flags: [],
+  };
+  const plan = createPlatformerPlan(maze);
+  const contract = createPlayContract(maze);
+
+  assert.deepEqual(plan.mazeCollisionWalls.map((wall) => wall.id), ["wall"]);
+  assert.equal(plan.mazeTopologyFallback, false);
+  assert.equal(contract.templateId, "lane-a-maze-v1");
+  assert.equal(contract.outcome, "faithful_ready");
+
+  maze.entities[0]!.bbox = [0.47, 0, 0.53, 1];
+  const sealed = createPlatformerPlan(maze);
+  assert.equal(sealed.mazeTopologyFallback, true);
+  assert.deepEqual(sealed.mazeCollisionWalls, []);
+  assert.equal(createPlayContract(maze).outcome, "needs_recast");
 });
 
 test("PlayContract rejects false-ready structural goals and unimplemented declared behavior", () => {

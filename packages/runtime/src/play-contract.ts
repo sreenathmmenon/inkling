@@ -39,7 +39,7 @@ export type PlayContractOutcome =
   | "needs_recast";
 
 export interface RuntimeCapabilityProfile {
-  templateId: "lane-a-platformer-v1";
+  templateId: "lane-a-platformer-v1" | "lane-a-maze-v1" | "lane-a-runner-v1";
   capabilities: readonly RuntimeCapability[];
 }
 
@@ -81,6 +81,22 @@ export const LANE_A_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
     "surface_ice",
     "surface_cloud",
     "surface_launchpad",
+  ],
+};
+
+export const LANE_A_MAZE_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
+  templateId: "lane-a-maze-v1",
+  capabilities: [
+    "four_way_movement",
+    "solid_platforms",
+    "contact_hazards",
+    "lives",
+    "reach_goal",
+    "collect_all",
+    "survive_timer",
+    "key_door_unlock",
+    "water_swim_volume",
+    "maze_collision_topology",
   ],
 };
 
@@ -192,6 +208,9 @@ function structuralBlockers(spec: GameSpec, plan: PlatformerPlan): string[] {
   ) {
     blockers.push("ground_route_has_no_drawn_support");
   }
+  if (plan.contract.id === "maze" && plan.mazeTopologyFallback) {
+    blockers.push("maze_topology_has_no_finishable_route");
+  }
 
   const admittedRelationshipLinks = new Set(keyDoorRelationships(spec).flatMap((relationship) => [
     `${relationship.keyId}\0${relationship.doorId}`,
@@ -238,7 +257,10 @@ export function createPlayContract(gameSpec: GameSpec): PlayContract {
   requiredForGoal(gameSpec, required);
   requiredForDeclaredRules(gameSpec, required);
 
-  const available = new Set(LANE_A_CAPABILITY_PROFILE.capabilities);
+  const capabilityProfile = plan.contract.id === "maze"
+    ? LANE_A_MAZE_CAPABILITY_PROFILE
+    : LANE_A_CAPABILITY_PROFILE;
+  const available = new Set(capabilityProfile.capabilities);
   const supportedCapabilities = required.filter((capability) => available.has(capability));
   const unsupportedCapabilities = required.filter((capability) => !available.has(capability));
   const blockers = structuralBlockers(gameSpec, plan);
@@ -252,7 +274,7 @@ export function createPlayContract(gameSpec: GameSpec): PlayContract {
     format: "inkling-play-contract-v1",
     runtimeVersion: "lane-a-runtime-v1",
     capabilityProfileVersion: "lane-a-capabilities-v1",
-    templateId: LANE_A_CAPABILITY_PROFILE.templateId,
+    templateId: capabilityProfile.templateId,
     declaredGenre: gameSpec.primary_genre,
     effectiveMovement: plan.contract.movement,
     goalKind: gameSpec.goal.kind,

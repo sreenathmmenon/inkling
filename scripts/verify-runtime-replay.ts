@@ -68,6 +68,15 @@ waterGameSpec.entities.splice(1, 0, {
   id: "water", role: "water", bbox: [0.16, 0.5, 0.78, 0.8], behavior: "static", linked_to: null, style_ref: "source",
 });
 
+const mazeGameSpec = structuredClone(baseGameSpec);
+mazeGameSpec.primary_genre = "maze";
+mazeGameSpec.hero.bbox = [0.08, 0.12, 0.15, 0.25];
+mazeGameSpec.entities = [
+  { id: "wall", role: "platform", bbox: [0.47, 0, 0.53, 0.68], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "finish", role: "goal", bbox: [0.82, 0.12, 0.9, 0.25], behavior: "static", linked_to: null, style_ref: "source" },
+];
+mazeGameSpec.goal = { kind: "reach_goal", target_id: "finish" };
+
 const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "reach", gameSpec: baseGameSpec },
   { id: "collect", gameSpec: collectGameSpec },
@@ -76,6 +85,7 @@ const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "key-door", gameSpec: keyDoorGameSpec },
   { id: "ice", gameSpec: iceGameSpec },
   { id: "water", gameSpec: waterGameSpec },
+  { id: "maze", gameSpec: mazeGameSpec },
 ];
 
 const publicRoot = resolve(findProjectRoot(), "build/client");
@@ -207,6 +217,26 @@ try {
       const assistedReport = validateRuntimeTrace(assistedEvents, playContract);
       assert.equal(assistedReport.valid, true, `reach/assist: ${assistedReport.blockers.join(", ")}`);
       summaries.push(`reach/assist@${assistedReport.finalFrame}`);
+    }
+    if (gameCase.id === "maze") {
+      const directFrames = Array.from({ length: 300 }, (_, index) => ({
+        format: "inkling-input-frame-v1" as const,
+        frame: index + 1,
+        left: false,
+        right: true,
+        jump: false,
+        down: false,
+        action: false,
+        assist: false,
+      }));
+      const collisionEvents = await page.evaluate(async (input) => {
+        const api = window.__INKLING_REPLAY__;
+        if (!api) throw new Error("Inkling runtime replay API is unavailable");
+        return api.run(input.gameSpec, input.inputFrames);
+      }, { gameSpec: gameCase.gameSpec, inputFrames: directFrames }) as RuntimeEvent[];
+      assert.ok(collisionEvents.some((event) => event.kind === "maze_wall_contact"));
+      assert.equal(collisionEvents.at(-1)?.state.status, "playing", "maze wall allowed a straight-through win");
+      summaries.push("maze/wall-blocked");
     }
   }
   console.log(`Production Phaser policies passed: ${summaries.join(", ")}; all idle policies stayed playing.`);

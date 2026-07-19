@@ -37,6 +37,7 @@ import {
 } from "./coaching-contract.js";
 import type { RuntimeEvent, RuntimeEventKind } from "./runtime-events.js";
 import type { InputFrame } from "./input-frame.js";
+import { findMazeRoute, type MazePoint } from "./maze-topology.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
 
@@ -237,6 +238,7 @@ class PlatformerScene extends Phaser.Scene {
     }
 
     this.platforms = this.physics.add.staticGroup();
+    const mazeWallIds = new Set(this.plan.mazeCollisionWalls.map((wall) => wall.id));
     for (const platform of this.plan.platforms) {
       if (this.usesFreeMovement && platform.id === "lane_a_safety_floor") continue;
       const alpha = platform.id === "lane_a_safety_floor" ? 0.5 : 1;
@@ -247,11 +249,18 @@ class PlatformerScene extends Phaser.Scene {
       const shape = this.rectangle(platform, materialColor, ink, alpha);
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
-      // Drawn platforms are landing surfaces. Let the hero pass through their
-      // underside and sides, then collide with the top while descending. This
-      // is the same one-way contract used by the deterministic P8 simulation.
-      Object.assign(body.checkCollision, ONE_WAY_PLATFORM_COLLISION);
-      this.platforms.add(shape);
+      if (this.plan.contract.id === "maze") {
+        // In a finishable maze, the child's drawn support geometry is a set of
+        // full collision walls. If topology validation failed, it remains
+        // visible but non-colliding in the explicitly related fallback.
+        if (mazeWallIds.has(platform.id)) this.platforms.add(shape);
+      } else {
+        // Drawn platforms are landing surfaces. Let the hero pass through their
+        // underside and sides, then collide with the top while descending. This
+        // is the same one-way contract used by the deterministic P8 simulation.
+        Object.assign(body.checkCollision, ONE_WAY_PLATFORM_COLLISION);
+        this.platforms.add(shape);
+      }
       this.addArtwork(platform, 2, alpha);
     }
 
@@ -274,7 +283,17 @@ class PlatformerScene extends Phaser.Scene {
     if (this.scale.width < WORLD_WIDTH) {
       this.cameras.main.startFollow(this.hero, true, 0.16, 0.16);
     }
-    if (!this.usesFreeMovement) this.physics.add.collider(this.hero, this.platforms);
+    if (!this.usesFreeMovement || this.plan.contract.id === "maze") {
+      this.physics.add.collider(this.hero, this.platforms, (_hero, surface) => {
+        if (this.plan.contract.id !== "maze") return;
+        const entityId = (surface as Phaser.GameObjects.GameObject).getData("entityId");
+        this.emitRuntimeEvent(
+          "maze_wall_contact",
+          typeof entityId === "string" ? entityId : null,
+          false,
+        );
+      });
+    }
 
     this.doors = this.physics.add.staticGroup();
     for (const door of this.plan.doors) {
@@ -572,6 +591,24 @@ class PlatformerScene extends Phaser.Scene {
       ))[0] ?? this.plan.goal;
   }
 
+  private mazeRecoveryRoute(target: PlannedEntity): MazePoint[] | undefined {
+    if (this.plan.contract.id !== "maze" || this.plan.mazeTopologyFallback) return undefined;
+    const unlockedDoorIds = new Set(this.plan.relationships
+      .filter((relationship) => this.collectedIds.has(relationship.keyId))
+      .map((relationship) => relationship.doorId));
+    return findMazeRoute(
+      { x: this.hero.x, y: this.hero.y },
+      target,
+      this.plan.hero.width * this.plan.contract.colliderScale,
+      this.plan.hero.height * this.plan.contract.colliderScale,
+      [
+        ...this.plan.mazeCollisionWalls,
+        ...this.plan.doors.filter((door) => !unlockedDoorIds.has(door.id)),
+        ...this.plan.hazards,
+      ],
+    );
+  }
+
   private trackRecovery(): void {
     if (this.status !== "playing" || this.plan.goalKind === "survive") return;
     const attempted = this.touch.left || this.touch.right || this.touch.jump || this.touch.down || this.touch.action ||
@@ -584,7 +621,13 @@ class PlatformerScene extends Phaser.Scene {
     }
     const target = this.recoveryTarget();
     if (!target) return;
-    const distance = Math.hypot(target.x - this.hero.x, target.y - this.hero.y);
+    const mazeRoute = this.mazeRecoveryRoute(target);
+    const distance = mazeRoute
+      ? mazeRoute.reduce((total, point, index) => {
+        const previous = index === 0 ? this.hero : mazeRoute[index - 1]!;
+        return total + Math.hypot(point.x - previous.x, point.y - previous.y);
+      }, 0)
+      : Math.hypot(target.x - this.hero.x, target.y - this.hero.y);
     if (distance <= this.bestObjectiveDistance - PLATFORMER_PHYSICS.progressDistance) {
       this.bestObjectiveDistance = distance;
       this.lastProgressAt = this.elapsedMs;
@@ -601,8 +644,9 @@ class PlatformerScene extends Phaser.Scene {
     const stuckFor = this.elapsedMs - this.lastProgressAt;
     if (!this.stuckCueShown && stuckFor >= PLATFORMER_PHYSICS.stuckCueAfterMs) {
       this.stuckCueShown = true;
-      const deltaX = target.x - this.hero.x;
-      const deltaY = target.y - this.hero.y;
+      const cueTarget = mazeRoute?.find((point) => Math.hypot(point.x - this.hero.x, point.y - this.hero.y) > 12) ?? target;
+      const deltaX = cueTarget.x - this.hero.x;
+      const deltaY = cueTarget.y - this.hero.y;
       const arrow = Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX < 0 ? "←" : "→" : deltaY < 0 ? "↑" : "↓";
       this.recoveryGuide = this.add
         .text(this.scale.width / 2, 112, `Try ${arrow} toward the glow`, {

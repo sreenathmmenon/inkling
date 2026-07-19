@@ -11,6 +11,7 @@ import {
   emptyInputFrame,
   type InputFrame,
 } from "../../../packages/runtime/src/input-frame.js";
+import { findMazeRoute } from "../../../packages/runtime/src/maze-topology.js";
 import type { GameSpec, PlaytestReport } from "../../../runner/types.js";
 
 const DEFAULT_SEED = 0x1a2b3c4d;
@@ -249,14 +250,39 @@ function executePlaytest(
       // same fixed horizontal/vertical speed. The policy heads to outstanding
       // collectibles before the final target so collect-all games are tested
       // against their actual control contract.
+      const required = nearestOutstanding(
+        body,
+        plan.collectibles.filter((item) => plan.requiredCollectibleIds.includes(item.id)),
+        collected,
+      );
       const target = plan.goalKind === "survive"
         ? undefined
         : plan.goalKind === "collect_all"
           ? nearestOutstanding(body, plan.collectibles, collected) ?? plan.goal
-          : plan.goal;
+          : required ?? plan.goal;
       if (target && target.id !== freeRouteTargetId) {
         freeRouteTargetId = target.id;
-        freeRoute = routeAroundHazards(body, target, heroWidth, heroHeight, plan.hazards);
+        const unlockedDoorIds = new Set(plan.relationships
+          .filter((relationship) => collected.has(relationship.keyId))
+          .map((relationship) => relationship.doorId));
+        const mazeObstacles = [
+          ...plan.mazeCollisionWalls,
+          ...plan.doors.filter((door) => !unlockedDoorIds.has(door.id)),
+          ...plan.hazards,
+        ];
+        const route = plan.contract.id === "maze"
+          ? findMazeRoute(body, target, heroWidth, heroHeight, mazeObstacles)
+          : routeAroundHazards(body, target, heroWidth, heroHeight, plan.hazards);
+        if (!route) {
+          return {
+            reached_goal: false,
+            first_blocker: `maze_topology_unreachable:${target.id}`,
+            time_to_win: null,
+            seed,
+            visited: [...visited],
+          };
+        }
+        freeRoute = route;
         freeRouteIndex = 0;
       }
       let waypoint = freeRoute[freeRouteIndex];
@@ -265,11 +291,14 @@ function executePlaytest(
         waypoint = freeRoute[freeRouteIndex];
       }
       const destination = waypoint ?? target;
-      body.velocityX = destination
-        ? Math.sign(destination.x - body.x) * PLATFORMER_PHYSICS.moveVelocityX
+      const deltaX = destination ? destination.x - body.x : 0;
+      const deltaY = destination ? destination.y - body.y : 0;
+      const mazeUsesHorizontalStep = plan.contract.id === "maze" && Math.abs(deltaX) > 4;
+      body.velocityX = destination && (plan.contract.id !== "maze" || mazeUsesHorizontalStep)
+        ? Math.sign(deltaX) * PLATFORMER_PHYSICS.moveVelocityX
         : 0;
-      body.velocityY = destination
-        ? Math.sign(destination.y - body.y) * PLATFORMER_PHYSICS.moveVelocityX
+      body.velocityY = destination && (plan.contract.id !== "maze" || !mazeUsesHorizontalStep)
+        ? Math.sign(deltaY) * PLATFORMER_PHYSICS.moveVelocityX
         : 0;
       input.left = body.velocityX < 0;
       input.right = body.velocityX > 0;
@@ -277,6 +306,18 @@ function executePlaytest(
       input.down = body.velocityY > 0;
       body.x = clamp(body.x + body.velocityX * dt, heroWidth / 2, 960 - heroWidth / 2);
       body.y = clamp(body.y + body.velocityY * dt, heroHeight / 2, 540 - heroHeight / 2);
+      const crossedMazeWall = plan.mazeCollisionWalls.find((wall) => (
+        overlaps(body, heroWidth, heroHeight, wall)
+      ));
+      if (crossedMazeWall) {
+        return {
+          reached_goal: false,
+          first_blocker: `maze_wall_crossed:${crossedMazeWall.id}`,
+          time_to_win: null,
+          seed,
+          visited: [...visited, crossedMazeWall.id],
+        };
+      }
     } else {
       // This deterministic policy is deliberately simple and reproducible:
       // move toward the goal direction and jump whenever the player has landed.

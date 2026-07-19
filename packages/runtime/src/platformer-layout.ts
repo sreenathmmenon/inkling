@@ -4,9 +4,10 @@ import {
   keyDoorRelationships,
   type KeyDoorRelationship,
 } from "./relationship-contract.js";
+import { mazeTopologyIsFinishable } from "./maze-topology.js";
+import { WORLD_HEIGHT, WORLD_WIDTH } from "./world-geometry.js";
 
-export const WORLD_WIDTH = 960;
-export const WORLD_HEIGHT = 540;
+export { WORLD_HEIGHT, WORLD_WIDTH } from "./world-geometry.js";
 
 const PLATFORM_ROLES = new Set([
   "platform",
@@ -47,6 +48,8 @@ export interface PlatformerPlan {
   collectibles: PlannedEntity[];
   requiredCollectibleIds: string[];
   relationships: KeyDoorRelationship[];
+  mazeCollisionWalls: PlannedEntity[];
+  mazeTopologyFallback: boolean;
   goal: PlannedEntity;
   goalTrigger: PlannedEntity;
 }
@@ -283,10 +286,10 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     .filter((entity) => PLATFORM_ROLES.has(entity.role))
     .map((entity) =>
       planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.1, 0.76, 0.9, 0.82], {
-        minWidth: 56,
-        minHeight: 16,
+        minWidth: contract.id === "maze" ? 12 : 56,
+        minHeight: contract.id === "maze" ? 12 : 16,
         maxWidth: WORLD_WIDTH,
-        maxHeight: 72,
+        maxHeight: contract.id === "maze" ? WORLD_HEIGHT : 72,
       }),
     );
   platforms.push(safetyFloor);
@@ -396,6 +399,19 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
   const goalKind = spec.goal.kind === "collect_all" && collectibles.length === 0
     ? "reach_goal"
     : spec.goal.kind || "reach_goal";
+  const drawnMazeWalls = platforms.filter((platform) => platform.id !== safetyFloor.id);
+  const mazeTopologyFallback = contract.id === "maze" && !mazeTopologyIsFinishable({
+    hero,
+    goal,
+    walls: drawnMazeWalls,
+    doors,
+    hazards,
+    collectibles,
+    requiredCollectibleIds: [...new Set(requiredCollectibleIds)],
+    relationships,
+    collectAll: goalKind === "collect_all",
+    colliderScale: contract.colliderScale,
+  });
 
   return {
     title: spec.hero.name,
@@ -414,6 +430,8 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     collectibles,
     requiredCollectibleIds: [...new Set(requiredCollectibleIds)],
     relationships,
+    mazeCollisionWalls: contract.id === "maze" && !mazeTopologyFallback ? drawnMazeWalls : [],
+    mazeTopologyFallback,
     goal,
     goalTrigger,
   };

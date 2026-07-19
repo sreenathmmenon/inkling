@@ -5,6 +5,7 @@ import type { PlayContract } from "./play-contract.js";
 export type RuntimeEventKind = GameplayFeedbackEvent["kind"] |
   "state_changed" |
   "surface_landed" |
+  "maze_wall_contact" |
   "material_effect" |
   "water_entered";
 

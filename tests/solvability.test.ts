@@ -105,6 +105,26 @@ test("free-movement P8 routes around hazards instead of exhausting lives", () =>
   assert.equal(report.visited.includes("rock"), false);
 });
 
+test("maze P8 follows the same clearance-aware wall route as production", () => {
+  const game = fixture();
+  game.primary_genre = "maze";
+  game.hero.bbox = [0.08, 0.12, 0.15, 0.25];
+  game.entities = [
+    { id: "wall", role: "platform", bbox: [0.47, 0, 0.53, 0.68], behavior: "static", linked_to: null, style_ref: "source" },
+    { id: "goal", role: "goal", bbox: [0.82, 0.12, 0.9, 0.25], behavior: "static", linked_to: null, style_ref: "source" },
+  ];
+  game.goal = { kind: "reach_goal", target_id: "goal" };
+
+  const first = runPlaytestWithTrace(game, 42);
+  const second = runPlaytestWithTrace(game, 42);
+  assert.deepEqual(first, second);
+  assert.equal(first.report.reached_goal, true, first.report.first_blocker ?? "no report");
+  assert.equal(first.report.visited.includes("wall"), false);
+  assert.ok(first.inputFrames.some((frame) => frame.down));
+  assert.ok(first.inputFrames.some((frame) => frame.right));
+  assert.ok(first.inputFrames.some((frame) => frame.jump));
+});
+
 test("collect-all wins on the last collectible just like the Phaser player", () => {
   const game = fixture();
   game.primary_genre = "roller";

@@ -2,7 +2,7 @@ const GENERIC_FAILURE = "We could not finish this game right now. The drawing wa
 
 const FAILURE_BY_CODE: Readonly<Record<string, string>> = {
   drawing_not_approved: "Let’s try a drawing without a real face, name, or personal details.",
-  game_not_finishable: "This version was not ready to play. Try a clearer photo or a new drawing.",
+  game_not_finishable: "This version was not ready to play. Your drawing is still here—tap Make my game to try once more.",
   generation_busy: "Lots of games are being made right now. Your photo is still ready—please try again in a moment.",
   generation_rate_limited: "You have made several games quickly. Wait a little, then try again with this photo.",
   request_too_large: "That photo is too large to send. Choose a smaller photo and try again.",

@@ -16,4 +16,5 @@ test("generation failures expose recovery copy but never raw transport details",
     visibleGenerationFailure(new Error(generationErrorMessage("generation_rate_limited"))),
     generationErrorMessage("generation_rate_limited"),
   );
+  assert.match(generationErrorMessage("game_not_finishable"), /tap Make my game to try once more/);
 });

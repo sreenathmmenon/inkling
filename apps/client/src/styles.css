@@ -378,6 +378,15 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
 }
 
 @media (max-height: 600px) and (orientation: landscape) {
+  body.capture-ready { padding: max(5px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
+  body.capture-ready .site-header, body.capture-ready footer { display: none; }
+  body.capture-ready #capture-panel { min-height: calc(100svh - 10px); padding: 16px 32px; border-radius: 24px; align-items: start; }
+  body.capture-ready #capture-title { font-size: 3rem; }
+  body.capture-ready .hero-copy { margin-top: 12px; font-size: .9rem; line-height: 1.4; }
+  body.capture-ready #capture-status { margin-top: 8px; font-size: .8rem; line-height: 1.35; }
+  body.capture-ready .capture-actions { margin-top: 8px; }
+  body.capture-ready .preview-stage { min-height: calc(100svh - 42px); padding: 16px; }
+  body.capture-ready #drawing-preview { max-height: calc(100svh - 72px); }
   body.play-mode { padding: max(5px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(5px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); }
   body.play-mode .site-header { display: none; }
   body.play-mode #play-toolbar { margin-bottom: 5px; padding: 7px 10px; }
@@ -394,7 +403,13 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="left"] { grid-column: 1; }
   body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="right"] { grid-column: 2; }
   body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="jump"] { grid-column: 3; }
-  body.play-mode .play-meta { display: none; }
+  body.play-mode.playing .play-meta { display: none; }
+  body.play-mode.game-won #game-shell,
+  body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 170px) * 16 / 9)); }
+  body.play-mode.game-won .play-meta,
+  body.play-mode.game-lost .play-meta { display: block; width: min(100%, 540px); margin: 6px auto 0; padding: 6px 8px; }
+  body.play-mode.game-won #post-play-actions,
+  body.play-mode.game-lost #post-play-actions { justify-content: center; margin-top: 4px; }
 }
 
 #play-stage:fullscreen { position: relative; display: flex; width: 100vw; height: 100vh; height: 100svh; flex-direction: column; align-items: center; justify-content: center; padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: #171326; }
@@ -429,6 +444,12 @@ body.game-lost #play-stage:fullscreen #post-play-actions { justify-content: cent
   body.game-won #play-stage:fullscreen #game-shell,
   body.game-lost #play-stage:fullscreen #game-shell { width: min(100%, calc((100svh - 150px) * 4 / 5)); }
 }
+
+/* Terminal state must win even when the last tapped control still matches
+   :focus-within in a later viewport rule. */
+body.play-mode.touch-controls.game-won #accessible-controls,
+body.play-mode.touch-controls.game-lost #accessible-controls,
+body.play-mode.touch-controls.player-error #accessible-controls { display: none; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }

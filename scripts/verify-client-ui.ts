@@ -93,6 +93,26 @@ try {
   releaseGeneration?.();
   await capture.close();
 
+  const landscapeReview = await browser.newPage({ viewport: { width: 844, height: 390 }, hasTouch: true });
+  await landscapeReview.goto(baseUrl);
+  await landscapeReview.locator("#drawing-file").setInputFiles(resolve(root, "fixtures/validation-drawings/round-1/03-crayon-maze.png"));
+  await landscapeReview.locator("body.capture-ready").waitFor();
+  const landscapeReviewLayout = await landscapeReview.evaluate(() => {
+    const make = document.querySelector<HTMLElement>("#make-game")!.getBoundingClientRect();
+    const preview = document.querySelector<HTMLElement>(".preview-stage")!.getBoundingClientRect();
+    return {
+      make: { top: make.top, bottom: make.bottom, width: make.width, height: make.height },
+      preview: { top: preview.top, bottom: preview.bottom },
+      viewport: { width: innerWidth, height: innerHeight },
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+    };
+  });
+  assert.ok(landscapeReviewLayout.make.top >= 0 && landscapeReviewLayout.make.bottom <= landscapeReviewLayout.viewport.height, `landscape review CTA is clipped: ${JSON.stringify(landscapeReviewLayout)}`);
+  assert.ok(landscapeReviewLayout.make.width >= 48 && landscapeReviewLayout.make.height >= 48, `landscape review CTA is too small: ${JSON.stringify(landscapeReviewLayout)}`);
+  assert.ok(landscapeReviewLayout.preview.top >= 0 && landscapeReviewLayout.preview.top < landscapeReviewLayout.viewport.height, `landscape review hides the drawing: ${JSON.stringify(landscapeReviewLayout)}`);
+  assert.ok(landscapeReviewLayout.overflow <= 1, `landscape review has horizontal overflow: ${JSON.stringify(landscapeReviewLayout)}`);
+  await landscapeReview.close();
+
   const lowContrastSurface = await browser.newPage({ viewport: { width: 844, height: 844 } });
   await lowContrastSurface.goto(baseUrl);
   await lowContrastSurface.locator("#drawing-file").setInputFiles(resolve(root, "fixtures/validation-drawings/round-1/06-frog-lilypad.png"));
@@ -209,6 +229,17 @@ try {
   assert.ok(landscapeLayout.controls.right <= landscapeLayout.viewport.width && landscapeLayout.controls.bottom <= landscapeLayout.viewport.height, `landscape controls fall outside the viewport: ${JSON.stringify(landscapeLayout)}`);
   assert.ok(landscapeLayout.shellBottom <= landscapeLayout.viewport.height + 1, `landscape game falls below the viewport: ${JSON.stringify(landscapeLayout)}`);
   assert.ok(landscapeLayout.buttons.length >= 3 && landscapeLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.bottom <= landscapeLayout.viewport.height), `landscape touch targets are unavailable: ${JSON.stringify(landscapeLayout)}`);
+  const landscapeRight = landscapeTouch.locator('[data-game-control="right"]');
+  await landscapeRight.focus();
+  await landscapeRight.dispatchEvent("pointerdown", { pointerId: 50, pointerType: "touch" });
+  await landscapeTouch.waitForTimeout(6_500);
+  await landscapeRight.dispatchEvent("pointerup", { pointerId: 50, pointerType: "touch" });
+  await landscapeTouch.locator("body.game-won").waitFor();
+  assert.equal(await landscapeTouch.locator("#accessible-controls").isVisible(), false, "landscape win leaves focused movement controls visible");
+  const landscapeReplay = await landscapeTouch.getByRole("button", { name: "Play again" }).boundingBox();
+  assert.ok(landscapeReplay && landscapeReplay.y >= 0 && landscapeReplay.y + landscapeReplay.height <= 390 && landscapeReplay.width >= 48 && landscapeReplay.height >= 44, `landscape win hides replay outside the viewport: ${JSON.stringify(landscapeReplay)}`);
+  const landscapeTerminal = await landscapeTouch.locator(".play-meta").boundingBox();
+  assert.ok(landscapeTerminal && landscapeTerminal.y >= 0 && landscapeTerminal.y + landscapeTerminal.height <= 390, `landscape terminal card is clipped: ${JSON.stringify(landscapeTerminal)}`);
   await landscapeTouch.close();
 
   const play = await browser.newPage({ viewport: { width: 390, height: 844 } });

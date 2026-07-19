@@ -20,6 +20,7 @@ import {
   type DrawingQualityWarning,
   type PreparedDrawing,
 } from "./drawing-prep.js";
+import { freshPlayerState } from "./player-status.js";
 
 declare const __INKLING_GAMESPEC__: unknown;
 
@@ -221,6 +222,11 @@ async function play(spec: unknown): Promise<void> {
   const plan = createPlatformerPlan(playable.gameSpec);
   const objective = createObjectiveContract(plan);
   activeCounterLabel = objective.counterLabel;
+  // A replay creates a fresh Phaser instance, so its visible status must also
+  // start from a fresh playing state. Do this before the lazy player loads;
+  // otherwise the previous win/loss announcement can remain on screen even
+  // though the new game is already accepting input.
+  showState(freshPlayerState(plan));
   objectiveTitle.textContent = objective.headline;
   objectiveDetail.textContent = objective.instruction;
   interpretationNote.hidden = playable.readinessOutcome === undefined || playable.readinessOutcome === "faithful_ready";

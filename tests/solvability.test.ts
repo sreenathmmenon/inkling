@@ -43,7 +43,11 @@ test("Lane A playtest uses the same deterministic physics contract as the player
   assert.deepEqual(first, second);
   assert.equal(first.reached_goal, true);
   assert.ok(first.time_to_win !== null && first.time_to_win > 0);
-  assert.ok(first.visited.includes("lane_a_safety_floor"));
+  assert.equal(
+    first.visited.includes("lane_a_safety_floor"),
+    false,
+    "a drawing with no ground support uses the general free-movement fallback",
+  );
   const rejected = applyBoundedRepairs(game, [
     { target_id: "goal_1", op: "move", value: [-0.2, 0] },
   ]);

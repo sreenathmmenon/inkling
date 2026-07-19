@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   assessDrawingQuality,
+  detectDrawingSurfaceBounds,
   estimatePaperSkewDegrees,
 } from "../apps/client/src/drawing-prep.js";
 
@@ -79,4 +80,38 @@ test("capture quality distinguishes an unfocused gradient from faint media", () 
   const quality = assessDrawingQuality({ width, height, data }, [8, 8, 72, 72], false);
   assert.ok(quality.contrast > 0.16);
   assert.ok(quality.warnings.includes("blurry"));
+});
+
+test("capture finds a colored drawing surface without assuming white paper", () => {
+  const width = 120;
+  const height = 100;
+  const data = pixels(width, height, 0);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const table = 72 + (x * 13 + y * 7) % 24;
+      data[offset] = table + 28;
+      data[offset + 1] = table;
+      data[offset + 2] = table - 18;
+    }
+  }
+  for (let y = 12; y < 91; y += 1) {
+    for (let x = 19; x < 103; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 53;
+      data[offset + 1] = 112;
+      data[offset + 2] = 196;
+    }
+  }
+  // A mark on the colored sheet must not change the detected outer surface.
+  for (let y = 36; y < 62; y += 1) {
+    for (let x = 44; x < 76; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 245;
+      data[offset + 1] = 201;
+      data[offset + 2] = 29;
+    }
+  }
+  const bounds = detectDrawingSurfaceBounds({ width, height, data } as ImageData);
+  assert.deepEqual(bounds, [19, 12, 103, 91]);
 });

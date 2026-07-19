@@ -352,7 +352,7 @@ test("drawing generation returns original artwork only after the mandatory gates
   assert.equal(result.playableGame.artwork?.sourceDataUrl, image);
   assert.deepEqual(
     result.playableGame.artwork?.entityCrops.hero_1?.map((value) => Number(value.toFixed(3))),
-    [0.038, 0.526, 0.162, 0.774],
+    [0.044, 0.538, 0.156, 0.762],
   );
   assert.equal(result.playableGame.artwork?.heroRig?.tier, "squash_stretch_puppet");
   assert.equal(result.playableGame.readinessEvidence?.solvability.verdict, "ready");

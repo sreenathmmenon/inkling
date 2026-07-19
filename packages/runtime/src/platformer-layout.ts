@@ -46,6 +46,7 @@ export interface PlatformerPlan {
   waterVolumes: PlannedEntity[];
   hazards: PlannedEntity[];
   collectibles: PlannedEntity[];
+  decorations: PlannedEntity[];
   requiredCollectibleIds: string[];
   relationships: KeyDoorRelationship[];
   mazeCollisionWalls: PlannedEntity[];
@@ -230,7 +231,7 @@ function safePalette(value: unknown): string[] {
 
 function contractForSpec(spec: GameSpec): GameContract {
   const declared = contractForGenre(spec.primary_genre);
-  if (declared.movement !== "auto_ground") return declared;
+  if (declared.movement !== "ground" && declared.movement !== "auto_ground") return declared;
   const [heroLeft, _heroTop, heroRight, heroBottom] = normalizeBBox(
     spec.hero.bbox,
     FALLBACK_SPEC.hero.bbox,
@@ -248,7 +249,7 @@ function contractForSpec(spec: GameSpec): GameContract {
       movement: "free",
       colliderScale: 0.65,
       touchControls: "four_way",
-      instruction: "Steer through your world",
+      instruction: "Explore your world",
     };
 }
 
@@ -373,6 +374,14 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       });
       return usesFreeMovement ? collectible : snapOntoSurface(collectible, platforms);
     });
+  const decorations = entities
+    .filter((entity) => entity.role === "decoration")
+    .map((entity) => planned(entity.id, entity.role, entity.styleRef, entity.bbox, [0.4, 0.15, 0.6, 0.35], {
+      minWidth: 18,
+      minHeight: 18,
+      maxWidth: 260,
+      maxHeight: 220,
+    }));
   const requiredCollectibleIds = spec.goal.kind === "collect_all"
     ? collectibles.map((collectible) => collectible.id)
     : relationships.map((relationship) => relationship.keyId);
@@ -428,6 +437,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     waterVolumes,
     hazards,
     collectibles,
+    decorations,
     requiredCollectibleIds: [...new Set(requiredCollectibleIds)],
     relationships,
     mazeCollisionWalls: contract.id === "maze" && !mazeTopologyFallback ? drawnMazeWalls : [],

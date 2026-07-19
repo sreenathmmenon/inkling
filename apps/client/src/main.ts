@@ -36,7 +36,6 @@ const fileInput = requireElement<HTMLInputElement>("#spec-file");
 const saveGame = requireElement<HTMLButtonElement>("#save-game");
 const drawingInput = requireElement<HTMLInputElement>("#drawing-file");
 const makeGame = requireElement<HTMLButtonElement>("#make-game");
-const usePicture = requireElement<HTMLButtonElement>("#use-picture");
 const adjustPicture = requireElement<HTMLButtonElement>("#adjust-picture");
 const pictureAdjuster = requireElement<HTMLElement>("#picture-adjuster");
 const finishPicture = requireElement<HTMLButtonElement>("#finish-picture");
@@ -171,10 +170,13 @@ function showState(state: PlatformerState): void {
   status.dataset.gameState = state.status;
   status.classList.remove("error");
   if (state.status === "won") {
+    restart.hidden = false;
+    saveGame.hidden = false;
     status.textContent = "You made it! Play again or make another game.";
     return;
   }
   if (state.status === "lost") {
+    restart.hidden = false;
     status.textContent = "No lives left. Tap the game message or Restart game to try again.";
     return;
   }
@@ -210,6 +212,8 @@ async function play(spec: unknown): Promise<void> {
   gameShell.setAttribute("aria-labelledby", "objective-title");
   gameShell.setAttribute("aria-describedby", "objective-detail game-status controls-hint");
   restart.disabled = false;
+  restart.hidden = true;
+  saveGame.hidden = true;
   controlsHint.hidden = false;
   accessibleControls.hidden = false;
   postPlayActions.hidden = false;
@@ -285,9 +289,9 @@ const QUALITY_COPY: Record<DrawingQualityWarning, string> = {
 };
 
 function captureReviewMessage(warnings: readonly DrawingQualityWarning[]): string {
-  if (!warnings.length) return "Your photo is ready. Tap Make my game, or adjust the picture.";
+  if (!warnings.length) return "Your drawing is ready. Make the game, or adjust the crop if you want to.";
   const details = warnings.slice(0, 2).map((warning) => QUALITY_COPY[warning]);
-  return `${details.join("; ")}. Adjust it, use this picture, or choose another.`;
+  return `${details.join("; ")}. You can still make the game, or adjust the crop if anything looks cut off.`;
 }
 
 function rangeNumber(input: HTMLInputElement): number {
@@ -326,7 +330,6 @@ async function updatePreparedPicture(message: string): Promise<void> {
   const sequence = ++preparationSequence;
   preparedDrawing = undefined;
   makeGame.disabled = true;
-  usePicture.hidden = true;
   showCaptureStatus(message);
   try {
     const result = await prepareDrawing(file, currentDrawingAdjustment());
@@ -337,8 +340,7 @@ async function updatePreparedPicture(message: string): Promise<void> {
     previewEmpty.hidden = true;
     adjustPicture.hidden = false;
     forgetDrawing.hidden = false;
-    makeGame.disabled = result.quality.warnings.length > 0;
-    usePicture.hidden = result.quality.warnings.length === 0;
+    makeGame.disabled = false;
     showCaptureStatus(captureReviewMessage(result.quality.warnings));
   } catch (error) {
     if (sequence !== preparationSequence) return;
@@ -355,7 +357,6 @@ function forgetPreparedDrawing(message = "Photo removed from this page."): void 
   drawingPreview.hidden = true;
   previewEmpty.hidden = false;
   makeGame.disabled = true;
-  usePicture.hidden = true;
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
   recastPanel.hidden = true;
@@ -415,7 +416,6 @@ function startFreshDrawingSession(
   makeGame.disabled = true;
   makeGame.textContent = "Make my game";
   makeGame.removeAttribute("aria-busy");
-  usePicture.hidden = true;
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
   recastPanel.hidden = true;
@@ -593,8 +593,7 @@ finishPicture.addEventListener("click", () => {
   pictureAdjuster.hidden = true;
   adjustPicture.setAttribute("aria-expanded", "false");
   if (!preparedDrawing) return;
-  makeGame.disabled = preparedDrawing.quality.warnings.length > 0;
-  usePicture.hidden = preparedDrawing.quality.warnings.length === 0;
+  makeGame.disabled = false;
   showCaptureStatus(captureReviewMessage(preparedDrawing.quality.warnings));
   adjustPicture.focus();
 });
@@ -617,14 +616,6 @@ rotatePictureRight.addEventListener("click", () => {
 resetPicture.addEventListener("click", () => {
   resetAdjustmentControls();
   void updatePreparedPicture("Resetting your preview on this device…");
-});
-
-usePicture.addEventListener("click", () => {
-  if (!preparedDrawing) return;
-  usePicture.hidden = true;
-  makeGame.disabled = false;
-  showCaptureStatus("Picture confirmed. Tap Make my game when you are ready.");
-  makeGame.focus();
 });
 
 makeGame.addEventListener("click", async () => {
@@ -675,16 +666,12 @@ makeGame.addEventListener("click", async () => {
     currentSpec = await certifyGeneratedGame(currentSpec);
     if (sequence !== generationSequence) return;
     const playable = resolvePlayableGame(currentSpec);
-    if (playable.readinessOutcome === "related_fallback" || playable.readinessOutcome === "needs_recast") {
+    if (playable.readinessOutcome === "needs_recast") {
       pendingPlayableGame = currentSpec;
       progressPanel.hidden = true;
       recastPanel.hidden = false;
-      recastTitle.textContent = playable.readinessOutcome === "needs_recast"
-        ? "Your drawing needs a simpler game path"
-        : "Your drawing can play now";
-      recastDetail.textContent = playable.readinessOutcome === "needs_recast"
-        ? "Some game actions in this drawing are not ready yet. I can keep your art and make a simpler game that works."
-        : "This version keeps your art and simplifies only the unsupported actions so it stays playable.";
+      recastTitle.textContent = "Your drawing needs a simpler game path";
+      recastDetail.textContent = "Some game actions in this drawing are not ready yet. I can keep your art and make a simpler game that works.";
       showCaptureStatus("Choose whether to play this safe version or try another picture.");
       playSafeVersion.focus();
     } else {

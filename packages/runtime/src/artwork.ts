@@ -97,8 +97,8 @@ function normalizedBounds(value: unknown): NormalizedBounds | undefined {
 
 function paddedSourceBounds(bounds: NormalizedBounds): NormalizedBounds {
   const [left, top, right, bottom] = bounds;
-  const horizontalPadding = Math.max(0.008, (right - left) * 0.12);
-  const verticalPadding = Math.max(0.008, (bottom - top) * 0.12);
+  const horizontalPadding = Math.max(0.005, (right - left) * 0.06);
+  const verticalPadding = Math.max(0.005, (bottom - top) * 0.06);
   return [
     Math.max(0, left - horizontalPadding),
     Math.max(0, top - verticalPadding),

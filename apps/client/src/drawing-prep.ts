@@ -115,6 +115,205 @@ function longestRun(values: number[], predicate: (value: number) => boolean): [n
   return bestEnd > bestStart ? [bestStart, bestEnd] : undefined;
 }
 
+interface BorderColorCluster {
+  count: number;
+  red: number;
+  green: number;
+  blue: number;
+}
+
+function outerSurfaceClusters(image: ImageData): Array<[number, number, number, number]> {
+  const clusters = new Map<number, BorderColorCluster>();
+  let samples = 0;
+  const add = (x: number, y: number): void => {
+    const offset = (y * image.width + x) * 4;
+    const red = image.data[offset] ?? 0;
+    const green = image.data[offset + 1] ?? 0;
+    const blue = image.data[offset + 2] ?? 0;
+    const key = (Math.floor(red / 24) << 8) | (Math.floor(green / 24) << 4) | Math.floor(blue / 24);
+    const cluster = clusters.get(key) ?? { count: 0, red: 0, green: 0, blue: 0 };
+    cluster.count += 1;
+    cluster.red += red;
+    cluster.green += green;
+    cluster.blue += blue;
+    clusters.set(key, cluster);
+    samples += 1;
+  };
+  const stride = Math.max(1, Math.floor(Math.max(image.width, image.height) / 500));
+  for (let x = 0; x < image.width; x += stride) {
+    add(x, 0);
+    add(x, image.height - 1);
+  }
+  for (let y = stride; y < image.height - stride; y += stride) {
+    add(0, y);
+    add(image.width - 1, y);
+  }
+  const selected: Array<[number, number, number, number]> = [];
+  let covered = 0;
+  for (const cluster of [...clusters.values()].sort((left, right) => right.count - left.count)) {
+    if (cluster.count / samples < 0.012 || selected.length >= 14) break;
+    selected.push([
+      cluster.red / cluster.count,
+      cluster.green / cluster.count,
+      cluster.blue / cluster.count,
+      cluster.count / samples,
+    ]);
+    covered += cluster.count;
+    if (covered / samples >= 0.82) break;
+  }
+  return selected;
+}
+
+/**
+ * Detects a photographed drawing surface from its contrast with the material
+ * around it. It does not assume white paper: the perimeter supplies the table,
+ * floor, or surrounding-photo model and the largest unlike interior region is
+ * retained as the page. If there is no defensible boundary, callers keep the
+ * complete image and ask for manual adjustment rather than deleting art.
+ */
+export function detectDrawingSurfaceBounds(
+  image: ImageData,
+): [number, number, number, number] | undefined {
+  if (image.width < 16 || image.height < 16) return undefined;
+  const outer = outerSurfaceClusters(image);
+  if (outer.length === 0) return undefined;
+  const sampleStep = Math.max(1, Math.ceil(Math.max(image.width, image.height) / 360));
+  const gridWidth = Math.ceil(image.width / sampleStep);
+  const gridHeight = Math.ceil(image.height / sampleStep);
+  const pixelCount = gridWidth * gridHeight;
+  const foreground = new Uint8Array(pixelCount);
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const gridX = pixel % gridWidth;
+    const gridY = Math.floor(pixel / gridWidth);
+    const sourceX = Math.min(image.width - 1, gridX * sampleStep + Math.floor(sampleStep / 2));
+    const sourceY = Math.min(image.height - 1, gridY * sampleStep + Math.floor(sampleStep / 2));
+    const offset = (sourceY * image.width + sourceX) * 4;
+    const red = image.data[offset] ?? 0;
+    const green = image.data[offset + 1] ?? 0;
+    const blue = image.data[offset + 2] ?? 0;
+    let outerDistance = Number.POSITIVE_INFINITY;
+    for (const [outerRed, outerGreen, outerBlue] of outer) {
+      outerDistance = Math.min(outerDistance, Math.hypot(red - outerRed, green - outerGreen, blue - outerBlue));
+    }
+    foreground[pixel] = outerDistance > 48 ? 1 : 0;
+  }
+
+  const visited = new Uint8Array(pixelCount);
+  const queue = new Int32Array(pixelCount);
+  let best: { count: number; left: number; top: number; right: number; bottom: number; seed: number } | undefined;
+  for (let start = 0; start < pixelCount; start += 1) {
+    if (!foreground[start] || visited[start]) continue;
+    let queueLength = 1;
+    let cursor = 0;
+    queue[0] = start;
+    visited[start] = 1;
+    let count = 0;
+    let left = gridWidth;
+    let top = gridHeight;
+    let right = -1;
+    let bottom = -1;
+    while (cursor < queueLength) {
+      const pixel = queue[cursor] ?? 0;
+      cursor += 1;
+      count += 1;
+      const x = pixel % gridWidth;
+      const y = Math.floor(pixel / gridWidth);
+      left = Math.min(left, x);
+      top = Math.min(top, y);
+      right = Math.max(right, x);
+      bottom = Math.max(bottom, y);
+      const add = (neighbor: number): void => {
+        if (neighbor < 0 || neighbor >= pixelCount || !foreground[neighbor] || visited[neighbor]) return;
+        visited[neighbor] = 1;
+        queue[queueLength] = neighbor;
+        queueLength += 1;
+      };
+      if (x > 0) add(pixel - 1);
+      if (x + 1 < gridWidth) add(pixel + 1);
+      if (y > 0) add(pixel - gridWidth);
+      if (y + 1 < gridHeight) add(pixel + gridWidth);
+    }
+    if (!best || count > best.count) best = { count, left, top, right, bottom, seed: start };
+  }
+  if (!best || best.count < pixelCount * 0.18) return undefined;
+  const width = best.right - best.left + 1;
+  const height = best.bottom - best.top + 1;
+  const boxArea = width * height;
+  if (boxArea < pixelCount * 0.28 || best.count / boxArea < 0.42) return undefined;
+  const marginX = Math.max(1, Math.round(gridWidth * 0.008));
+  const marginY = Math.max(1, Math.round(gridHeight * 0.008));
+  const touchesAllEdges = best.left <= marginX && best.top <= marginY &&
+    best.right >= gridWidth - 1 - marginX && best.bottom >= gridHeight - 1 - marginY;
+  if (touchesAllEdges) return undefined;
+
+  // A phone photo commonly turns a rectangular page into a trapezoid. Use the
+  // largest conservative axis-aligned rectangle inside the detected surface;
+  // this removes table triangles without warping or repainting any pixel.
+  const membership = new Uint8Array(pixelCount);
+  let queueLength = 1;
+  let cursor = 0;
+  queue[0] = best.seed;
+  membership[best.seed] = 1;
+  const rowLeft = new Int32Array(gridHeight).fill(gridWidth);
+  const rowRight = new Int32Array(gridHeight).fill(-1);
+  const columnTop = new Int32Array(gridWidth).fill(gridHeight);
+  const columnBottom = new Int32Array(gridWidth).fill(-1);
+  while (cursor < queueLength) {
+    const pixel = queue[cursor] ?? 0;
+    cursor += 1;
+    const x = pixel % gridWidth;
+    const y = Math.floor(pixel / gridWidth);
+    rowLeft[y] = Math.min(rowLeft[y] ?? gridWidth, x);
+    rowRight[y] = Math.max(rowRight[y] ?? -1, x);
+    columnTop[x] = Math.min(columnTop[x] ?? gridHeight, y);
+    columnBottom[x] = Math.max(columnBottom[x] ?? -1, y);
+    const add = (neighbor: number): void => {
+      if (neighbor < 0 || neighbor >= pixelCount || !foreground[neighbor] || membership[neighbor]) return;
+      membership[neighbor] = 1;
+      queue[queueLength] = neighbor;
+      queueLength += 1;
+    };
+    if (x > 0) add(pixel - 1);
+    if (x + 1 < gridWidth) add(pixel + 1);
+    if (y > 0) add(pixel - gridWidth);
+    if (y + 1 < gridHeight) add(pixel + gridWidth);
+  }
+  const percentile = (values: number[], fraction: number): number => {
+    const sorted = values.sort((left, right) => left - right);
+    return sorted[Math.min(sorted.length - 1, Math.max(0, Math.round((sorted.length - 1) * fraction)))] ?? 0;
+  };
+  const reliableRows = Array.from({ length: gridHeight }, (_, y) => y).filter(
+    (y) => (rowRight[y] ?? -1) - (rowLeft[y] ?? gridWidth) >= width * 0.55,
+  );
+  const reliableColumns = Array.from({ length: gridWidth }, (_, x) => x).filter(
+    (x) => (columnBottom[x] ?? -1) - (columnTop[x] ?? gridHeight) >= height * 0.55,
+  );
+  if (reliableRows.length >= height * 0.45 && reliableColumns.length >= width * 0.45) {
+    const innerLeft = percentile(reliableRows.map((y) => rowLeft[y] ?? best.left), 0.96);
+    const innerRight = percentile(reliableRows.map((y) => rowRight[y] ?? best.right), 0.04) + 1;
+    // Horizontal page edges are less affected by portrait perspective. Keep a
+    // wider percentile here so marks near the top or bottom are not sacrificed
+    // merely to eliminate a few corner pixels outside a trapezoid.
+    const innerTop = percentile(reliableColumns.map((x) => columnTop[x] ?? best.top), 0.68);
+    const innerBottom = percentile(reliableColumns.map((x) => columnBottom[x] ?? best.bottom), 0.32) + 1;
+    const innerArea = Math.max(0, innerRight - innerLeft) * Math.max(0, innerBottom - innerTop);
+    if (innerArea >= boxArea * 0.62) {
+      return [
+        innerLeft * sampleStep,
+        innerTop * sampleStep,
+        Math.min(image.width, innerRight * sampleStep),
+        Math.min(image.height, innerBottom * sampleStep),
+      ];
+    }
+  }
+  return [
+    best.left * sampleStep,
+    best.top * sampleStep,
+    Math.min(image.width, (best.right + 1) * sampleStep),
+    Math.min(image.height, (best.bottom + 1) * sampleStep),
+  ];
+}
+
 /**
  * Finds a photographed sheet before looking for its ink. This prevents a
  * wooden table, carpet, or bedroom floor from becoming part of a child's
@@ -122,6 +321,8 @@ function longestRun(values: number[], predicate: (value: number) => boolean): [n
  * the conservative ink-bound fallback below.
  */
 function paperBounds(image: ImageData): [number, number, number, number] | undefined {
+  const arbitrarySurface = detectDrawingSurfaceBounds(image);
+  if (arbitrarySurface) return arbitrarySurface;
   const columns = Array.from({ length: image.width }, () => 0);
   const rows = Array.from({ length: image.height }, () => 0);
   for (let y = 0; y < image.height; y += 1) {

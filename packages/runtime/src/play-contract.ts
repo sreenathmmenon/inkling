@@ -3,6 +3,7 @@ import {
   createPlatformerPlan,
   type PlatformerPlan,
 } from "./platformer-layout.js";
+import { contractForGenre } from "./game-contract.js";
 import { keyDoorRelationships } from "./relationship-contract.js";
 
 export type RuntimeCapability =
@@ -32,7 +33,8 @@ export type RuntimeCapability =
   | "surface_ice"
   | "surface_cloud"
   | "surface_launchpad"
-  | "moving_platforms";
+  | "moving_platforms"
+  | "declared_genre_movement";
 
 export type PlayContractOutcome =
   | "faithful_ready"
@@ -131,6 +133,9 @@ function pushUnique(values: RuntimeCapability[], capability: RuntimeCapability):
 
 function requiredForGenre(spec: GameSpec, plan: PlatformerPlan): RuntimeCapability[] {
   const required: RuntimeCapability[] = ["lives"];
+  if (plan.contract.movement !== contractForGenre(spec.primary_genre).movement) {
+    pushUnique(required, "declared_genre_movement");
+  }
   if (plan.contract.movement === "ground") pushUnique(required, "ground_movement");
   if (plan.contract.movement === "free") pushUnique(required, "four_way_movement");
   if (plan.contract.movement === "auto_ground") pushUnique(required, "automatic_ground_movement");

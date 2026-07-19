@@ -33,6 +33,13 @@ import {
 import { keyDoorRelationships } from "../packages/runtime/src/relationship-contract.js";
 import { type GameSpec } from "../runner/types.js";
 import { findProjectRoot, loadJson } from "../runner/spec.js";
+import {
+  dominantSurfaceColor,
+  fallbackWorldColor,
+  featherSurfaceEdges,
+  isolateBorderConnectedBackdrop,
+  softenWorldColor,
+} from "../packages/runtime/src/artwork-rendering.js";
 
 const liveSpec = loadJson<unknown>(findProjectRoot(), "examples/live-scan-gamespec.json");
 
@@ -317,7 +324,8 @@ test("PlayContract rejects safety-floor-only routes and invalid relationship gra
   };
   const contract = createPlayContract(game);
   assert.equal(contract.outcome, "needs_recast");
-  assert.ok(contract.blockers.includes("ground_route_has_no_drawn_support"));
+  assert.equal(createPlatformerPlan(game).contract.movement, "free");
+  assert.ok(contract.unsupportedCapabilities.includes("declared_genre_movement"));
   assert.ok(contract.blockers.includes("linked_entity_cycle"));
 });
 
@@ -514,8 +522,8 @@ test("a saved playable game carries only local original artwork and entity crops
     animations: ["idle", "walk", "jump", "bounce"],
     style_ref: "original",
   });
-  assert.deepEqual(artwork.entityCrops.hero?.map((value) => Number(value.toFixed(3))), [0.076, 0.14, 0.324, 0.76]);
-  assert.deepEqual(artwork.entityCrops.goal?.map((value) => Number(value.toFixed(3))), [0.688, 0.352, 0.812, 0.848]);
+  assert.deepEqual(artwork.entityCrops.hero?.map((value) => Number(value.toFixed(3))), [0.088, 0.17, 0.312, 0.73]);
+  assert.deepEqual(artwork.entityCrops.goal?.map((value) => Number(value.toFixed(3))), [0.694, 0.376, 0.806, 0.824]);
   assert.deepEqual(artwork.heroRig?.animations, ["idle", "walk", "jump", "bounce"]);
 
   const saved = createPlayableGameDocument(gameSpec, source, artwork.heroRig && {
@@ -532,10 +540,8 @@ test("a saved playable game carries only local original artwork and entity crops
   assert.equal(resolved.gameSpec, gameSpec);
   assert.equal(resolved.artwork?.sourceDataUrl, source);
   assert.equal(saved.readinessEvidence?.solvability.verdict, "ready");
-  assert.equal(saved.readinessEvidence?.playContract.outcome, "needs_recast");
-  assert.ok(
-    saved.readinessEvidence?.playContract.blockers.includes("ground_route_has_no_drawn_support"),
-  );
+  assert.equal(saved.readinessEvidence?.playContract.outcome, "related_fallback");
+  assert.ok(saved.readinessEvidence?.playContract.unsupportedCapabilities.includes("declared_genre_movement"));
   assert.equal(resolvePlayableGame(gameSpec).artwork, undefined);
   assert.equal(resolvePlayableGame({
     format: "inkling-playable-game-v1",
@@ -551,4 +557,77 @@ test("original artwork always fits without changing its aspect ratio", () => {
   assert.deepEqual(tall, { width: 30, height: 120 });
   assert.equal(wide.width / wide.height, 4);
   assert.equal(tall.width / tall.height, 0.25);
+});
+
+function pixelSurface(width: number, height: number, color: [number, number, number]): Uint8ClampedArray {
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let index = 0; index < width * height; index += 1) {
+    const offset = index * 4;
+    data[offset] = color[0];
+    data[offset + 1] = color[1];
+    data[offset + 2] = color[2];
+    data[offset + 3] = 255;
+  }
+  return data;
+}
+
+test("artwork isolation supports arbitrary uniform substrate colors without deleting enclosed strokes", () => {
+  const width = 20;
+  const height = 20;
+  const data = pixelSurface(width, height, [42, 92, 178]);
+  for (let y = 6; y < 14; y += 1) {
+    for (let x = 6; x < 14; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 255;
+      data[offset + 1] = 210;
+      data[offset + 2] = 32;
+    }
+  }
+  const result = isolateBorderConnectedBackdrop({ data, width, height });
+  assert.equal(result.isolated, true);
+  assert.equal(data[3], 0, "colored substrate at the crop border should become transparent");
+  assert.equal(data[((10 * width + 10) * 4) + 3], 255, "the enclosed child mark must remain opaque");
+});
+
+test("artwork isolation uses a dominant border instead of requiring four identical corners", () => {
+  const width = 24;
+  const height = 16;
+  const data = pixelSurface(width, height, [248, 246, 239]);
+  for (let x = 0; x < 5; x += 1) {
+    for (const y of [0, height - 1]) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 16;
+      data[offset + 1] = 62;
+      data[offset + 2] = 164;
+    }
+  }
+  const result = isolateBorderConnectedBackdrop({ data, width, height });
+  assert.equal(result.isolated, true);
+  assert.ok(result.removedPixels > width * height * 0.7);
+});
+
+test("world backdrop comes from image dominance or a neutral palette color, never palette position", () => {
+  const width = 16;
+  const height = 16;
+  const data = pixelSurface(width, height, [250, 248, 242]);
+  for (let y = 5; y < 11; y += 1) {
+    for (let x = 5; x < 11; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 255;
+      data[offset + 1] = 216;
+      data[offset + 2] = 0;
+    }
+  }
+  assert.equal(dominantSurfaceColor({ data, width, height }), 0xfaf8f2);
+  assert.equal(fallbackWorldColor(["#ffd800", "#ff8800", "#ffffff"]), 0xffffff);
+  assert.equal(fallbackWorldColor(["#ffd800", "#ff8800"]), 0xf7f4ff);
+  assert.equal(softenWorldColor(0xd2cdc4), 0xeeece9);
+});
+
+test("uncertain hero crops feather only their outside edge", () => {
+  const data = pixelSurface(10, 10, [30, 60, 90]);
+  featherSurfaceEdges({ data, width: 10, height: 10 });
+  assert.equal(data[3], 0);
+  assert.equal(data[(5 * 10 + 5) * 4 + 3], 255);
+  assert.deepEqual([...data.slice((5 * 10 + 5) * 4, (5 * 10 + 5) * 4 + 3)], [30, 60, 90]);
 });

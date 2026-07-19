@@ -38,8 +38,8 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
   }
   if (plan.goalKind === "survive") {
     return {
-      headline: "Stay safe",
-      instruction: "Keep moving until the timer ends.",
+      headline: "Keep going!",
+      instruction: "Move through your world until the timer ends.",
       counterLabel: total > 0 ? "Bonus" : null,
       requiredTotal: 0,
       optionalTotal: total,

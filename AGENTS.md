@@ -174,6 +174,39 @@ Headless solvability: npm run solvability
 - [ ] Tests + lint/type pass. Deterministic given a seed.
 - [ ] Change is small, single-purpose, and matches existing conventions.
 
+### Customer-grade completeness gate
+
+Do not call a customer-facing feature complete or production-grade from unit,
+integration, schema, or headless tests alone. Before making that claim, validate
+at least **10 materially different end-to-end journeys in a real browser** as a
+child or first-time customer would use them. The set must cover mobile and
+desktop, colored and uncolored drawing backgrounds, different media and visual
+density, different supported game structures, failure/recovery, replay, and a
+second drawing attempt.
+
+For every journey, inspect the full experience rather than only whether the
+game boots: capture and progress feedback, understandable child-facing copy,
+visual hierarchy, color and contrast, typography, spacing, touch targets,
+controls, artwork preservation, absence of crop/background artifacts,
+mechanical finishability, recovery from mistakes, and whether the ending makes
+another drawing feel inviting. Remove controls, labels, or menus that do not
+earn their place in that journey.
+
+Treat any hardcoded noun, filename, sample-specific branch, or one-picture fix
+as a failed review. Implement product-wide rules from image properties,
+GameSpec semantics, deterministic geometry, and explicit capability contracts.
+Record the tested scenario matrix and evidence. If all required journeys have
+not passed, report the work as incomplete and name the remaining failures.
+
+The final customer-grade gate runs only against the deployed live URL. Local
+browser checks are useful diagnostics, but they do not establish completion.
+For a release claim: commit and push the exact candidate, wait for its live
+deployment to succeed, verify that production serves that revision, and run all
+10+ end-to-end browser journeys there. If any live journey fails, return to the
+fix -> automated verification -> commit/push -> deploy -> live-browser loop and
+repeat the full affected matrix. Do not ask the user to perform this validation
+or call an un-deployed/local result complete.
+
 ---
 
 ## 7. When unsure

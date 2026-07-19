@@ -38,6 +38,12 @@ import {
 import type { RuntimeEvent, RuntimeEventKind } from "./runtime-events.js";
 import type { InputFrame } from "./input-frame.js";
 import { findMazeRoute, type MazePoint } from "./maze-topology.js";
+import {
+  dominantSurfaceColor,
+  fallbackWorldColor,
+  featherSurfaceEdges,
+  isolateBorderConnectedBackdrop,
+} from "./artwork-rendering.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
 
@@ -73,9 +79,18 @@ interface Controls {
   space?: Phaser.Input.Keyboard.Key;
 }
 
+const ENVIRONMENTAL_SURFACE_ROLES = new Set(["platform", "ice", "cloud", "launchpad", "mover", "water"]);
+
 function color(value: string | undefined, fallback: number): number {
   if (!value || !/^#[0-9a-f]{6}$/i.test(value)) return fallback;
   return Number.parseInt(value.slice(1), 16);
+}
+
+function colorLuminance(value: number): number {
+  const red = (value >> 16) & 0xff;
+  const green = (value >> 8) & 0xff;
+  const blue = value & 0xff;
+  return red * 0.2126 + green * 0.7152 + blue * 0.0722;
 }
 
 class PlatformerScene extends Phaser.Scene {
@@ -83,6 +98,7 @@ class PlatformerScene extends Phaser.Scene {
   private hero!: Phaser.GameObjects.Rectangle;
   private heroArtwork: Phaser.GameObjects.Image | undefined;
   private readonly artworkByEntity = new Map<string, Phaser.GameObjects.Image>();
+  private readonly artworkIsolationByEntity = new Map<string, boolean>();
   private readonly doorObjects = new Map<string, Phaser.GameObjects.Rectangle>();
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
   private doors!: Phaser.Physics.Arcade.StaticGroup;
@@ -200,20 +216,26 @@ class PlatformerScene extends Phaser.Scene {
     this.frame = 0;
     this.runtimeSequence = 0;
 
-    const paper = color(this.plan.palette[0], 0xfffaf0);
-    const ink = color(this.plan.palette[1], 0x263238);
-    const heroColor = color(this.plan.palette[2], 0xffca58);
-    const platformColor = color(this.plan.palette[3], 0x5f9f45);
-    const dangerColor = color(this.plan.palette[4], 0xd84343);
-    const collectibleColor = color(this.plan.palette[5], 0x4c9bd6);
+    const orderedPalette = [...this.plan.palette].sort((left, right) => (
+      colorLuminance(color(left, 0xffffff)) - colorLuminance(color(right, 0xffffff))
+    ));
+    const worldColor = this.artworkWorldColor();
+    const paletteInk = color(orderedPalette[0], 0x263238);
+    const ink = colorLuminance(worldColor) < 105 ? 0xf7f4ff : paletteInk;
+    // Palette entries carry no role semantics. Original crops supply the
+    // child's colors; missing or unusable crops use stable, accessible Lane A
+    // tokens rather than guessing that palette position means hero/platform.
+    const heroColor = 0xffca58;
+    const platformColor = 0x65a45b;
+    const dangerColor = 0xd84343;
+    const collectibleColor = 0x4c9bd6;
 
-    this.cameras.main.setBackgroundColor(this.usesFreeMovement ? 0xe8edff : paper);
+    this.cameras.main.setBackgroundColor(worldColor);
     this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
-    // Free-movement scenes are composed from individual original-art crops so a
-    // collectible can actually disappear when collected. A full photo behind
-    // it would make every object look static even when the game is working.
-    if (!this.usesFreeMovement) this.addOriginalDrawingBackground(0.13);
+    // Scenes are composed from isolated original-art crops. Repainting the
+    // complete photo behind them creates ghost entities that remain after a
+    // collectible disappears and makes repeated crops look like photo tiles.
     this.add
       .text(24, 18, this.plan.title, {
         color: "#211c38",
@@ -239,6 +261,8 @@ class PlatformerScene extends Phaser.Scene {
         .setDepth(20);
     }
 
+    for (const decoration of this.plan.decorations) this.addArtwork(decoration, 0, 0.82);
+
     this.platforms = this.physics.add.staticGroup();
     const mazeWallIds = new Set(this.plan.mazeCollisionWalls.map((wall) => wall.id));
     for (const platform of this.plan.platforms) {
@@ -249,6 +273,10 @@ class PlatformerScene extends Phaser.Scene {
         : platform.role === "launchpad" ? 0xff7bbd
         : platformColor;
       const shape = this.rectangle(platform, materialColor, ink, alpha);
+      if (platform.id !== "lane_a_safety_floor" && !this.canRenderEntityArtwork(platform)) {
+        shape.setAlpha(0);
+        this.addOrganicSurface(platform, materialColor, 0.34, 2);
+      }
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
       if (this.plan.contract.id === "maze") {
@@ -308,8 +336,12 @@ class PlatformerScene extends Phaser.Scene {
     this.physics.add.collider(this.hero, this.doors);
 
     for (const water of this.plan.waterVolumes) {
-      this.rectangle(water, 0x58bde8, ink, 0.34).setDepth(1);
-      this.addArtwork(water, 1, 0.68);
+      if (this.canRenderEntityArtwork(water)) {
+        this.rectangle(water, 0x58bde8, ink, 0.18).setDepth(1);
+        this.addArtwork(water, 1, 0.68);
+      } else {
+        this.addOrganicSurface(water, 0x58bde8, 0.28, 1);
+      }
     }
 
     this.hazards = this.physics.add.staticGroup();
@@ -907,9 +939,7 @@ class PlatformerScene extends Phaser.Scene {
     stroke: number,
     alpha: number,
   ): Phaser.GameObjects.Rectangle {
-    const usesOriginalArtwork = Boolean(
-      this.artwork?.entityCrops[entity.id] && this.textures.exists(this.artworkTextureKey),
-    );
+    const usesOriginalArtwork = this.canRenderEntityArtwork(entity);
     return this.add
       .rectangle(entity.x, entity.y, entity.width, entity.height, fill, usesOriginalArtwork ? 0 : alpha)
       .setStrokeStyle(usesOriginalArtwork ? 0 : 4, stroke, usesOriginalArtwork ? 0 : Math.min(1, alpha + 0.25))
@@ -928,6 +958,7 @@ class PlatformerScene extends Phaser.Scene {
     depth: number,
     alpha: number,
   ): Phaser.GameObjects.Image | undefined {
+    if (!this.canRenderEntityArtwork(entity)) return undefined;
     const crop = this.artwork?.entityCrops[entity.id];
     if (!crop || !this.textures.exists(this.artworkTextureKey)) return undefined;
     const texture = this.textures.get(this.artworkTextureKey);
@@ -942,6 +973,7 @@ class PlatformerScene extends Phaser.Scene {
     const cropWidth = Math.max(1, Math.ceil((right - left) * source.width));
     const cropHeight = Math.max(1, Math.ceil((bottom - top) * source.height));
     const cropTextureKey = `inkling-art-crop-${entity.id}`;
+    let isolatedArtwork = false;
     if (!this.textures.exists(cropTextureKey) && source.image) {
       const cropTexture = this.textures.createCanvas(cropTextureKey, cropWidth, cropHeight);
       if (cropTexture) {
@@ -956,15 +988,30 @@ class PlatformerScene extends Phaser.Scene {
           cropWidth,
           cropHeight,
         );
-        this.removePaperBackground(cropTexture.context, cropWidth, cropHeight);
-        this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
+        isolatedArtwork = this.removePaperBackground(cropTexture.context, cropWidth, cropHeight);
+        if (isolatedArtwork) {
+          this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
+        } else if (entity.id === this.plan.hero.id) {
+          const pixels = cropTexture.context.getImageData(0, 0, cropWidth, cropHeight);
+          featherSurfaceEdges({ data: pixels.data, width: cropWidth, height: cropHeight });
+          cropTexture.context.putImageData(pixels, 0, 0);
+        }
+        this.artworkIsolationByEntity.set(entity.id, isolatedArtwork);
         cropTexture.refresh();
       }
+    } else if (this.textures.exists(cropTextureKey)) {
+      isolatedArtwork = this.artworkIsolationByEntity.get(entity.id) ?? false;
     }
 
-    const isolatedArtwork = this.textures.exists(cropTextureKey);
+    // If a non-hero crop does not expose a reliable border-connected substrate,
+    // displaying its rectangle is worse than the deterministic placeholder
+    // beneath it. The hero remains the child's exact crop even in that rare
+    // case because preserving their protagonist is the stronger invariant.
+    if (!isolatedArtwork && entity.id !== this.plan.hero.id) return undefined;
+
+    const hasCropTexture = this.textures.exists(cropTextureKey);
     const fitted = fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height);
-    const image = isolatedArtwork
+    const image = hasCropTexture
       ? this.add.image(entity.x, entity.y, cropTextureKey).setDisplaySize(fitted.width, fitted.height)
       : this.add
         .image(entity.x, entity.y, this.artworkTextureKey)
@@ -973,7 +1020,7 @@ class PlatformerScene extends Phaser.Scene {
     const baseScaleX = image.scaleX;
     const baseScaleY = image.scaleY;
     image
-      .setAlpha(alpha)
+      .setAlpha(isolatedArtwork ? alpha : alpha * 0.9)
       .setBlendMode(isolatedArtwork ? Phaser.BlendModes.NORMAL : Phaser.BlendModes.MULTIPLY)
       .setDepth(depth)
       .setData("entityId", entity.id)
@@ -982,6 +1029,69 @@ class PlatformerScene extends Phaser.Scene {
       .setData("inklingBaseScaleY", baseScaleY);
     this.artworkByEntity.set(entity.id, image);
     return image;
+  }
+
+  private canRenderEntityArtwork(entity: PlannedEntity): boolean {
+    const crop = this.artwork?.entityCrops[entity.id];
+    if (!crop || !this.textures.exists(this.artworkTextureKey)) return false;
+    const [left, top, right, bottom] = crop;
+    const width = right - left;
+    const height = bottom - top;
+    const area = width * height;
+    // A non-hero crop spanning a large fraction of the page is scene context,
+    // not a usable sprite. Treating it as an entity reconstructs the source
+    // photograph as a conspicuous nested rectangle.
+    if (entity.id !== this.plan.hero.id && area >= 0.16) return false;
+    if (!ENVIRONMENTAL_SURFACE_ROLES.has(entity.role)) return true;
+    // Broad scene geometry is a visual/physics layer, not a foreground sprite.
+    // Rendering its source rectangle can contain many smaller entities and
+    // reconstruct the photograph as overlapping boxes.
+    return area < 0.075 && width / Math.max(height, 0.001) < 4;
+  }
+
+  /** A deterministic scene layer for geometry too broad to be a sprite crop. */
+  private addOrganicSurface(
+    entity: PlannedEntity,
+    fill: number,
+    alpha: number,
+    depth: number,
+  ): void {
+    const left = entity.x - entity.width / 2;
+    const right = entity.x + entity.width / 2;
+    const top = entity.y - entity.height / 2;
+    const bottom = entity.y + entity.height / 2;
+    const hash = [...entity.id].reduce((sum, character) => (sum * 31 + character.charCodeAt(0)) >>> 0, 17);
+    const segments = Math.max(4, Math.min(12, Math.round(entity.width / 80)));
+    const amplitude = Math.min(7, Math.max(2, entity.height * 0.12));
+    const graphics = this.add.graphics().setDepth(depth);
+    const traceTop = (): void => {
+      graphics.beginPath();
+      graphics.moveTo(left, top);
+      for (let segment = 1; segment <= segments; segment += 1) {
+        const x = left + entity.width * segment / segments;
+        const direction = ((segment + hash) % 2 === 0 ? 1 : -1);
+        const y = segment === segments ? top : top + direction * amplitude;
+        graphics.lineTo(x, y);
+      }
+    };
+    if (entity.role === "water") {
+      graphics.lineStyle(18, fill, 0.11);
+      traceTop();
+      graphics.strokePath();
+      graphics.lineStyle(5, fill, 0.82);
+      traceTop();
+      graphics.strokePath();
+    } else {
+      graphics.fillStyle(fill, alpha);
+      graphics.lineStyle(4, fill, Math.min(0.9, alpha + 0.48));
+      traceTop();
+      graphics.lineTo(right, bottom);
+      graphics.lineTo(left, bottom);
+      graphics.closePath();
+      graphics.fillPath();
+      graphics.strokePath();
+    }
+    graphics.setData("entityId", entity.id).setData("role", entity.role);
   }
 
   /**
@@ -994,102 +1104,32 @@ class PlatformerScene extends Phaser.Scene {
     context: CanvasRenderingContext2D,
     width: number,
     height: number,
-  ): void {
+  ): boolean {
     const pixels = context.getImageData(0, 0, width, height);
-    const sampleRadius = Math.max(1, Math.min(4, Math.floor(Math.min(width, height) / 6)));
-    const redSamples: number[] = [];
-    const greenSamples: number[] = [];
-    const blueSamples: number[] = [];
-    const cornerAverages: Array<[number, number, number]> = [];
-    const sampleCorner = (startX: number, startY: number): void => {
-      let redTotal = 0;
-      let greenTotal = 0;
-      let blueTotal = 0;
-      let count = 0;
-      for (let y = startY; y < startY + sampleRadius; y += 1) {
-        for (let x = startX; x < startX + sampleRadius; x += 1) {
-          const offset = (y * width + x) * 4;
-          const red = pixels.data[offset] ?? 0;
-          const green = pixels.data[offset + 1] ?? 0;
-          const blue = pixels.data[offset + 2] ?? 0;
-          redSamples.push(red);
-          greenSamples.push(green);
-          blueSamples.push(blue);
-          redTotal += red;
-          greenTotal += green;
-          blueTotal += blue;
-          count += 1;
-        }
-      }
-      cornerAverages.push([redTotal / count, greenTotal / count, blueTotal / count]);
-    };
-    sampleCorner(0, 0);
-    sampleCorner(width - sampleRadius, 0);
-    sampleCorner(0, height - sampleRadius);
-    sampleCorner(width - sampleRadius, height - sampleRadius);
-    const median = (values: number[]): number => {
-      const ordered = values.sort((left, right) => left - right);
-      return ordered[Math.floor(ordered.length / 2)] ?? 0;
-    };
-    const paperRed = median(redSamples);
-    const paperGreen = median(greenSamples);
-    const paperBlue = median(blueSamples);
-    const paperLightness = Math.max(paperRed, paperGreen, paperBlue);
-    const paperDarkness = Math.min(paperRed, paperGreen, paperBlue);
-    const cornerDistance = (left: [number, number, number], right: [number, number, number]): number => (
-      Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2])
-    );
-    const inconsistentCorners = cornerAverages.some((left, index) => (
-      cornerAverages.slice(index + 1).some((right) => cornerDistance(left, right) > 55)
-    ));
-    // An inconsistent border is probably another object, a shadow, collage,
-    // or child mark—not a uniform substrate. Preserve the rectangular source
-    // crop rather than guessing and destructively deleting pixels.
-    if (inconsistentCorners) return;
-    // Light neutral paper needs a narrow tolerance so faint graphite survives.
-    // Dark or colored paper varies more under phone lighting and needs a wider
-    // one. Only matching pixels connected to the crop border are removed, so
-    // enclosed white chalk or similarly colored child strokes remain intact.
-    const tolerance = paperDarkness > 205 && paperLightness - paperDarkness < 24 ? 18 : 42;
-    const toleranceSquared = tolerance * tolerance;
-    const matchesPaper = (pixelIndex: number): boolean => {
-      const offset = pixelIndex * 4;
-      const redDistance = (pixels.data[offset] ?? 0) - paperRed;
-      const greenDistance = (pixels.data[offset + 1] ?? 0) - paperGreen;
-      const blueDistance = (pixels.data[offset + 2] ?? 0) - paperBlue;
-      return redDistance * redDistance + greenDistance * greenDistance + blueDistance * blueDistance <= toleranceSquared;
-    };
-    const visited = new Uint8Array(width * height);
-    const queue = new Int32Array(width * height);
-    let queueLength = 0;
-    let cursor = 0;
-    const enqueue = (x: number, y: number): void => {
-      const pixelIndex = y * width + x;
-      if (visited[pixelIndex] || !matchesPaper(pixelIndex)) return;
-      visited[pixelIndex] = 1;
-      queue[queueLength] = pixelIndex;
-      queueLength += 1;
-    };
-    for (let x = 0; x < width; x += 1) {
-      enqueue(x, 0);
-      enqueue(x, height - 1);
-    }
-    for (let y = 1; y < height - 1; y += 1) {
-      enqueue(0, y);
-      enqueue(width - 1, y);
-    }
-    while (cursor < queueLength) {
-      const pixelIndex = queue[cursor] ?? 0;
-      cursor += 1;
-      const x = pixelIndex % width;
-      const y = Math.floor(pixelIndex / width);
-      pixels.data[pixelIndex * 4 + 3] = 0;
-      if (x > 0) enqueue(x - 1, y);
-      if (x + 1 < width) enqueue(x + 1, y);
-      if (y > 0) enqueue(x, y - 1);
-      if (y + 1 < height) enqueue(x, y + 1);
-    }
+    const result = isolateBorderConnectedBackdrop({ data: pixels.data, width, height });
+    if (!result.isolated) return false;
     context.putImageData(pixels, 0, 0);
+    return true;
+  }
+
+  private artworkWorldColor(): number {
+    const fallback = fallbackWorldColor(this.plan.palette);
+    if (!this.artwork || !this.textures.exists(this.artworkTextureKey) || typeof document === "undefined") {
+      return fallback;
+    }
+    const source = this.textures.get(this.artworkTextureKey).source[0];
+    if (!source?.image || !source.width || !source.height) return fallback;
+    const canvas = document.createElement("canvas");
+    canvas.width = 64;
+    canvas.height = 64;
+    const context = canvas.getContext("2d", { willReadFrequently: true });
+    if (!context) return fallback;
+    context.drawImage(source.image as CanvasImageSource, 0, 0, canvas.width, canvas.height);
+    const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    const sampled = dominantSurfaceColor({ data: pixels.data, width: canvas.width, height: canvas.height });
+    // Match the real drawing surface instead of lightening it: even a small
+    // shift makes any unavoidable anti-aliased edge read as a rectangular tile.
+    return sampled === undefined ? fallback : sampled;
   }
 
   /** Shrinks an already-isolated local texture to its surviving child strokes. */
@@ -1124,20 +1164,6 @@ class PlatformerScene extends Phaser.Scene {
     const trimmed = texture.context.getImageData(left, top, trimmedWidth, trimmedHeight);
     texture.setSize(trimmedWidth, trimmedHeight);
     texture.context.putImageData(trimmed, 0, 0);
-  }
-
-  /** Keeps the original drawing visible without redrawing or restyling it. */
-  private addOriginalDrawingBackground(alpha: number): void {
-    if (!this.artwork || !this.textures.exists(this.artworkTextureKey)) return;
-    const source = this.textures.get(this.artworkTextureKey).source[0];
-    if (!source?.width || !source.height) return;
-    const scale = Math.min(WORLD_WIDTH / source.width, WORLD_HEIGHT / source.height);
-    this.add
-      .image(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, this.artworkTextureKey)
-      .setScale(scale)
-      .setAlpha(alpha)
-      .setBlendMode(Phaser.BlendModes.MULTIPLY)
-      .setDepth(-10);
   }
 
   /**
@@ -1507,7 +1533,7 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
     parent: options.parent,
     width: viewportWidth,
     height: WORLD_HEIGHT,
-    backgroundColor: plan.palette[0] ?? "#fffaf0",
+    backgroundColor: "#f7f4ff",
     // P5 currently supplies a sound plan, not playable audio assets. Do not
     // create an unused WebAudio context until that deterministic audio layer
     // exists; this also keeps silent browser environments error-free.

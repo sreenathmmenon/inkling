@@ -115,3 +115,39 @@ test("capture finds a colored drawing surface without assuming white paper", () 
   const bounds = detectDrawingSurfaceBounds({ width, height, data } as ImageData);
   assert.deepEqual(bounds, [19, 12, 103, 91]);
 });
+
+test("capture separates a low-contrast drawing surface from a pale surround", () => {
+  const width = 140;
+  const height = 110;
+  const data = new Uint8ClampedArray(width * height * 4);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const texture = (x * 7 + y * 11) % 5;
+      data[offset] = 210 + texture;
+      data[offset + 1] = 198 + texture;
+      data[offset + 2] = 183 + texture;
+      data[offset + 3] = 255;
+    }
+  }
+  for (let y = 9; y < 103; y += 1) {
+    for (let x = 8; x < 133; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 232;
+      data[offset + 1] = 230;
+      data[offset + 2] = 232;
+    }
+  }
+  // Interior marks may fragment a page by color, but must not change the
+  // detected surface coordinate system used by the model and artwork crops.
+  for (let y = 70; y < 95; y += 1) {
+    for (let x = 21; x < 52; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 62;
+      data[offset + 1] = 145;
+      data[offset + 2] = 72;
+    }
+  }
+  const bounds = detectDrawingSurfaceBounds({ width, height, data } as ImageData);
+  assert.deepEqual(bounds, [8, 9, 133, 103]);
+});

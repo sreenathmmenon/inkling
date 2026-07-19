@@ -93,6 +93,28 @@ try {
   releaseGeneration?.();
   await capture.close();
 
+  const lowContrastSurface = await browser.newPage({ viewport: { width: 844, height: 844 } });
+  await lowContrastSurface.goto(baseUrl);
+  await lowContrastSurface.locator("#drawing-file").setInputFiles(resolve(root, "fixtures/validation-drawings/round-1/06-frog-lilypad.png"));
+  await lowContrastSurface.locator("body.capture-ready").waitFor();
+  const preparedSurface = await lowContrastSurface.locator("#drawing-preview").evaluate((preview: HTMLImageElement) => ({
+    width: preview.naturalWidth,
+    height: preview.naturalHeight,
+  }));
+  assert.ok(preparedSurface.width < 1_000 && preparedSurface.height < 1_450, `low-contrast drawing surface was not cropped before upload: ${JSON.stringify(preparedSurface)}`);
+  assert.ok(preparedSurface.width > 700 && preparedSurface.height > 1_100, `surface crop removed too much child artwork: ${JSON.stringify(preparedSurface)}`);
+  await lowContrastSurface.close();
+
+  const recastDecision = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await recastDecision.goto(baseUrl);
+  await recastDecision.evaluate(() => {
+    document.body.classList.add("recast", "has-drawing");
+    document.querySelector<HTMLElement>("#recast-panel")!.hidden = false;
+  });
+  assert.equal(await recastDecision.locator(".capture-action-zone").isVisible(), false, "recast decision retains a stale Make my game action");
+  assert.equal(await recastDecision.locator("#recast-panel").isVisible(), true, "recast decision is hidden");
+  await recastDecision.close();
+
   const malformed = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await malformed.goto(baseUrl);
   await malformed.locator("#spec-file").setInputFiles({
@@ -105,6 +127,37 @@ try {
   await malformed.close();
 
   const gameSpec = JSON.parse(await readFile(resolve(root, "examples/live-scan-gamespec.json"), "utf8")) as Record<string, unknown>;
+
+  const shortPhone = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true });
+  await shortPhone.goto(baseUrl);
+  await shortPhone.locator("#spec-file").setInputFiles({
+    name: "short-phone-related-fallback.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify({
+      format: "inkling-playable-game-v1",
+      gameSpec,
+      readinessEvidence: { playContract: { outcome: "related_fallback" } },
+    })),
+  });
+  await shortPhone.locator("canvas").waitFor();
+  const shortPhoneLayout = await shortPhone.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>("#game-shell")!.getBoundingClientRect();
+    const controls = document.querySelector<HTMLElement>("#accessible-controls")!.getBoundingClientRect();
+    const buttons = Array.from(document.querySelectorAll<HTMLElement>("#accessible-controls button:not([hidden])")).map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    });
+    return {
+      shell: { top: shell.top, bottom: shell.bottom },
+      controls: { top: controls.top, bottom: controls.bottom },
+      viewportHeight: innerHeight,
+      buttons,
+    };
+  });
+  assert.ok(shortPhoneLayout.shell.top >= 0 && shortPhoneLayout.shell.bottom <= shortPhoneLayout.viewportHeight, `short-phone game is outside the initial viewport: ${JSON.stringify(shortPhoneLayout)}`);
+  assert.ok(shortPhoneLayout.controls.top >= 0 && shortPhoneLayout.controls.bottom <= shortPhoneLayout.viewportHeight, `short-phone controls are clipped: ${JSON.stringify(shortPhoneLayout)}`);
+  assert.ok(shortPhoneLayout.buttons.length >= 3 && shortPhoneLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.top >= 0 && button.bottom <= shortPhoneLayout.viewportHeight), `short-phone touch targets are incomplete: ${JSON.stringify(shortPhoneLayout)}`);
+  await shortPhone.close();
 
   for (const viewport of [
     { width: 768, height: 1024 },
@@ -125,6 +178,38 @@ try {
     assert.ok(tabletControl && tabletControl.width >= 48 && tabletControl.height >= 48, `tablet control is too small at ${viewport.width}x${viewport.height}`);
     await tablet.close();
   }
+
+  const landscapeTouch = await browser.newPage({ viewport: { width: 844, height: 390 }, hasTouch: true });
+  await landscapeTouch.goto(baseUrl);
+  await landscapeTouch.locator("#spec-file").setInputFiles({
+    name: "landscape-touch-game.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(gameSpec)),
+  });
+  await landscapeTouch.locator("canvas").waitFor();
+  const landscapeLayout = await landscapeTouch.evaluate(() => {
+    const controls = document.querySelector<HTMLElement>("#accessible-controls")!;
+    const shell = document.querySelector<HTMLElement>("#game-shell")!;
+    const controlRect = controls.getBoundingClientRect();
+    const shellRect = shell.getBoundingClientRect();
+    const buttons = Array.from(controls.querySelectorAll<HTMLElement>("button:not([hidden])")).map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { left: rect.left, top: rect.top, right: rect.right, bottom: rect.bottom, width: rect.width, height: rect.height };
+    });
+    return {
+      controls: { left: controlRect.left, top: controlRect.top, right: controlRect.right, bottom: controlRect.bottom },
+      shellBottom: shellRect.bottom,
+      position: getComputedStyle(controls).position,
+      viewport: { width: innerWidth, height: innerHeight },
+      buttons,
+    };
+  });
+  assert.equal(landscapeLayout.position, "fixed", "short-landscape touch controls are not overlaid on the game");
+  assert.ok(landscapeLayout.controls.left >= 0 && landscapeLayout.controls.top >= 0, `landscape controls start outside the viewport: ${JSON.stringify(landscapeLayout)}`);
+  assert.ok(landscapeLayout.controls.right <= landscapeLayout.viewport.width && landscapeLayout.controls.bottom <= landscapeLayout.viewport.height, `landscape controls fall outside the viewport: ${JSON.stringify(landscapeLayout)}`);
+  assert.ok(landscapeLayout.shellBottom <= landscapeLayout.viewport.height + 1, `landscape game falls below the viewport: ${JSON.stringify(landscapeLayout)}`);
+  assert.ok(landscapeLayout.buttons.length >= 3 && landscapeLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.bottom <= landscapeLayout.viewport.height), `landscape touch targets are unavailable: ${JSON.stringify(landscapeLayout)}`);
+  await landscapeTouch.close();
 
   const play = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await play.goto(baseUrl);
@@ -218,9 +303,14 @@ try {
   const terminalRects = await smallFullscreen.evaluate(() => {
     const statusRect = document.querySelector("#game-status")!.getBoundingClientRect();
     const actionsRect = document.querySelector("#post-play-actions")!.getBoundingClientRect();
-    return { statusBottom: statusRect.bottom, actionsTop: actionsRect.top };
+    return {
+      statusBottom: statusRect.bottom,
+      actionsTop: actionsRect.top,
+      statusColor: getComputedStyle(document.querySelector("#game-status")!).color,
+    };
   });
   assert.ok(terminalRects.actionsTop >= terminalRects.statusBottom, `fullscreen terminal actions cover the result: ${JSON.stringify(terminalRects)}`);
+  assert.equal(terminalRects.statusColor, "rgb(23, 79, 60)", "fullscreen win copy loses its readable foreground");
   await smallFullscreen.close();
 
   const lossSpec = structuredClone(gameSpec);
@@ -264,7 +354,7 @@ try {
   assert.ok(positions.left.x < positions.down.x && positions.down.x < positions.right.x, "four-way controls are not a spatial D-pad");
   await maze.close();
 
-  console.log("Client UI browser contract passed: phone/desktop/tablet viewports, review/progress/recovery, play/fullscreen/win/replay, and spatial controls.");
+  console.log("Client UI browser contract passed: phone/desktop/tablet/landscape-touch viewports, review/progress/recovery, play/fullscreen/win/replay, and spatial controls.");
 } finally {
   await browser.close();
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));

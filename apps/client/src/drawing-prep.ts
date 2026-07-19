@@ -195,7 +195,12 @@ export function detectDrawingSurfaceBounds(
     for (const [outerRed, outerGreen, outerBlue] of outer) {
       outerDistance = Math.min(outerDistance, Math.hypot(red - outerRed, green - outerGreen, blue - outerBlue));
     }
-    foreground[pixel] = outerDistance > 48 ? 1 : 0;
+    // Printed and crayon paper is often only moderately brighter than a pale
+    // wooden desk or tabletop. A 36-point RGB distance still rejects ordinary
+    // texture variation, while allowing the large connected drawing surface
+    // to win the density/area checks below. This threshold describes a surface
+    // boundary; it does not assume any paper or drawing color.
+    foreground[pixel] = outerDistance > 36 ? 1 : 0;
   }
 
   const visited = new Uint8Array(pixelCount);

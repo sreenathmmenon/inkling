@@ -20,6 +20,10 @@ import {
   type DrawingQualityWarning,
   type PreparedDrawing,
 } from "./drawing-prep.js";
+import {
+  generationErrorMessage,
+  visibleGenerationFailure,
+} from "./generation-copy.js";
 import { freshPlayerState, shouldShowAssist } from "./player-status.js";
 
 declare const __INKLING_GAMESPEC__: unknown;
@@ -484,21 +488,12 @@ function stopGenerationProgress(): void {
   }
 }
 
-function errorMessage(code?: string): string {
-  if (code === "drawing_not_approved") return "Let’s try a drawing without a real face, name, or personal details.";
-  if (code === "game_not_finishable") return "This version was not ready to play. Try a clearer photo or a new drawing.";
-  if (code === "generation_busy") return "Lots of games are being made right now. Your photo is still ready—please try again in a moment.";
-  if (code === "generation_rate_limited") return "You have made several games quickly. Wait a little, then try again with this photo.";
-  if (code === "request_too_large") return "That photo is too large to send. Choose a smaller photo and try again.";
-  return "We could not finish this game right now. The drawing was not posted or shared. Please try again.";
-}
-
 async function readGenerationStream(
   response: Response,
   isCurrent: () => boolean,
   expectedRequestId: string,
 ): Promise<unknown> {
-  if (!response.body) throw new Error(errorMessage());
+  if (!response.body) throw new Error(generationErrorMessage());
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
@@ -519,22 +514,22 @@ async function readGenerationStream(
         try {
           event = JSON.parse(data) as GenerationEvent;
         } catch {
-          throw new Error(errorMessage());
+          throw new Error(generationErrorMessage());
         }
-        if (event.requestId !== expectedRequestId) throw new Error(errorMessage());
+        if (event.requestId !== expectedRequestId) throw new Error(generationErrorMessage());
         if (event.type === "progress" && event.stage) {
           if (!isCurrent()) throw new DOMException("Generation cancelled", "AbortError");
           showGenerationStage(event.stage);
           continue;
         }
-        if (event.type === "error") throw new Error(errorMessage(event.error));
+        if (event.type === "error") throw new Error(generationErrorMessage(event.error));
         if (event.type === "complete" && event.playableGame) return event.playableGame;
       }
     }
   } finally {
     reader.releaseLock();
   }
-  throw new Error(errorMessage());
+  throw new Error(generationErrorMessage());
 }
 
 fileInput.addEventListener("change", async () => {
@@ -658,17 +653,17 @@ makeGame.addEventListener("click", async () => {
         // A misconfigured/restarting service may not return JSON. Do not surface
         // transport details to a child, and never retry/upload automatically.
       }
-      throw new Error(errorMessage(body.error));
+      throw new Error(generationErrorMessage(body.error));
     }
     if (response.headers.get("content-type")?.startsWith("text/event-stream")) {
       currentSpec = await readGenerationStream(response, () => sequence === generationSequence, requestId);
     } else {
       const result = await response.json() as { requestId?: string; playableGame?: unknown };
-      if (result.requestId !== requestId) throw new Error(errorMessage());
+      if (result.requestId !== requestId) throw new Error(generationErrorMessage());
       currentSpec = result.playableGame;
     }
     if (sequence !== generationSequence) return;
-    if (!currentSpec) throw new Error(errorMessage());
+    if (!currentSpec) throw new Error(generationErrorMessage());
     currentSpec = await certifyGeneratedGame(currentSpec);
     if (sequence !== generationSequence) return;
     const playable = resolvePlayableGame(currentSpec);
@@ -688,10 +683,7 @@ makeGame.addEventListener("click", async () => {
   } catch (error) {
     if (sequence !== generationSequence || controller.signal.aborted) return;
     progressPanel.hidden = true;
-    const message = error instanceof Error
-      ? error.message
-      : "We could not finish this game right now. Please try again.";
-    showCaptureStatus(message, true);
+    showCaptureStatus(visibleGenerationFailure(error), true);
     captureStatus.setAttribute("tabindex", "-1");
     captureStatus.focus();
   } finally {

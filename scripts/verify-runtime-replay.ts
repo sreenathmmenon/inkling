@@ -77,6 +77,12 @@ mazeGameSpec.entities = [
 ];
 mazeGameSpec.goal = { kind: "reach_goal", target_id: "finish" };
 
+const runnerGameSpec = structuredClone(baseGameSpec);
+runnerGameSpec.primary_genre = "runner";
+runnerGameSpec.entities.splice(1, 0, {
+  id: "runner_hazard", role: "hazard", bbox: [0.44, 0.66, 0.5, 0.74], behavior: "static", linked_to: null, style_ref: "source",
+});
+
 const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "reach", gameSpec: baseGameSpec },
   { id: "collect", gameSpec: collectGameSpec },
@@ -86,6 +92,7 @@ const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "ice", gameSpec: iceGameSpec },
   { id: "water", gameSpec: waterGameSpec },
   { id: "maze", gameSpec: mazeGameSpec },
+  { id: "runner", gameSpec: runnerGameSpec },
 ];
 
 const publicRoot = resolve(findProjectRoot(), "build/client");

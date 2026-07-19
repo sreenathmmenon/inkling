@@ -18,7 +18,7 @@ export function createCoachingContract(plan: PlatformerPlan): CoachingContract {
   }
   if (plan.goalKind === "survive") {
     return {
-      firstControl: plan.contract.movement === "auto_ground" ? "jump" : "right",
+      firstControl: "right",
       objectiveTarget: null,
       objectiveLabel: "STAY SAFE",
     };
@@ -29,7 +29,7 @@ export function createCoachingContract(plan: PlatformerPlan): CoachingContract {
     : plan.goal;
   const objectiveLabel = plan.goalKind === "collect_all" || firstRequired ? "FIND" : "FINISH";
   if (plan.contract.movement === "auto_ground") {
-    return { firstControl: "jump", objectiveTarget, objectiveLabel };
+    return { firstControl: "right", objectiveTarget, objectiveLabel };
   }
   if (plan.contract.touchControls === "four_way") {
     const deltaX = objectiveTarget.x - plan.hero.x;

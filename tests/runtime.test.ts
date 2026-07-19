@@ -227,9 +227,11 @@ test("PlayContract distinguishes faithful execution from a merely playable fallb
 
   const runner = structuredClone(platformer);
   runner.primary_genre = "runner";
-  const runnerFallback = createPlayContract(runner);
-  assert.equal(runnerFallback.outcome, "related_fallback");
-  assert.ok(runnerFallback.unsupportedCapabilities.includes("manual_progress_input"));
+  const runnerContract = createPlayContract(runner);
+  assert.equal(runnerContract.outcome, "faithful_ready");
+  assert.equal(runnerContract.templateId, "lane-a-runner-v1");
+  assert.ok(runnerContract.supportedCapabilities.includes("manual_progress_input"));
+  assert.ok(runnerContract.supportedCapabilities.includes("runner_route_topology"));
 
   const candidate = createPlayableGameDocument(platformer, undefined, undefined, {
     playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 3, seed: 1, visited: ["hero", "finish"] },
@@ -421,7 +423,11 @@ test("first-use coaching derives only from engine contracts and objective geomet
   runner.entities.unshift({
     id: "support", role: "platform", bbox: [0.05, 0.71, 0.45, 0.78], behavior: "static", style_ref: "source",
   });
-  assert.equal(createCoachingContract(createPlatformerPlan(runner)).firstControl, "jump");
+  assert.equal(
+    createCoachingContract(createPlatformerPlan(runner)).firstControl,
+    "right",
+    "the first runner action must explicitly start progress",
+  );
 
   const shooter = structuredClone(base);
   shooter.primary_genre = "shooter";

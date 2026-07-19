@@ -10,6 +10,7 @@ export type RuntimeCapability =
   | "four_way_movement"
   | "automatic_ground_movement"
   | "manual_progress_input"
+  | "runner_route_topology"
   | "solid_platforms"
   | "contact_hazards"
   | "lives"
@@ -100,6 +101,27 @@ export const LANE_A_MAZE_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
   ],
 };
 
+export const LANE_A_RUNNER_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
+  templateId: "lane-a-runner-v1",
+  capabilities: [
+    "ground_movement",
+    "automatic_ground_movement",
+    "manual_progress_input",
+    "runner_route_topology",
+    "solid_platforms",
+    "contact_hazards",
+    "lives",
+    "reach_goal",
+    "collect_all",
+    "survive_timer",
+    "key_door_unlock",
+    "water_swim_volume",
+    "surface_ice",
+    "surface_cloud",
+    "surface_launchpad",
+  ],
+};
+
 const PLATFORM_ROLES = new Set(["platform", "ice", "cloud", "launchpad", "mover"]);
 const HAZARD_ROLES = new Set(["hazard", "enemy", "boss"]);
 
@@ -132,6 +154,7 @@ function requiredForGenre(spec: GameSpec, plan: PlatformerPlan): RuntimeCapabili
       break;
     case "runner":
       pushUnique(required, "manual_progress_input");
+      if (plan.contract.movement === "auto_ground") pushUnique(required, "runner_route_topology");
       break;
     case "roller":
       pushUnique(required, "rolling_inertia");
@@ -259,7 +282,9 @@ export function createPlayContract(gameSpec: GameSpec): PlayContract {
 
   const capabilityProfile = plan.contract.id === "maze"
     ? LANE_A_MAZE_CAPABILITY_PROFILE
-    : LANE_A_CAPABILITY_PROFILE;
+    : plan.contract.id === "runner"
+      ? LANE_A_RUNNER_CAPABILITY_PROFILE
+      : LANE_A_CAPABILITY_PROFILE;
   const available = new Set(capabilityProfile.capabilities);
   const supportedCapabilities = required.filter((capability) => available.has(capability));
   const unsupportedCapabilities = required.filter((capability) => !available.has(capability));

@@ -115,6 +115,7 @@ class PlatformerScene extends Phaser.Scene {
   private lastSurfaceId: string | undefined;
   private wasInsideWater = false;
   private meaningfulInputSeen = false;
+  private runnerStarted = false;
   private lastProgressAt = 0;
   private bestObjectiveDistance = Infinity;
   private stuckCueShown = false;
@@ -188,6 +189,7 @@ class PlatformerScene extends Phaser.Scene {
     this.lastSurfaceId = undefined;
     this.wasInsideWater = false;
     this.meaningfulInputSeen = false;
+    this.runnerStarted = false;
     this.lastProgressAt = 0;
     this.bestObjectiveDistance = Infinity;
     this.stuckCueShown = false;
@@ -534,10 +536,17 @@ class PlatformerScene extends Phaser.Scene {
     if (inWater) {
       body.setVelocityX(direction * PLATFORMER_PHYSICS.waterMoveVelocityX * (assistActive ? 1.16 : 1));
     } else if (this.plan.contract.movement === "auto_ground") {
-      // Runners advance by default, but the same left/right controls remain
-      // available so a required item behind the hero never makes the game
-      // impossible. This is part of the genre contract, not drawing-specific.
-      body.setVelocityX(movingLeft ? -PLATFORMER_PHYSICS.moveVelocityX : PLATFORMER_PHYSICS.moveVelocityX);
+      // A runner begins only after a real child input, so doing nothing can
+      // never finish the game. Once begun, deterministic forward motion is the
+      // genre contract; steering left still permits recovery for required art.
+      const jumpRequested = Boolean(
+        this.controls.cursors?.up.isDown || this.controls.jump?.isDown ||
+        this.controls.space?.isDown || this.touch.jump
+      );
+      if (movingLeft || movingRight || jumpRequested) this.runnerStarted = true;
+      body.setVelocityX(this.runnerStarted
+        ? movingLeft ? -PLATFORMER_PHYSICS.moveVelocityX : PLATFORMER_PHYSICS.moveVelocityX
+        : 0);
     } else {
       body.setVelocityX(surfaceVelocityX(body.velocity.x, direction, surfaceRole, assistActive));
     }

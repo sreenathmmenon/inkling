@@ -40,9 +40,13 @@ import type { InputFrame } from "./input-frame.js";
 import { findMazeRoute, type MazePoint } from "./maze-topology.js";
 import {
   dominantSurfaceColor,
+  dominantSurfaceShare,
   fallbackWorldColor,
   featherSurfaceEdges,
   isolateBorderConnectedBackdrop,
+  softlyIsolateLocalBackdrop,
+  softlyRemoveKnownBackdrop,
+  type BackdropIsolationResult,
 } from "./artwork-rendering.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
@@ -99,6 +103,8 @@ class PlatformerScene extends Phaser.Scene {
   private heroArtwork: Phaser.GameObjects.Image | undefined;
   private readonly artworkByEntity = new Map<string, Phaser.GameObjects.Image>();
   private readonly artworkIsolationByEntity = new Map<string, boolean>();
+  private sceneWorldColor = 0xf7f4ff;
+  private sceneSurfaceShare = 1;
   private readonly doorObjects = new Map<string, Phaser.GameObjects.Rectangle>();
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
   private doors!: Phaser.Physics.Arcade.StaticGroup;
@@ -220,6 +226,7 @@ class PlatformerScene extends Phaser.Scene {
       colorLuminance(color(left, 0xffffff)) - colorLuminance(color(right, 0xffffff))
     ));
     const worldColor = this.artworkWorldColor();
+    this.sceneWorldColor = worldColor;
     const paletteInk = color(orderedPalette[0], 0x263238);
     const ink = colorLuminance(worldColor) < 105 ? 0xf7f4ff : paletteInk;
     // Palette entries carry no role semantics. Original crops supply the
@@ -347,6 +354,10 @@ class PlatformerScene extends Phaser.Scene {
     this.hazards = this.physics.add.staticGroup();
     for (const hazard of this.plan.hazards) {
       const shape = this.rectangle(hazard, dangerColor, ink, 1);
+      if (!this.canRenderEntityArtwork(hazard)) {
+        shape.setAlpha(0);
+        this.addHazardPlaceholder(hazard, dangerColor, ink);
+      }
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
       body.setSize(hazard.width * 0.72, hazard.height * 0.72);
@@ -988,13 +999,31 @@ class PlatformerScene extends Phaser.Scene {
           cropWidth,
           cropHeight,
         );
-        isolatedArtwork = this.removePaperBackground(cropTexture.context, cropWidth, cropHeight);
+        const isolation = this.removePaperBackground(cropTexture.context, cropWidth, cropHeight);
+        isolatedArtwork = isolation.isolated;
         if (isolatedArtwork) {
+          if (isolation.backdropColor !== undefined) {
+            const pixels = cropTexture.context.getImageData(0, 0, cropWidth, cropHeight);
+            if (softlyRemoveKnownBackdrop(
+              { data: pixels.data, width: cropWidth, height: cropHeight },
+              isolation.backdropColor,
+            )) {
+              cropTexture.context.putImageData(pixels, 0, 0);
+            }
+          }
           this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
-        } else if (entity.id === this.plan.hero.id) {
+        } else {
           const pixels = cropTexture.context.getImageData(0, 0, cropWidth, cropHeight);
-          featherSurfaceEdges({ data: pixels.data, width: cropWidth, height: cropHeight });
+          isolatedArtwork = softlyIsolateLocalBackdrop({
+            data: pixels.data,
+            width: cropWidth,
+            height: cropHeight,
+          });
+          if (!isolatedArtwork) {
+            featherSurfaceEdges({ data: pixels.data, width: cropWidth, height: cropHeight });
+          }
           cropTexture.context.putImageData(pixels, 0, 0);
+          if (isolatedArtwork) this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
         }
         this.artworkIsolationByEntity.set(entity.id, isolatedArtwork);
         cropTexture.refresh();
@@ -1002,12 +1031,6 @@ class PlatformerScene extends Phaser.Scene {
     } else if (this.textures.exists(cropTextureKey)) {
       isolatedArtwork = this.artworkIsolationByEntity.get(entity.id) ?? false;
     }
-
-    // If a non-hero crop does not expose a reliable border-connected substrate,
-    // displaying its rectangle is worse than the deterministic placeholder
-    // beneath it. The hero remains the child's exact crop even in that rare
-    // case because preserving their protagonist is the stronger invariant.
-    if (!isolatedArtwork && entity.id !== this.plan.hero.id) return undefined;
 
     const hasCropTexture = this.textures.exists(cropTextureKey);
     const fitted = fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height);
@@ -1042,7 +1065,12 @@ class PlatformerScene extends Phaser.Scene {
     // not a usable sprite. Treating it as an entity reconstructs the source
     // photograph as a conspicuous nested rectangle.
     if (entity.id !== this.plan.hero.id && area >= 0.16) return false;
+    const difficultDarkSurface = colorLuminance(this.sceneWorldColor) < 150 && this.sceneSurfaceShare < 0.24;
+    if (difficultDarkSurface && (entity.role === "decoration" || entity.role === "hazard")) return false;
     if (!ENVIRONMENTAL_SURFACE_ROLES.has(entity.role)) return true;
+    // A dark, highly textured photographed substrate has too little local
+    // separation for a surface crop to stop reading as a photo tile.
+    if (difficultDarkSurface) return false;
     // Broad scene geometry is a visual/physics layer, not a foreground sprite.
     // Rendering its source rectangle can contain many smaller entities and
     // reconstruct the photograph as overlapping boxes.
@@ -1094,6 +1122,33 @@ class PlatformerScene extends Phaser.Scene {
     graphics.setData("entityId", entity.id).setData("role", entity.role);
   }
 
+  /** A readable deterministic danger silhouette when no clean art crop exists. */
+  private addHazardPlaceholder(entity: PlannedEntity, fill: number, stroke: number): void {
+    const left = entity.x - entity.width / 2;
+    const right = entity.x + entity.width / 2;
+    const top = entity.y - entity.height / 2;
+    const bottom = entity.y + entity.height / 2;
+    const graphics = this.add.graphics().setDepth(3);
+    graphics.fillStyle(fill, 0.72).lineStyle(3, stroke, 0.88).beginPath();
+    if (entity.width >= entity.height * 1.35) {
+      const teeth = Math.max(2, Math.min(8, Math.round(entity.width / Math.max(18, entity.height * 0.65))));
+      graphics.moveTo(left, bottom);
+      for (let tooth = 0; tooth < teeth; tooth += 1) {
+        const toothLeft = left + entity.width * tooth / teeth;
+        const toothRight = left + entity.width * (tooth + 1) / teeth;
+        graphics.lineTo((toothLeft + toothRight) / 2, top);
+        graphics.lineTo(toothRight, bottom);
+      }
+    } else {
+      graphics.moveTo(entity.x, top);
+      graphics.lineTo(right, entity.y);
+      graphics.lineTo(entity.x, bottom);
+      graphics.lineTo(left, entity.y);
+    }
+    graphics.closePath().fillPath().strokePath();
+    graphics.setData("entityId", entity.id).setData("role", entity.role);
+  }
+
   /**
    * Removes only light, neutral paper from a local crop. Crayon/marker
    * pixels remain byte-for-byte untouched; this is isolation, not a style
@@ -1104,12 +1159,11 @@ class PlatformerScene extends Phaser.Scene {
     context: CanvasRenderingContext2D,
     width: number,
     height: number,
-  ): boolean {
+  ): BackdropIsolationResult {
     const pixels = context.getImageData(0, 0, width, height);
     const result = isolateBorderConnectedBackdrop({ data: pixels.data, width, height });
-    if (!result.isolated) return false;
-    context.putImageData(pixels, 0, 0);
-    return true;
+    if (result.isolated) context.putImageData(pixels, 0, 0);
+    return result;
   }
 
   private artworkWorldColor(): number {
@@ -1126,6 +1180,11 @@ class PlatformerScene extends Phaser.Scene {
     if (!context) return fallback;
     context.drawImage(source.image as CanvasImageSource, 0, 0, canvas.width, canvas.height);
     const pixels = context.getImageData(0, 0, canvas.width, canvas.height);
+    this.sceneSurfaceShare = dominantSurfaceShare({
+      data: pixels.data,
+      width: canvas.width,
+      height: canvas.height,
+    });
     const sampled = dominantSurfaceColor({ data: pixels.data, width: canvas.width, height: canvas.height });
     // Match the real drawing surface instead of lightening it: even a small
     // shift makes any unavoidable anti-aliased edge read as a rectangular tile.

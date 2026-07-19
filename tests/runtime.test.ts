@@ -35,9 +35,12 @@ import { type GameSpec } from "../runner/types.js";
 import { findProjectRoot, loadJson } from "../runner/spec.js";
 import {
   dominantSurfaceColor,
+  dominantSurfaceShare,
   fallbackWorldColor,
   featherSurfaceEdges,
   isolateBorderConnectedBackdrop,
+  softlyIsolateLocalBackdrop,
+  softlyRemoveKnownBackdrop,
   softenWorldColor,
 } from "../packages/runtime/src/artwork-rendering.js";
 
@@ -619,6 +622,7 @@ test("world backdrop comes from image dominance or a neutral palette color, neve
     }
   }
   assert.equal(dominantSurfaceColor({ data, width, height }), 0xfaf8f2);
+  assert.ok(dominantSurfaceShare({ data, width, height }) > 0.8);
   assert.equal(fallbackWorldColor(["#ffd800", "#ff8800", "#ffffff"]), 0xffffff);
   assert.equal(fallbackWorldColor(["#ffd800", "#ff8800"]), 0xf7f4ff);
   assert.equal(softenWorldColor(0xd2cdc4), 0xeeece9);
@@ -630,4 +634,58 @@ test("uncertain hero crops feather only their outside edge", () => {
   assert.equal(data[3], 0);
   assert.equal(data[(5 * 10 + 5) * 4 + 3], 255);
   assert.deepEqual([...data.slice((5 * 10 + 5) * 4, (5 * 10 + 5) * 4 + 3)], [30, 60, 90]);
+});
+
+test("textured local substrate can be removed without changing retained mark colors", () => {
+  const width = 30;
+  const height = 24;
+  const data = pixelSurface(width, height, [132, 102, 76]);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const offset = (y * width + x) * 4;
+      const variation = (x * 7 + y * 11) % 15;
+      data[offset] = 125 + variation;
+      data[offset + 1] = 95 + variation;
+      data[offset + 2] = 69 + variation;
+    }
+  }
+  for (let y = 7; y < 18; y += 1) {
+    for (let x = 9; x < 22; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 30;
+      data[offset + 1] = 24;
+      data[offset + 2] = 20;
+    }
+  }
+  assert.equal(softlyIsolateLocalBackdrop({ data, width, height }), true);
+  assert.equal(data[3], 0);
+  const center = (12 * width + 15) * 4;
+  assert.deepEqual([...data.slice(center, center + 3)], [30, 24, 20]);
+  assert.equal(data[center + 3], 255);
+});
+
+test("known substrate cleanup removes enclosed photo pockets but retains distinct ink", () => {
+  const width = 20;
+  const height = 20;
+  const data = pixelSurface(width, height, [136, 106, 80]);
+  for (let y = 4; y < 16; y += 1) {
+    for (let x = 4; x < 16; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 32;
+      data[offset + 1] = 25;
+      data[offset + 2] = 21;
+    }
+  }
+  for (let y = 8; y < 12; y += 1) {
+    for (let x = 8; x < 12; x += 1) {
+      const offset = (y * width + x) * 4;
+      data[offset] = 140;
+      data[offset + 1] = 110;
+      data[offset + 2] = 84;
+    }
+  }
+  assert.equal(softlyRemoveKnownBackdrop({ data, width, height }, 0x886a50), true);
+  assert.equal(data[3], 0);
+  assert.equal(data[(9 * width + 9) * 4 + 3], 0);
+  assert.equal(data[(6 * width + 6) * 4 + 3], 255);
 });

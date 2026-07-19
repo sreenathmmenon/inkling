@@ -96,6 +96,24 @@ export function dominantSurfaceColor(surface: PixelSurface): number | undefined 
   return dominant ? packedColor(clusterColor(dominant)) : undefined;
 }
 
+/** Fraction of sampled pixels belonging to the dominant surface color bucket. */
+export function dominantSurfaceShare(surface: PixelSurface): number {
+  const { data, width, height } = surface;
+  if (width < 1 || height < 1 || data.length < width * height * 4) return 0;
+  const clusters = new Map<number, ColorCluster>();
+  const stride = Math.max(1, Math.floor(Math.sqrt((width * height) / 4_096)));
+  let samples = 0;
+  for (let y = 0; y < height; y += stride) {
+    for (let x = 0; x < width; x += stride) {
+      const offset = (y * width + x) * 4;
+      if ((data[offset + 3] ?? 0) < 192) continue;
+      addSample(clusters, data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0, 24);
+      samples += 1;
+    }
+  }
+  return samples > 0 ? (dominantCluster(clusters)?.count ?? 0) / samples : 0;
+}
+
 /**
  * Removes a locally uniform substrate only when it dominates a crop border.
  * The flood fill is deliberately border-connected: an enclosed mark matching
@@ -246,9 +264,9 @@ export function softenWorldColor(value: number): number {
 }
 
 /**
- * Softens only the outside edge of an otherwise unusable local crop. This is
- * a last-resort hero treatment: every interior source pixel stays untouched,
- * while the photographed crop boundary stops reading as the hero's shape.
+ * Softens only the outside edge of an otherwise unusable local crop. Every
+ * interior source pixel stays untouched, while the photographed crop boundary
+ * stops reading as the entity's shape.
  */
 export function featherSurfaceEdges(surface: PixelSurface): void {
   const { data, width, height } = surface;
@@ -264,4 +282,108 @@ export function featherSurfaceEdges(surface: PixelSurface): void {
       data[alphaOffset] = Math.round((data[alphaOffset] ?? 0) * eased);
     }
   }
+}
+
+/**
+ * Removes a varying local substrate when a strict border-connected fill cannot
+ * separate it. Alpha follows distance from the crop's dominant border shades;
+ * RGB values are never changed. The operation declines if it would erase the
+ * whole crop or retain nearly the whole photographed rectangle.
+ */
+export function softlyIsolateLocalBackdrop(surface: PixelSurface): boolean {
+  const { data, width, height } = surface;
+  const pixelCount = width * height;
+  if (width < 2 || height < 2 || data.length < pixelCount * 4) return false;
+  const clusters = new Map<number, ColorCluster>();
+  let borderSamples = 0;
+  const sample = (x: number, y: number): void => {
+    const offset = (y * width + x) * 4;
+    if ((data[offset + 3] ?? 0) < 192) return;
+    addSample(clusters, data[offset] ?? 0, data[offset + 1] ?? 0, data[offset + 2] ?? 0, 20);
+    borderSamples += 1;
+  };
+  for (let x = 0; x < width; x += 1) {
+    sample(x, 0);
+    sample(x, height - 1);
+  }
+  for (let y = 1; y < height - 1; y += 1) {
+    sample(0, y);
+    sample(width - 1, y);
+  }
+  const ordered = [...clusters.values()].sort((left, right) => right.count - left.count);
+  const dominant = ordered[0];
+  if (!dominant || borderSamples === 0 || dominant.count / borderSamples < 0.22) return false;
+  const dominantColor = clusterColor(dominant);
+  const substrateColors = ordered
+    .filter((cluster) => cluster.count / borderSamples >= 0.025)
+    .map(clusterColor)
+    .filter(([red, green, blue]) => Math.hypot(
+      red - dominantColor[0],
+      green - dominantColor[1],
+      blue - dominantColor[2],
+    ) <= 82)
+    .slice(0, 6);
+  if (substrateColors.length === 0) return false;
+
+  const factors = new Uint8Array(pixelCount);
+  let originalAlpha = 0;
+  let retainedAlpha = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const offset = pixel * 4;
+    const alpha = data[offset + 3] ?? 0;
+    originalAlpha += alpha;
+    let distance = Number.POSITIVE_INFINITY;
+    for (const [red, green, blue] of substrateColors) {
+      distance = Math.min(distance, Math.hypot(
+        (data[offset] ?? 0) - red,
+        (data[offset + 1] ?? 0) - green,
+        (data[offset + 2] ?? 0) - blue,
+      ));
+    }
+    const normalized = Math.max(0, Math.min(1, (distance - 12) / 88));
+    const eased = normalized * normalized * normalized;
+    factors[pixel] = Math.round(eased * 255);
+    retainedAlpha += alpha * eased;
+  }
+  const retainedShare = originalAlpha > 0 ? retainedAlpha / originalAlpha : 0;
+  if (retainedShare < 0.025 || retainedShare > 0.94) return false;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const alphaOffset = pixel * 4 + 3;
+    data[alphaOffset] = Math.round((data[alphaOffset] ?? 0) * (factors[pixel] ?? 0) / 255);
+  }
+  return true;
+}
+
+/** Removes remaining pockets of a known crop substrate after strict isolation. */
+export function softlyRemoveKnownBackdrop(surface: PixelSurface, backdropColor: number): boolean {
+  const { data, width, height } = surface;
+  const pixelCount = width * height;
+  if (width < 1 || height < 1 || data.length < pixelCount * 4) return false;
+  const red = (backdropColor >> 16) & 0xff;
+  const green = (backdropColor >> 8) & 0xff;
+  const blue = backdropColor & 0xff;
+  const factors = new Uint8Array(pixelCount);
+  let originalAlpha = 0;
+  let retainedAlpha = 0;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const offset = pixel * 4;
+    const alpha = data[offset + 3] ?? 0;
+    originalAlpha += alpha;
+    const distance = Math.hypot(
+      (data[offset] ?? 0) - red,
+      (data[offset + 1] ?? 0) - green,
+      (data[offset + 2] ?? 0) - blue,
+    );
+    const normalized = Math.max(0, Math.min(1, (distance - 10) / 90));
+    const eased = normalized * normalized * normalized;
+    factors[pixel] = Math.round(eased * 255);
+    retainedAlpha += alpha * eased;
+  }
+  const retainedShare = originalAlpha > 0 ? retainedAlpha / originalAlpha : 0;
+  if (retainedShare < 0.02 || retainedShare > 0.95) return false;
+  for (let pixel = 0; pixel < pixelCount; pixel += 1) {
+    const alphaOffset = pixel * 4 + 3;
+    data[alphaOffset] = Math.round((data[alphaOffset] ?? 0) * (factors[pixel] ?? 0) / 255);
+  }
+  return true;
 }

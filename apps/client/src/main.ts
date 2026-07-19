@@ -1,19 +1,16 @@
-import Phaser from "phaser";
-
 import {
   attachRuntimeTraceReport,
-  createPlatformerPlan,
-  createObjectiveContract,
-  launchPlatformer,
-  replayPlatformerInBrowser,
-  requestPlatformerAssist,
   resolvePlayableGame,
-  setPlatformerControl,
-  type PlatformerControl,
-  type RuntimeEvent,
-  type InputFrame,
-  type PlatformerState,
-} from "../../../packages/runtime/src/index.js";
+} from "../../../packages/runtime/src/artwork.js";
+import { createPlatformerPlan } from "../../../packages/runtime/src/platformer-layout.js";
+import { createObjectiveContract } from "../../../packages/runtime/src/objective-contract.js";
+import type {
+  PlatformerControl,
+  PlatformerState,
+} from "../../../packages/runtime/src/platformer.js";
+import type { RuntimeEvent } from "../../../packages/runtime/src/runtime-events.js";
+import type { InputFrame } from "../../../packages/runtime/src/input-frame.js";
+import type Phaser from "phaser";
 import type { GameSpec } from "../../../runner/types.js";
 import { runPlaytestWithTrace } from "../../../services/solve/src/playtest.js";
 import { validateRuntimeTrace } from "../../../services/solve/src/runtime-trace.js";
@@ -86,6 +83,9 @@ const initialGameSpec = typeof __INKLING_GAMESPEC__ === "undefined"
   : __INKLING_GAMESPEC__;
 let currentSpec: unknown = initialGameSpec;
 let game: Phaser.Game | undefined;
+let playSequence = 0;
+let playerModule: typeof import("../../../packages/runtime/src/platformer.js") | undefined;
+let playerModulePromise: Promise<typeof import("../../../packages/runtime/src/platformer.js")> | undefined;
 let preparedDrawing: PreparedDrawing | undefined;
 let sourceDrawingFile: File | undefined;
 let preparationSequence = 0;
@@ -122,11 +122,29 @@ const STAGES: Array<{ id: GenerationStage; title: string; detail: string }> = [
   { id: "testing", title: "Making sure you can finish", detail: "Playing the exact game and checking that its goal can be reached." },
 ];
 
+function loadPlayer(): Promise<typeof import("../../../packages/runtime/src/platformer.js")> {
+  if (playerModule) return Promise.resolve(playerModule);
+  playerModulePromise ??= import("../../../packages/runtime/src/platformer.js").then((loaded) => {
+    playerModule = loaded;
+    return loaded;
+  });
+  return playerModulePromise;
+}
+
+async function replayInProduction(
+  gameSpec: unknown,
+  inputFrames: readonly InputFrame[],
+  host: HTMLElement,
+): Promise<RuntimeEvent[]> {
+  const { replayPlatformerInBrowser } = await import("../../../packages/runtime/src/browser-replay.js");
+  return replayPlatformerInBrowser({ parent: host, gameSpec, inputFrames });
+}
+
 if (new URLSearchParams(window.location.search).has("runtime-replay")) {
   document.body.classList.add("runtime-replay-mode");
   window.__INKLING_REPLAY__ = {
     run(gameSpec, inputFrames) {
-      return replayPlatformerInBrowser({ parent, gameSpec, inputFrames });
+      return replayInProduction(gameSpec, inputFrames, parent);
     },
   };
 }
@@ -138,11 +156,7 @@ async function certifyGeneratedGame(value: unknown): Promise<unknown> {
     const gameSpec = playable.gameSpec as GameSpec;
     const analytic = runPlaytestWithTrace(gameSpec);
     if (!analytic.report.reached_goal) return value;
-    const events = await replayPlatformerInBrowser({
-      parent: runtimeReplayHost,
-      gameSpec,
-      inputFrames: analytic.inputFrames,
-    });
+    const events = await replayInProduction(gameSpec, analytic.inputFrames, runtimeReplayHost);
     const report = validateRuntimeTrace(events, playable.playContract);
     return attachRuntimeTraceReport(value, report);
   } catch {
@@ -185,8 +199,10 @@ function enterPlayMode(): void {
   });
 }
 
-function play(spec: unknown): void {
+async function play(spec: unknown): Promise<void> {
+  const sequence = ++playSequence;
   game?.destroy(true);
+  game = undefined;
   parent.replaceChildren();
   gameEmpty.hidden = true;
   parent.hidden = false;
@@ -216,10 +232,12 @@ function play(spec: unknown): void {
   requireElement<HTMLButtonElement>('[data-game-control="action"]').hidden = !(
     plan.contract.action === "projectile" && plan.goalKind === "defeat_boss"
   );
+  const { launchPlatformer } = await loadPlayer();
+  if (sequence !== playSequence) return;
   game = launchPlatformer({
     parent,
     gameSpec: spec,
-    showTouchControls: window.innerWidth > 680,
+    showTouchControls: window.innerWidth > 680 && !window.matchMedia("(pointer: coarse)").matches,
     onStateChange: showState,
     onRuntimeEvent(event: RuntimeEvent) {
       window.dispatchEvent(new CustomEvent<RuntimeEvent>("inkling:runtime-event", { detail: event }));
@@ -229,6 +247,7 @@ function play(spec: unknown): void {
 }
 
 function showGameWaiting(): void {
+  playSequence += 1;
   game?.destroy(true);
   game = undefined;
   parent.replaceChildren();
@@ -721,7 +740,7 @@ restart.addEventListener("click", () => {
 });
 
 assistGame.addEventListener("click", () => {
-  requestPlatformerAssist(game);
+  playerModule?.requestPlatformerAssist(game);
   assistGame.hidden = true;
   parent.focus({ preventScroll: true });
 });
@@ -742,13 +761,13 @@ fullscreenGame.addEventListener("click", async () => {
 
 for (const button of accessibleControls.querySelectorAll<HTMLButtonElement>("[data-game-control]")) {
   const control = button.dataset.gameControl as PlatformerControl;
-  const release = (): void => setPlatformerControl(game, control, false);
-  button.addEventListener("pointerdown", () => setPlatformerControl(game, control, true));
+  const release = (): void => playerModule?.setPlatformerControl(game, control, false);
+  button.addEventListener("pointerdown", () => playerModule?.setPlatformerControl(game, control, true));
   button.addEventListener("pointerup", release);
   button.addEventListener("pointercancel", release);
   button.addEventListener("pointerleave", release);
   button.addEventListener("click", () => {
-    setPlatformerControl(game, control, true);
+    playerModule?.setPlatformerControl(game, control, true);
     window.setTimeout(release, control === "jump" || control === "action" ? 120 : 300);
   });
 }

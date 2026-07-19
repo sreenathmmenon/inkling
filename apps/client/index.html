@@ -139,6 +139,41 @@
         body.play-mode #objective-title { font-size: 1rem; }
         body.play-mode #game-shell { width: min(100%, calc((100svh - 80px) * 16 / 9)); }
         body.play-mode #game { aspect-ratio: 16 / 9; min-height: 0; }
+        body.play-mode #accessible-controls,
+        body.play-mode #accessible-controls:focus-within {
+          position: fixed;
+          z-index: 300;
+          right: max(10px, env(safe-area-inset-right));
+          bottom: max(8px, env(safe-area-inset-bottom));
+          left: max(10px, env(safe-area-inset-left));
+          display: grid;
+          grid-template-columns: 64px 64px minmax(24px, 1fr) 64px 64px 64px;
+          gap: 8px;
+          padding: 0;
+          background: transparent;
+          box-shadow: none;
+          pointer-events: none;
+        }
+        body.play-mode #accessible-controls button {
+          min-height: 52px;
+          padding: 8px;
+          border: 2px solid #211c3840;
+          background: rgba(255, 255, 255, .94);
+          box-shadow: 0 5px 16px #211c3835;
+          pointer-events: auto;
+        }
+        body.play-mode #accessible-controls [data-game-control="left"] { grid-column: 1; }
+        body.play-mode #accessible-controls [data-game-control="right"] { grid-column: 2; }
+        body.play-mode #accessible-controls [data-game-control="down"] { grid-column: 4; }
+        body.play-mode #accessible-controls [data-game-control="jump"] { grid-column: 5; }
+        body.play-mode #accessible-controls [data-game-control="action"] { grid-column: 6; }
+      }
+      @media (max-height: 600px) and (orientation: landscape) and (pointer: fine) {
+        body.play-mode #accessible-controls:not(:focus-within) {
+          position: absolute;
+          left: -10000px;
+          display: flex;
+        }
       }
       #game-shell:fullscreen { width: 100vw; height: 100vh; height: 100svh; display: grid; place-items: center; border: 0; border-radius: 0; background: #171326; }
       #game-shell:fullscreen #game { width: min(100vw, calc(100vh * 16 / 9)); height: min(100vh, calc(100vw * 9 / 16)); }

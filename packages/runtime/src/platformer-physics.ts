@@ -7,6 +7,9 @@ export const PLATFORMER_PHYSICS = {
   moveVelocityX: 220,
   projectileVelocity: 520,
   projectileCooldownMs: 360,
+  // Long enough to cross the full 960x540 world diagonal. A one-tap,
+  // auto-aimed action must not fail only because the drawn target is far away.
+  projectileLifetimeMs: 2_500,
   // Free-movement drawings can have broad paper crops. Collision follows the
   // central body, not the entire visual bounding box.
   freeMovementColliderScale: 0.58,

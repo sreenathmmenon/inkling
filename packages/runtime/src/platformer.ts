@@ -15,8 +15,21 @@ import {
   ONE_WAY_PLATFORM_COLLISION,
   PLATFORMER_PHYSICS,
 } from "./platformer-physics.js";
-import { createTouchControlLayout } from "./platformer-controls.js";
+import {
+  createTouchControlLayout,
+  type TouchControlLayout,
+} from "./platformer-controls.js";
 import { createObjectiveContract } from "./objective-contract.js";
+import {
+  CELEBRATION_POINTS,
+  feedbackCueFor,
+  type GameplayFeedbackEvent,
+  type GameplayFeedbackKind,
+} from "./feedback-contract.js";
+import {
+  createCoachingContract,
+  type CoachingContract,
+} from "./coaching-contract.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
 
@@ -32,6 +45,7 @@ export interface PlatformerOptions {
   gameSpec: unknown;
   artwork?: ArtworkManifest;
   onStateChange?: (state: PlatformerState) => void;
+  onFeedback?: (event: GameplayFeedbackEvent) => void;
 }
 
 export type PlatformerControl = "left" | "right" | "jump" | "down" | "action";
@@ -78,10 +92,19 @@ class PlatformerScene extends Phaser.Scene {
   private jumpsRemaining: number = PLATFORMER_PHYSICS.maxJumps;
   private surviveRemainingMs = PLATFORMER_PHYSICS.surviveDurationMs;
   private lastProjectileAt = -Infinity;
+  private projectileFeedbackShown = false;
+  private lastGoalBlockedAt = -Infinity;
   private status: PlatformerStatus = "playing";
+  private readonly coaching: CoachingContract;
+  private coachingCompleted = false;
+  private readonly coachingObjects: Phaser.GameObjects.GameObject[] = [];
+  private readonly controlCoachingObjects: Phaser.GameObjects.GameObject[] = [];
+  private readonly reducedMotion = typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   setExternalControl(control: PlatformerControl, pressed: boolean): void {
     this.touch[control] = pressed;
+    if (pressed) this.acceptCoachedControl(control);
   }
 
   private get usesFreeMovement(): boolean {
@@ -92,8 +115,10 @@ class PlatformerScene extends Phaser.Scene {
     private readonly plan: PlatformerPlan,
     private readonly artwork: ArtworkManifest | undefined,
     private readonly onStateChange?: (state: PlatformerState) => void,
+    private readonly onFeedback?: (event: GameplayFeedbackEvent) => void,
   ) {
     super("lane-a-platformer");
+    this.coaching = createCoachingContract(plan);
   }
 
   preload(): void {
@@ -113,6 +138,8 @@ class PlatformerScene extends Phaser.Scene {
     this.surviveRemainingMs = PLATFORMER_PHYSICS.surviveDurationMs;
     this.touch = { left: false, right: false, jump: false, down: false, action: false };
     this.jumpWasDown = false;
+    this.projectileFeedbackShown = false;
+    this.lastGoalBlockedAt = -Infinity;
 
     const paper = color(this.plan.palette[0], 0xfffaf0);
     const ink = color(this.plan.palette[1], 0x263238);
@@ -271,7 +298,7 @@ class PlatformerScene extends Phaser.Scene {
     }
 
     this.target = this.physics.add.staticGroup();
-    this.projectiles = this.physics.add.group();
+    this.projectiles = this.physics.add.group({ allowGravity: false });
     if (this.plan.goalKind === "defeat_boss") {
       const target = this.rectangle(this.plan.goal, dangerColor, ink, 0.9);
       this.physics.add.existing(target, true);
@@ -324,6 +351,7 @@ class PlatformerScene extends Phaser.Scene {
       };
     }
     this.createTouchControls();
+    if (!this.coachingCompleted) this.createCoaching();
     this.input.on(Phaser.Input.Events.GAME_OUT, this.resetTouchControls, this);
     if (typeof ResizeObserver !== "undefined") {
       this.touchResizeObserver?.disconnect();
@@ -337,6 +365,8 @@ class PlatformerScene extends Phaser.Scene {
       this.input.off(Phaser.Input.Events.GAME_OUT, this.resetTouchControls, this);
       this.touchResizeObserver?.disconnect();
       this.touchResizeObserver = undefined;
+      this.clearCoachingObjects(this.coachingObjects);
+      this.clearCoachingObjects(this.controlCoachingObjects);
     });
     this.publishState();
   }
@@ -371,6 +401,8 @@ class PlatformerScene extends Phaser.Scene {
     }
     const movingLeft = Boolean(this.controls.cursors?.left.isDown || this.controls.left?.isDown || this.touch.left);
     const movingRight = Boolean(this.controls.cursors?.right.isDown || this.controls.right?.isDown || this.touch.right);
+    if (movingLeft) this.acceptCoachedControl("left");
+    if (movingRight) this.acceptCoachedControl("right");
     if (this.plan.contract.movement === "auto_ground") {
       // Runners advance by default, but the same left/right controls remain
       // available so a required item behind the hero never makes the game
@@ -385,6 +417,7 @@ class PlatformerScene extends Phaser.Scene {
         this.controls.space?.isDown ||
         this.touch.jump,
     );
+    if (jumpDown) this.acceptCoachedControl("jump");
     if (jumpDown && !this.jumpWasDown) this.lastJumpPressedAt = this.elapsedMs;
     if (
       this.elapsedMs - this.lastJumpPressedAt <= PLATFORMER_PHYSICS.jumpBufferMs &&
@@ -413,6 +446,10 @@ class PlatformerScene extends Phaser.Scene {
     const right = Boolean(this.controls.cursors?.right.isDown || this.controls.right?.isDown || this.touch.right);
     const up = Boolean(this.controls.cursors?.up.isDown || this.controls.jump?.isDown || this.touch.jump);
     const down = Boolean(this.controls.cursors?.down.isDown || this.controls.down?.isDown || this.touch.down);
+    if (left) this.acceptCoachedControl("left");
+    if (right) this.acceptCoachedControl("right");
+    if (up) this.acceptCoachedControl("jump");
+    if (down) this.acceptCoachedControl("down");
     const velocity = PLATFORMER_PHYSICS.moveVelocityX;
     body.setVelocityX(left === right ? 0 : left ? -velocity : velocity);
     body.setVelocityY(up === down ? 0 : up ? -velocity : velocity);
@@ -434,6 +471,10 @@ class PlatformerScene extends Phaser.Scene {
     const magnitude = Math.max(1, Math.hypot(deltaX, deltaY));
     const projectile = this.add.circle(this.hero.x, this.hero.y, 7, 0xffffff, 0.96);
     this.physics.add.existing(projectile, false);
+    // Adding an existing body to an Arcade group applies the group's defaults.
+    // Add first, then set the shot's final physics so velocity and gravity
+    // cannot be overwritten by group membership.
+    this.projectiles.add(projectile);
     const body = projectile.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(false);
     body.setVelocity(
@@ -442,8 +483,166 @@ class PlatformerScene extends Phaser.Scene {
     );
     body.setCollideWorldBounds(true);
     body.onWorldBounds = true;
-    this.projectiles.add(projectile);
-    this.time.delayedCall(1_500, () => projectile.destroy());
+    this.acceptCoachedControl("action");
+    if (!this.projectileFeedbackShown) {
+      this.projectileFeedbackShown = true;
+      this.emitFeedback("projectile", null, false, this.hero.x, this.hero.y - this.plan.hero.height / 2);
+    }
+    this.time.delayedCall(PLATFORMER_PHYSICS.projectileLifetimeMs, () => projectile.destroy());
+  }
+
+  private emitFeedback(
+    kind: GameplayFeedbackKind,
+    entityId: string | null,
+    required: boolean,
+    x = this.hero.x,
+    y = this.hero.y,
+  ): void {
+    const event: GameplayFeedbackEvent = { kind, elapsedMs: this.elapsedMs, entityId, required };
+    this.onFeedback?.(event);
+    const cue = feedbackCueFor(event, this.reducedMotion);
+    if (kind === "win") {
+      this.createCelebration(cue.color, cue.durationMs);
+      return;
+    }
+    if (!cue.label || kind === "lose") return;
+    const label = this.add
+      .text(x, y - 18, cue.label, {
+        color: `#${cue.color.toString(16).padStart(6, "0")}`,
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "19px",
+        fontStyle: "bold",
+        backgroundColor: "rgba(33,28,56,0.9)",
+        padding: { x: 9, y: 5 },
+      })
+      .setOrigin(0.5)
+      .setDepth(180);
+    const ring = this.add
+      .circle(x, y, Math.max(24, this.plan.hero.width * 0.42), cue.color, 0.08)
+      .setStrokeStyle(4, cue.color, 0.9)
+      .setDepth(179);
+    if (cue.motion === "none") {
+      this.time.delayedCall(cue.durationMs, () => {
+        label.destroy();
+        ring.destroy();
+      });
+      return;
+    }
+    this.tweens.add({
+      targets: label,
+      y: label.y - 34,
+      alpha: 0,
+      duration: cue.durationMs,
+      ease: "Cubic.easeOut",
+      onComplete: () => label.destroy(),
+    });
+    this.tweens.add({
+      targets: ring,
+      scale: 1.55,
+      alpha: 0,
+      duration: cue.durationMs,
+      ease: "Cubic.easeOut",
+      onComplete: () => ring.destroy(),
+    });
+  }
+
+  private createCelebration(colorValue: number, durationMs: number): void {
+    const centerX = this.scale.width / 2;
+    const centerY = this.scale.height / 2;
+    const colors = [colorValue, 0x8fe8ff, 0xff7bbd, 0x8fe388];
+    CELEBRATION_POINTS.forEach(([x, y], index) => {
+      const sparkle = this.add
+        .circle(centerX, centerY, index % 3 === 0 ? 8 : 6, colors[index % colors.length], 0.96)
+        .setScrollFactor(0)
+        .setDepth(199);
+      const destinationX = centerX + x * this.scale.width;
+      const destinationY = centerY + y * this.scale.height;
+      if (this.reducedMotion) {
+        sparkle.setPosition(destinationX, destinationY);
+        this.time.delayedCall(durationMs, () => sparkle.destroy());
+        return;
+      }
+      this.tweens.add({
+        targets: sparkle,
+        x: destinationX,
+        y: destinationY,
+        scale: 0.55,
+        alpha: 0,
+        delay: index * 25,
+        duration: durationMs,
+        ease: "Cubic.easeOut",
+        onComplete: () => sparkle.destroy(),
+      });
+    });
+  }
+
+  private createCoaching(): void {
+    this.clearCoachingObjects(this.coachingObjects);
+    const heroRing = this.add
+      .ellipse(
+        this.plan.hero.x,
+        this.plan.hero.y,
+        this.plan.hero.width + 22,
+        this.plan.hero.height + 22,
+        0xffffff,
+        0,
+      )
+      .setStrokeStyle(5, 0x684fe8, 0.96)
+      .setDepth(132);
+    const heroLabel = this.add
+      .text(this.plan.hero.x, Math.max(18, this.plan.hero.y - this.plan.hero.height / 2 - 22), "YOU", {
+        color: "#ffffff",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "14px",
+        fontStyle: "bold",
+        backgroundColor: "rgba(104,79,232,0.96)",
+        padding: { x: 7, y: 3 },
+      })
+      .setOrigin(0.5)
+      .setDepth(133);
+    this.coachingObjects.push(heroRing, heroLabel);
+    const target = this.coaching.objectiveTarget;
+    // Reach-goal scenes already draw a permanent FINISH marker. Onboarding
+    // should not stack a second ring and label over it; collect/boss targets
+    // do not have that marker and still benefit from a brief highlight.
+    if (
+      target &&
+      target.id !== this.plan.hero.id &&
+      this.plan.goalKind !== "reach_goal"
+    ) {
+      const targetRing = this.add
+        .ellipse(target.x, target.y, target.width + 24, target.height + 24, 0xffffff, 0)
+        .setStrokeStyle(4, 0xffb629, 0.94)
+        .setDepth(131);
+      const targetLabel = this.add
+        .text(target.x, Math.max(18, target.y - target.height / 2 - 20), this.coaching.objectiveLabel, {
+          color: "#211c38",
+          fontFamily: "system-ui, sans-serif",
+          fontSize: "13px",
+          fontStyle: "bold",
+          backgroundColor: "rgba(255,213,86,0.96)",
+          padding: { x: 7, y: 3 },
+        })
+        .setOrigin(0.5)
+        .setDepth(133);
+      this.coachingObjects.push(targetRing, targetLabel);
+    }
+    if (!this.reducedMotion) {
+      this.tweens.add({ targets: heroRing, alpha: 0.48, duration: 620, yoyo: true, repeat: -1 });
+    }
+  }
+
+  private acceptCoachedControl(control: PlatformerControl): void {
+    if (this.coachingCompleted || control !== this.coaching.firstControl) return;
+    this.coachingCompleted = true;
+    this.emitFeedback("input_accepted", null, false);
+    this.clearCoachingObjects(this.coachingObjects);
+    this.clearCoachingObjects(this.controlCoachingObjects);
+  }
+
+  private clearCoachingObjects(objects: Phaser.GameObjects.GameObject[]): void {
+    for (const object of objects) object.destroy();
+    objects.length = 0;
   }
 
   private rectangle(
@@ -806,16 +1005,59 @@ class PlatformerScene extends Phaser.Scene {
     if (this.plan.contract.action === "projectile" && this.plan.goalKind === "defeat_boss") {
       makeButton(layout.right[2], "action", "action");
     }
+    if (!this.coachingCompleted) this.renderControlCoaching(layout);
+    else this.clearCoachingObjects(this.controlCoachingObjects);
+  }
+
+  private renderControlCoaching(layout: TouchControlLayout): void {
+    this.clearCoachingObjects(this.controlCoachingObjects);
+    const control = this.coaching.firstControl;
+    const x = control === "left" ? layout.left[0]
+      : control === "right" ? layout.left[1]
+      : control === "jump" ? layout.right[0]
+      : control === "down" ? layout.right[1]
+      : layout.right[2];
+    if (x === undefined) return;
+    const ring = this.add
+      .circle(x, layout.y, layout.size * 0.58, 0xffffff, 0)
+      .setStrokeStyle(Math.max(4, layout.size * 0.045), 0xffd556, 0.98)
+      .setScrollFactor(0)
+      .setDepth(106);
+    const label = this.add
+      .text(x, Math.max(18, layout.y - layout.size * 0.72), "START", {
+        color: "#211c38",
+        fontFamily: "system-ui, sans-serif",
+        fontSize: "13px",
+        fontStyle: "bold",
+        backgroundColor: "rgba(255,213,86,0.96)",
+        padding: { x: 7, y: 3 },
+      })
+      .setOrigin(0.5)
+      .setScrollFactor(0)
+      .setDepth(107);
+    this.controlCoachingObjects.push(ring, label);
+    if (!this.reducedMotion) {
+      this.tweens.add({ targets: ring, scale: 1.1, alpha: 0.55, duration: 620, yoyo: true, repeat: -1 });
+    }
   }
 
   private collect(gameObject: Phaser.GameObjects.GameObject): void {
     const body = gameObject.body as Phaser.Physics.Arcade.StaticBody | null;
     if (!body?.enable) return;
     body.enable = false;
+    const pickupX = (gameObject as Phaser.GameObjects.Rectangle).x;
+    const pickupY = (gameObject as Phaser.GameObjects.Rectangle).y;
     (gameObject as Phaser.GameObjects.Rectangle).setVisible(false);
     const entityId = gameObject.getData("entityId");
     if (typeof entityId === "string") this.artworkByEntity.get(entityId)?.setVisible(false);
     this.collected += 1;
+    this.emitFeedback(
+      "pickup",
+      typeof entityId === "string" ? entityId : null,
+      this.plan.goalKind === "collect_all",
+      pickupX,
+      pickupY,
+    );
     if (
       this.plan.goalKind === "collect_all" &&
       this.collected >= this.plan.collectibles.length
@@ -832,6 +1074,10 @@ class PlatformerScene extends Phaser.Scene {
       this.plan.goalKind === "collect_all" &&
       this.collected < this.plan.collectibles.length
     ) {
+      if (this.elapsedMs - this.lastGoalBlockedAt >= 1_000) {
+        this.lastGoalBlockedAt = this.elapsedMs;
+        this.emitFeedback("goal_blocked", this.plan.goal.id, true, this.hero.x, this.hero.y - 22);
+      }
       return;
     }
     this.win();
@@ -844,6 +1090,7 @@ class PlatformerScene extends Phaser.Scene {
       this.lose();
       return;
     }
+    this.emitFeedback("damage", null, false, this.hero.x, this.hero.y - this.plan.hero.height / 2);
     this.invulnerableUntil = this.elapsedMs + PLATFORMER_PHYSICS.invulnerabilityMs;
     this.hero.setAlpha(0.45);
     this.respawn();
@@ -862,7 +1109,8 @@ class PlatformerScene extends Phaser.Scene {
     if (this.status !== "playing") return;
     this.status = "won";
     this.physics.pause();
-    this.message.setText("You win!\nTap to play again").setVisible(true);
+    this.message.setText("You did it!\nTap to play again").setVisible(true);
+    this.emitFeedback("win", this.plan.goal.id, true);
     this.publishState();
   }
 
@@ -870,6 +1118,7 @@ class PlatformerScene extends Phaser.Scene {
     this.status = "lost";
     this.physics.pause();
     this.message.setText("Try again\nTap to restart").setVisible(true);
+    this.emitFeedback("lose", null, false);
     this.publishState();
   }
 
@@ -928,7 +1177,7 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
     input: {
       activePointers: 3,
     },
-    scene: new PlatformerScene(plan, artwork, options.onStateChange),
+    scene: new PlatformerScene(plan, artwork, options.onStateChange, options.onFeedback),
   });
 }
 

@@ -44,3 +44,14 @@ export {
   type ActionContract,
   type MovementContract,
 } from "./game-contract.js";
+export {
+  CELEBRATION_POINTS,
+  feedbackCueFor,
+  type GameplayFeedbackCue,
+  type GameplayFeedbackEvent,
+  type GameplayFeedbackKind,
+} from "./feedback-contract.js";
+export {
+  createCoachingContract,
+  type CoachingContract,
+} from "./coaching-contract.js";

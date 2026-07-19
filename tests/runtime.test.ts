@@ -12,8 +12,17 @@ import {
   resolvePlayableGame,
 } from "../packages/runtime/src/artwork.js";
 import { createTouchControlLayout } from "../packages/runtime/src/platformer-controls.js";
-import { ONE_WAY_PLATFORM_COLLISION } from "../packages/runtime/src/platformer-physics.js";
+import {
+  ONE_WAY_PLATFORM_COLLISION,
+  PLATFORMER_PHYSICS,
+} from "../packages/runtime/src/platformer-physics.js";
 import { createObjectiveContract } from "../packages/runtime/src/objective-contract.js";
+import {
+  CELEBRATION_POINTS,
+  feedbackCueFor,
+  type GameplayFeedbackEvent,
+} from "../packages/runtime/src/feedback-contract.js";
+import { createCoachingContract } from "../packages/runtime/src/coaching-contract.js";
 import { type GameSpec } from "../runner/types.js";
 import { findProjectRoot, loadJson } from "../runner/spec.js";
 
@@ -203,6 +212,68 @@ test("touch controls keep a child-sized tap target without dominating desktop pl
   assert.ok(portrait.size * (390 / 432) >= 48);
   assert.ok(portrait.left[0] > 0);
   assert.ok(portrait.right[0] < 432);
+});
+
+test("gameplay feedback is deterministic, semantic, and reduced-motion safe", () => {
+  const pickup: GameplayFeedbackEvent = {
+    kind: "pickup", elapsedMs: 1_250, entityId: "entity_a", required: true,
+  };
+  assert.deepEqual(feedbackCueFor(pickup, false), feedbackCueFor(pickup, false));
+  assert.equal(feedbackCueFor(pickup, false).label, "Found!");
+  assert.equal(feedbackCueFor({ ...pickup, required: false }, false).label, "Bonus!");
+  assert.equal(feedbackCueFor(pickup, true).motion, "none");
+  assert.notEqual(feedbackCueFor(pickup, false).motion, "none");
+  assert.equal(feedbackCueFor({ ...pickup, kind: "goal_blocked" }, false).label, "Find everything first");
+  assert.equal(CELEBRATION_POINTS.length, 12);
+  assert.equal(new Set(CELEBRATION_POINTS.map((point) => point.join(","))).size, CELEBRATION_POINTS.length);
+  assert.ok(CELEBRATION_POINTS.every(([x, y]) => Math.abs(x) < 0.5 && Math.abs(y) < 0.5));
+});
+
+test("one projectile action can cross the entire deterministic world", () => {
+  const maximumTravel = PLATFORMER_PHYSICS.projectileVelocity *
+    PLATFORMER_PHYSICS.projectileLifetimeMs / 1_000;
+  assert.ok(maximumTravel >= Math.hypot(WORLD_WIDTH, WORLD_HEIGHT));
+});
+
+test("first-use coaching derives only from engine contracts and objective geometry", () => {
+  const base: GameSpec = {
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+    entities: [
+      { id: "entity_a", role: "collectible", bbox: [0.5, 0.5, 0.55, 0.6], behavior: "static", style_ref: "source" },
+      { id: "target", role: "goal", bbox: [0.8, 0.5, 0.9, 0.7], behavior: "static", style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "target" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const ground = createCoachingContract(createPlatformerPlan(base));
+  assert.equal(ground.firstControl, "right");
+  assert.equal(ground.objectiveLabel, "FINISH");
+
+  const collectAll = structuredClone(base);
+  collectAll.goal = { kind: "collect_all", target_id: null };
+  const collecting = createCoachingContract(createPlatformerPlan(collectAll));
+  assert.equal(collecting.objectiveTarget?.id, "entity_a");
+  assert.equal(collecting.objectiveLabel, "FIND");
+
+  const free = structuredClone(base);
+  free.primary_genre = "maze";
+  free.entities[1]!.bbox = [0.12, 0.05, 0.2, 0.15];
+  const upward = createCoachingContract(createPlatformerPlan(free));
+  assert.equal(upward.firstControl, "jump");
+
+  const runner = structuredClone(base);
+  runner.primary_genre = "runner";
+  runner.entities.unshift({
+    id: "support", role: "platform", bbox: [0.05, 0.71, 0.45, 0.78], behavior: "static", style_ref: "source",
+  });
+  assert.equal(createCoachingContract(createPlatformerPlan(runner)).firstControl, "jump");
+
+  const shooter = structuredClone(base);
+  shooter.primary_genre = "shooter";
+  shooter.goal = { kind: "defeat_boss", target_id: "target" };
+  assert.equal(createCoachingContract(createPlatformerPlan(shooter)).firstControl, "action");
 });
 
 test("all drawn platform shapes use the same one-way landing contract", () => {

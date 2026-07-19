@@ -223,7 +223,7 @@ export function runPlaytest(
         y: body.y,
         velocityX: (dx / magnitude) * PLATFORMER_PHYSICS.projectileVelocity,
         velocityY: (dy / magnitude) * PLATFORMER_PHYSICS.projectileVelocity,
-        remainingSeconds: 1.5,
+        remainingSeconds: PLATFORMER_PHYSICS.projectileLifetimeMs / 1_000,
       });
       lastProjectileAt = elapsedMs;
     }

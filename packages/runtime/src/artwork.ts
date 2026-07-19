@@ -1,4 +1,10 @@
 import type { GameSpec, JsonObject, PlaytestReport } from "../../../runner/types.js";
+import {
+  createPlayContract,
+  type PlayContract,
+  type PlayContractOutcome,
+} from "./play-contract.js";
+import type { RuntimeTraceReport } from "./runtime-events.js";
 
 export type NormalizedBounds = [number, number, number, number];
 
@@ -34,11 +40,20 @@ export interface PlayableGameDocument {
 export interface ReadinessEvidence {
   playtestReport: PlaytestReport;
   solvability: JsonObject;
+  playContract: PlayContract;
+  runtimeTraceReport: RuntimeTraceReport | null;
 }
+
+export type PipelineReadinessEvidence = Omit<
+  ReadinessEvidence,
+  "playContract" | "runtimeTraceReport"
+>;
 
 export interface ResolvedPlayableGame {
   gameSpec: unknown;
   artwork: ArtworkManifest | undefined;
+  readinessOutcome: PlayContractOutcome | undefined;
+  playContract: PlayContract | undefined;
 }
 
 const TOPOLOGIES = new Set<HeroRigPlan["topology"]>([
@@ -80,6 +95,35 @@ function normalizedBounds(value: unknown): NormalizedBounds | undefined {
   return [left, top, right, bottom];
 }
 
+function paddedSourceBounds(bounds: NormalizedBounds): NormalizedBounds {
+  const [left, top, right, bottom] = bounds;
+  const horizontalPadding = Math.max(0.008, (right - left) * 0.12);
+  const verticalPadding = Math.max(0.008, (bottom - top) * 0.12);
+  return [
+    Math.max(0, left - horizontalPadding),
+    Math.max(0, top - verticalPadding),
+    Math.min(1, right + horizontalPadding),
+    Math.min(1, bottom + verticalPadding),
+  ];
+}
+
+export function fitArtworkWithin(
+  sourceWidth: number,
+  sourceHeight: number,
+  maximumWidth: number,
+  maximumHeight: number,
+): { width: number; height: number } {
+  if (
+    ![sourceWidth, sourceHeight, maximumWidth, maximumHeight].every(
+      (value) => Number.isFinite(value) && value > 0,
+    )
+  ) {
+    return { width: Math.max(1, maximumWidth), height: Math.max(1, maximumHeight) };
+  }
+  const scale = Math.min(maximumWidth / sourceWidth, maximumHeight / sourceHeight);
+  return { width: sourceWidth * scale, height: sourceHeight * scale };
+}
+
 export function isInlineArtworkDataUrl(value: unknown): value is string {
   return typeof value === "string" && INLINE_IMAGE.test(value);
 }
@@ -94,10 +138,10 @@ export function createArtworkManifest(
   }
   const entityCrops: Record<string, NormalizedBounds> = {};
   const heroBounds = normalizedBounds(gameSpec.hero.bbox);
-  if (heroBounds) entityCrops[gameSpec.hero.id] = heroBounds;
+  if (heroBounds) entityCrops[gameSpec.hero.id] = paddedSourceBounds(heroBounds);
   for (const entity of gameSpec.entities) {
     const bounds = normalizedBounds(entity.bbox);
-    if (bounds) entityCrops[entity.id] = bounds;
+    if (bounds) entityCrops[entity.id] = paddedSourceBounds(bounds);
   }
   const manifest: ArtworkManifest = {
     format: "inkling-artwork-v1",
@@ -113,13 +157,19 @@ export function createPlayableGameDocument(
   gameSpec: GameSpec,
   sourceDataUrl?: string,
   heroRig?: unknown,
-  readinessEvidence?: ReadinessEvidence,
+  readinessEvidence?: PipelineReadinessEvidence,
 ): PlayableGameDocument {
   return {
     format: "inkling-playable-game-v1",
     gameSpec,
     artwork: sourceDataUrl ? createArtworkManifest(gameSpec, sourceDataUrl, heroRig) : null,
-    readinessEvidence: readinessEvidence ?? null,
+    readinessEvidence: readinessEvidence
+      ? {
+        ...readinessEvidence,
+        playContract: createPlayContract(gameSpec),
+        runtimeTraceReport: null,
+      }
+      : null,
   };
 }
 
@@ -183,10 +233,49 @@ export function parseArtworkManifest(value: unknown): ArtworkManifest | undefine
 /** Accepts a v1 playable document while retaining compatibility with raw GameSpec JSON. */
 export function resolvePlayableGame(value: unknown): ResolvedPlayableGame {
   if (!isRecord(value) || value.format !== "inkling-playable-game-v1") {
-    return { gameSpec: value, artwork: undefined };
+    return {
+      gameSpec: value,
+      artwork: undefined,
+      readinessOutcome: undefined,
+      playContract: undefined,
+    };
   }
+  const evidence = isRecord(value.readinessEvidence) ? value.readinessEvidence : undefined;
+  const playContract = evidence && isRecord(evidence.playContract) ? evidence.playContract : undefined;
+  const parsedOutcome = playContract && (
+    playContract.outcome === "faithful_ready" ||
+    playContract.outcome === "related_fallback" ||
+    playContract.outcome === "needs_recast"
+  ) ? playContract.outcome : undefined;
+  const runtimeTraceReport = evidence && isRecord(evidence.runtimeTraceReport)
+    ? evidence.runtimeTraceReport
+    : undefined;
+  const runtimeReceiptMatches = Boolean(
+    playContract &&
+    runtimeTraceReport?.valid === true &&
+    runtimeTraceReport.contractFormat === playContract.format &&
+    runtimeTraceReport.templateId === playContract.templateId &&
+    runtimeTraceReport.runtimeVersion === playContract.runtimeVersion,
+  );
+  const readinessOutcome = parsedOutcome === "faithful_ready" && !runtimeReceiptMatches
+    ? "related_fallback"
+    : parsedOutcome;
   return {
     gameSpec: value.gameSpec,
     artwork: parseArtworkManifest(value.artwork),
+    readinessOutcome,
+    playContract: playContract as unknown as PlayContract | undefined,
+  };
+}
+
+export function attachRuntimeTraceReport(
+  value: unknown,
+  report: RuntimeTraceReport,
+): unknown {
+  if (!isRecord(value) || value.format !== "inkling-playable-game-v1") return value;
+  if (!isRecord(value.readinessEvidence)) return value;
+  return {
+    ...value,
+    readinessEvidence: { ...value.readinessEvidence, runtimeTraceReport: report },
   };
 }

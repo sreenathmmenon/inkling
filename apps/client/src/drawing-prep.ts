@@ -3,6 +3,15 @@ export interface PreparedDrawing {
   width: number;
   height: number;
   crop: [number, number, number, number];
+  quality: DrawingQuality;
+}
+
+export type DrawingQualityWarning = "page_edge_uncertain" | "low_contrast" | "content_near_edge";
+
+export interface DrawingQuality {
+  paperDetected: boolean;
+  contrast: number;
+  warnings: DrawingQualityWarning[];
 }
 
 const ALLOWED_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
@@ -127,6 +136,47 @@ function paperBounds(image: ImageData): [number, number, number, number] | undef
   ];
 }
 
+function percentileFromHistogram(histogram: Uint32Array, total: number, percentile: number): number {
+  const threshold = total * percentile;
+  let count = 0;
+  for (let index = 0; index < histogram.length; index += 1) {
+    count += histogram[index] ?? 0;
+    if (count >= threshold) return index / 255;
+  }
+  return 1;
+}
+
+export function assessDrawingQuality(
+  image: { width: number; height: number; data: ArrayLike<number> },
+  contentBounds: readonly [number, number, number, number] | undefined,
+  paperDetected: boolean,
+): DrawingQuality {
+  const histogram = new Uint32Array(256);
+  const pixels = image.width * image.height;
+  for (let index = 0; index < pixels; index += 1) {
+    const offset = index * 4;
+    const red = image.data[offset] ?? 255;
+    const green = image.data[offset + 1] ?? 255;
+    const blue = image.data[offset + 2] ?? 255;
+    const luminance = Math.round(red * 0.2126 + green * 0.7152 + blue * 0.0722);
+    histogram[luminance] = (histogram[luminance] ?? 0) + 1;
+  }
+  const contrast = percentileFromHistogram(histogram, pixels, 0.95) -
+    percentileFromHistogram(histogram, pixels, 0.05);
+  const warnings: DrawingQualityWarning[] = [];
+  if (!paperDetected) warnings.push("page_edge_uncertain");
+  if (contrast < 0.16) warnings.push("low_contrast");
+  if (contentBounds) {
+    const [left, top, right, bottom] = contentBounds;
+    const marginX = image.width * 0.012;
+    const marginY = image.height * 0.012;
+    if (left <= marginX || top <= marginY || right >= image.width - marginX || bottom >= image.height - marginY) {
+      warnings.push("content_near_edge");
+    }
+  }
+  return { paperDetected, contrast, warnings };
+}
+
 /**
  * Runs entirely in the browser. It validates the captured file, finds the
  * ink/content bounds, and emits a bounded PNG crop. The original pixels inside
@@ -156,7 +206,10 @@ export async function prepareDrawing(file: File): Promise<PreparedDrawing> {
   analysisContext.drawImage(image, 0, 0, analysisWidth, analysisHeight);
 
   const pixels = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight);
-  const detected = paperBounds(pixels) ?? drawingBounds(pixels);
+  const paper = paperBounds(pixels);
+  const ink = drawingBounds(pixels);
+  const detected = paper ?? ink;
+  const quality = assessDrawingQuality(pixels, ink, paper !== undefined);
   const bounds = detected ?? [0, 0, analysisWidth, analysisHeight] as const;
   const [left, top, right, bottom] = bounds;
   const sourceLeft = Math.round(left / analysisScale);
@@ -193,5 +246,6 @@ export async function prepareDrawing(file: File): Promise<PreparedDrawing> {
       Math.min(1, (sourceLeft + sourceWidth) / image.naturalWidth),
       Math.min(1, (sourceTop + sourceHeight) / image.naturalHeight),
     ],
+    quality,
   };
 }

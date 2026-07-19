@@ -15,7 +15,9 @@ export {
 } from "./platformer-layout.js";
 export {
   createArtworkManifest,
+  attachRuntimeTraceReport,
   createPlayableGameDocument,
+  fitArtworkWithin,
   isInlineArtworkDataUrl,
   parseArtworkManifest,
   parseHeroRigPlan,
@@ -24,9 +26,18 @@ export {
   type HeroRigPlan,
   type NormalizedBounds,
   type PlayableGameDocument,
+  type PipelineReadinessEvidence,
   type ReadinessEvidence,
   type ResolvedPlayableGame,
 } from "./artwork.js";
+export {
+  createPlayContract,
+  LANE_A_CAPABILITY_PROFILE,
+  type PlayContract,
+  type PlayContractOutcome,
+  type RuntimeCapability,
+  type RuntimeCapabilityProfile,
+} from "./play-contract.js";
 export {
   ONE_WAY_PLATFORM_COLLISION,
   PLATFORMER_PHYSICS,
@@ -55,3 +66,16 @@ export {
   createCoachingContract,
   type CoachingContract,
 } from "./coaching-contract.js";
+export {
+  type RuntimeEvent,
+  type RuntimeEventKind,
+  type RuntimeTraceReport,
+} from "./runtime-events.js";
+export {
+  emptyInputFrame,
+  type InputFrame,
+} from "./input-frame.js";
+export {
+  replayPlatformerInBrowser,
+  type BrowserReplayOptions,
+} from "./browser-replay.js";

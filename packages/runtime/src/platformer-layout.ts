@@ -353,18 +353,13 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       width: Math.max(64, goal.width),
       height: Math.max(64, goal.height),
     }
-    : (() => {
-      const floorTop = surfaceTop(safetyFloor);
-      const triggerTop = Math.max(0, goal.y - goal.height / 2);
-      return {
-        ...goal,
-        id: `${goal.id}_trigger`,
-        styleRef: "lane-a-goal-trigger",
-        y: (triggerTop + floorTop) / 2,
-        width: Math.max(64, goal.width),
-        height: Math.max(goal.height, floorTop - triggerTop),
-      };
-    })();
+    : {
+      ...goal,
+      id: `${goal.id}_trigger`,
+      styleRef: "lane-a-goal-trigger",
+      width: Math.max(64, goal.width + 20),
+      height: Math.max(64, goal.height + 20),
+    };
 
   // A collect-all game with no collectible entities has no possible progress
   // event in either Phaser or P8. Keep the same generated world and fall back

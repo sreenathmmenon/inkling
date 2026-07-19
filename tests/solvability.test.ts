@@ -5,6 +5,7 @@ import { validateBehaviorOperation } from "../packages/sdk/src/validator.js";
 import {
   applyBoundedRepairs,
   runPlaytest,
+  runPlaytestWithTrace,
 } from "../services/solve/src/playtest.js";
 import type { GameSpec } from "../runner/types.js";
 
@@ -48,6 +49,17 @@ test("Lane A playtest uses the same deterministic physics contract as the player
   ]);
   assert.equal(rejected.applied, 0);
   assert.match(rejected.rejected[0] ?? "", /out_of_bounds/);
+});
+
+test("analytic playtest emits shared InputFrames for production Phaser replay", () => {
+  const first = runPlaytestWithTrace(fixture(), 42);
+  const second = runPlaytestWithTrace(fixture(), 42);
+  assert.deepEqual(first, second);
+  assert.equal(first.report.reached_goal, true);
+  assert.equal(first.inputFrames[0]?.format, "inkling-input-frame-v1");
+  assert.equal(first.inputFrames[0]?.frame, 1);
+  assert.ok(first.inputFrames.some((input) => input.right));
+  assert.ok(first.inputFrames.every((input, index) => input.frame === index + 1));
 });
 
 test("Lane A normalizes a repeated spawn hazard into a safe, finishable start", () => {

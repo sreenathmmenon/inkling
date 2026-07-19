@@ -8,6 +8,7 @@ import {
   WORLD_WIDTH,
 } from "./platformer-layout.js";
 import {
+  fitArtworkWithin,
   resolvePlayableGame,
   type ArtworkManifest,
 } from "./artwork.js";
@@ -30,6 +31,8 @@ import {
   createCoachingContract,
   type CoachingContract,
 } from "./coaching-contract.js";
+import type { RuntimeEvent, RuntimeEventKind } from "./runtime-events.js";
+import type { InputFrame } from "./input-frame.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
 
@@ -46,6 +49,10 @@ export interface PlatformerOptions {
   artwork?: ArtworkManifest;
   onStateChange?: (state: PlatformerState) => void;
   onFeedback?: (event: GameplayFeedbackEvent) => void;
+  onRuntimeEvent?: (event: RuntimeEvent) => void;
+  /** Fixed control trace used by the production-browser replay harness. */
+  inputFrames?: readonly InputFrame[];
+  showTouchControls?: boolean;
 }
 
 export type PlatformerControl = "left" | "right" | "jump" | "down" | "action";
@@ -95,6 +102,9 @@ class PlatformerScene extends Phaser.Scene {
   private projectileFeedbackShown = false;
   private lastGoalBlockedAt = -Infinity;
   private status: PlatformerStatus = "playing";
+  private frame = 0;
+  private runtimeSequence = 0;
+  private readonly replayFrames: ReadonlyMap<number, InputFrame>;
   private readonly coaching: CoachingContract;
   private coachingCompleted = false;
   private readonly coachingObjects: Phaser.GameObjects.GameObject[] = [];
@@ -116,9 +126,13 @@ class PlatformerScene extends Phaser.Scene {
     private readonly artwork: ArtworkManifest | undefined,
     private readonly onStateChange?: (state: PlatformerState) => void,
     private readonly onFeedback?: (event: GameplayFeedbackEvent) => void,
+    private readonly onRuntimeEvent?: (event: RuntimeEvent) => void,
+    inputFrames: readonly InputFrame[] = [],
+    private readonly showTouchControls = true,
   ) {
     super("lane-a-platformer");
     this.coaching = createCoachingContract(plan);
+    this.replayFrames = new Map(inputFrames.map((input) => [input.frame, input]));
   }
 
   preload(): void {
@@ -140,6 +154,8 @@ class PlatformerScene extends Phaser.Scene {
     this.jumpWasDown = false;
     this.projectileFeedbackShown = false;
     this.lastGoalBlockedAt = -Infinity;
+    this.frame = 0;
+    this.runtimeSequence = 0;
 
     const paper = color(this.plan.palette[0], 0xfffaf0);
     const ink = color(this.plan.palette[1], 0x263238);
@@ -350,10 +366,10 @@ class PlatformerScene extends Phaser.Scene {
         space: keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE),
       };
     }
-    this.createTouchControls();
+    if (this.showTouchControls) this.createTouchControls();
     if (!this.coachingCompleted) this.createCoaching();
     this.input.on(Phaser.Input.Events.GAME_OUT, this.resetTouchControls, this);
-    if (typeof ResizeObserver !== "undefined") {
+    if (this.showTouchControls && typeof ResizeObserver !== "undefined") {
       this.touchResizeObserver?.disconnect();
       this.touchResizeObserver = new ResizeObserver(([entry]) => {
         if (!entry || entry.contentRect.width <= 0 || entry.contentRect.height <= 0) return;
@@ -373,6 +389,19 @@ class PlatformerScene extends Phaser.Scene {
 
   update(_time: number, delta: number): void {
     if (this.status !== "playing") return;
+    this.frame += 1;
+    const replay = this.replayFrames.get(this.frame);
+    if (replay) {
+      this.touch = {
+        left: replay.left,
+        right: replay.right,
+        jump: replay.jump,
+        down: replay.down,
+        action: replay.action,
+      };
+    } else if (this.replayFrames.size > 0) {
+      this.touch = { left: false, right: false, jump: false, down: false, action: false };
+    }
     this.elapsedMs += delta;
     if (this.goalGuide) {
       const view = this.cameras.main.worldView;
@@ -500,6 +529,7 @@ class PlatformerScene extends Phaser.Scene {
   ): void {
     const event: GameplayFeedbackEvent = { kind, elapsedMs: this.elapsedMs, entityId, required };
     this.onFeedback?.(event);
+    this.emitRuntimeEvent(kind, entityId, required);
     const cue = feedbackCueFor(event, this.reducedMotion);
     if (kind === "win") {
       this.createCelebration(cue.color, cue.durationMs);
@@ -707,12 +737,13 @@ class PlatformerScene extends Phaser.Scene {
     }
 
     const isolatedArtwork = this.textures.exists(cropTextureKey);
+    const fitted = fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height);
     const image = isolatedArtwork
-      ? this.add.image(entity.x, entity.y, cropTextureKey).setDisplaySize(entity.width, entity.height)
+      ? this.add.image(entity.x, entity.y, cropTextureKey).setDisplaySize(fitted.width, fitted.height)
       : this.add
         .image(entity.x, entity.y, this.artworkTextureKey)
         .setCrop(cropX, cropY, cropWidth, cropHeight)
-        .setScale(entity.width / cropWidth, entity.height / cropHeight);
+        .setScale(fitted.width / cropWidth);
     const baseScaleX = image.scaleX;
     const baseScaleY = image.scaleY;
     image
@@ -743,15 +774,28 @@ class PlatformerScene extends Phaser.Scene {
     const redSamples: number[] = [];
     const greenSamples: number[] = [];
     const blueSamples: number[] = [];
+    const cornerAverages: Array<[number, number, number]> = [];
     const sampleCorner = (startX: number, startY: number): void => {
+      let redTotal = 0;
+      let greenTotal = 0;
+      let blueTotal = 0;
+      let count = 0;
       for (let y = startY; y < startY + sampleRadius; y += 1) {
         for (let x = startX; x < startX + sampleRadius; x += 1) {
           const offset = (y * width + x) * 4;
-          redSamples.push(pixels.data[offset] ?? 0);
-          greenSamples.push(pixels.data[offset + 1] ?? 0);
-          blueSamples.push(pixels.data[offset + 2] ?? 0);
+          const red = pixels.data[offset] ?? 0;
+          const green = pixels.data[offset + 1] ?? 0;
+          const blue = pixels.data[offset + 2] ?? 0;
+          redSamples.push(red);
+          greenSamples.push(green);
+          blueSamples.push(blue);
+          redTotal += red;
+          greenTotal += green;
+          blueTotal += blue;
+          count += 1;
         }
       }
+      cornerAverages.push([redTotal / count, greenTotal / count, blueTotal / count]);
     };
     sampleCorner(0, 0);
     sampleCorner(width - sampleRadius, 0);
@@ -766,6 +810,16 @@ class PlatformerScene extends Phaser.Scene {
     const paperBlue = median(blueSamples);
     const paperLightness = Math.max(paperRed, paperGreen, paperBlue);
     const paperDarkness = Math.min(paperRed, paperGreen, paperBlue);
+    const cornerDistance = (left: [number, number, number], right: [number, number, number]): number => (
+      Math.hypot(left[0] - right[0], left[1] - right[1], left[2] - right[2])
+    );
+    const inconsistentCorners = cornerAverages.some((left, index) => (
+      cornerAverages.slice(index + 1).some((right) => cornerDistance(left, right) > 55)
+    ));
+    // An inconsistent border is probably another object, a shadow, collage,
+    // or child mark—not a uniform substrate. Preserve the rectangular source
+    // crop rather than guessing and destructively deleting pixels.
+    if (inconsistentCorners) return;
     // Light neutral paper needs a narrow tolerance so faint graphite survives.
     // Dark or colored paper varies more under phone lighting and needs a wider
     // one. Only matching pixels connected to the crop border are removed, so
@@ -1135,12 +1189,36 @@ class PlatformerScene extends Phaser.Scene {
 
   private publishState(): void {
     this.updateHud();
-    this.onStateChange?.({
+    const state = this.currentState();
+    this.onStateChange?.(state);
+    this.emitRuntimeEvent("state_changed", null, false, state);
+  }
+
+  private currentState(): PlatformerState {
+    return {
       status: this.status,
       lives: this.lives,
       collected: this.collected,
       collectibleTotal: this.plan.collectibles.length,
+    };
+  }
+
+  private emitRuntimeEvent(
+    kind: RuntimeEventKind,
+    entityId: string | null,
+    required: boolean,
+    state = this.currentState(),
+  ): void {
+    this.onRuntimeEvent?.({
+      format: "inkling-runtime-event-v1",
+      sequence: this.runtimeSequence,
+      frame: this.frame,
+      kind,
+      entityId,
+      required,
+      state,
     });
+    this.runtimeSequence += 1;
   }
 }
 
@@ -1177,7 +1255,15 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
     input: {
       activePointers: 3,
     },
-    scene: new PlatformerScene(plan, artwork, options.onStateChange, options.onFeedback),
+    scene: new PlatformerScene(
+      plan,
+      artwork,
+      options.onStateChange,
+      options.onFeedback,
+      options.onRuntimeEvent,
+      options.inputFrames ?? [],
+      options.showTouchControls ?? true,
+    ),
   });
 }
 

@@ -1,14 +1,21 @@
 import Phaser from "phaser";
 
 import {
+  attachRuntimeTraceReport,
   createPlatformerPlan,
   createObjectiveContract,
   launchPlatformer,
+  replayPlatformerInBrowser,
   resolvePlayableGame,
   setPlatformerControl,
   type PlatformerControl,
+  type RuntimeEvent,
+  type InputFrame,
   type PlatformerState,
 } from "../../../packages/runtime/src/index.js";
+import type { GameSpec } from "../../../runner/types.js";
+import { runPlaytestWithTrace } from "../../../services/solve/src/playtest.js";
+import { validateRuntimeTrace } from "../../../services/solve/src/runtime-trace.js";
 import { prepareDrawing, type PreparedDrawing } from "./drawing-prep.js";
 
 declare const __INKLING_GAMESPEC__: unknown;
@@ -26,6 +33,7 @@ const fileInput = requireElement<HTMLInputElement>("#spec-file");
 const saveGame = requireElement<HTMLButtonElement>("#save-game");
 const drawingInput = requireElement<HTMLInputElement>("#drawing-file");
 const makeGame = requireElement<HTMLButtonElement>("#make-game");
+const usePicture = requireElement<HTMLButtonElement>("#use-picture");
 const captureStatus = requireElement<HTMLElement>("#capture-status");
 const drawingPreview = requireElement<HTMLImageElement>("#drawing-preview");
 const previewEmpty = requireElement<HTMLElement>("#preview-empty");
@@ -40,11 +48,13 @@ const cancelGeneration = requireElement<HTMLButtonElement>("#cancel-generation")
 const playToolbar = requireElement<HTMLElement>("#play-toolbar");
 const objectiveTitle = requireElement<HTMLElement>("#objective-title");
 const objectiveDetail = requireElement<HTMLElement>("#objective-detail");
+const interpretationNote = requireElement<HTMLElement>("#interpretation-note");
 const gameShell = requireElement<HTMLElement>("#game-shell");
 const fullscreenGame = requireElement<HTMLButtonElement>("#fullscreen-game");
 const makeAnother = requireElement<HTMLButtonElement>("#make-another");
 const postPlayActions = requireElement<HTMLElement>("#post-play-actions");
 const accessibleControls = requireElement<HTMLElement>("#accessible-controls");
+const runtimeReplayHost = requireElement<HTMLElement>("#runtime-replay-host");
 
 // The standalone player may replace this at build time; the local capture
 // server intentionally does not need Vite's websocket client to do so.
@@ -68,12 +78,49 @@ type GenerationEvent = {
   error?: string;
 };
 
+declare global {
+  interface Window {
+    __INKLING_REPLAY__?: {
+      run(gameSpec: unknown, inputFrames: readonly InputFrame[]): Promise<RuntimeEvent[]>;
+    };
+  }
+}
+
 const STAGES: Array<{ id: GenerationStage; title: string; detail: string }> = [
   { id: "checking", title: "Checking your drawing", detail: "Making sure it is safe to turn into a game." },
   { id: "understanding", title: "Understanding your world", detail: "Finding your hero, objects, rules, and best game style." },
   { id: "animating", title: "Bringing your art to life", detail: "Keeping your strokes and giving your world motion." },
   { id: "testing", title: "Testing your game", detail: "Making sure your game can really be won." },
 ];
+
+if (new URLSearchParams(window.location.search).has("runtime-replay")) {
+  window.__INKLING_REPLAY__ = {
+    run(gameSpec, inputFrames) {
+      return replayPlatformerInBrowser({ parent, gameSpec, inputFrames });
+    },
+  };
+}
+
+async function certifyGeneratedGame(value: unknown): Promise<unknown> {
+  const playable = resolvePlayableGame(value);
+  if (!playable.playContract || playable.playContract.outcome !== "faithful_ready") return value;
+  try {
+    const gameSpec = playable.gameSpec as GameSpec;
+    const analytic = runPlaytestWithTrace(gameSpec);
+    if (!analytic.report.reached_goal) return value;
+    const events = await replayPlatformerInBrowser({
+      parent: runtimeReplayHost,
+      gameSpec,
+      inputFrames: analytic.inputFrames,
+    });
+    const report = validateRuntimeTrace(events, playable.playContract);
+    return attachRuntimeTraceReport(value, report);
+  } catch {
+    // Lane A remains playable. Without a real matching receipt the resolver
+    // keeps the result in its honest fallback state and sharing stays blocked.
+    return value;
+  }
+}
 
 function showState(state: PlatformerState): void {
   status.dataset.gameState = state.status;
@@ -119,12 +166,18 @@ function play(spec: unknown): void {
   controlsHint.hidden = false;
   accessibleControls.hidden = false;
   postPlayActions.hidden = false;
-  const resolved = resolvePlayableGame(spec).gameSpec;
-  const plan = createPlatformerPlan(resolved);
+  const playable = resolvePlayableGame(spec);
+  const plan = createPlatformerPlan(playable.gameSpec);
   const objective = createObjectiveContract(plan);
   activeCounterLabel = objective.counterLabel;
   objectiveTitle.textContent = objective.headline;
   objectiveDetail.textContent = objective.instruction;
+  interpretationNote.hidden = playable.readinessOutcome === undefined || playable.readinessOutcome === "faithful_ready";
+  interpretationNote.textContent = playable.readinessOutcome === "needs_recast"
+    ? "This is a safe playable version. A new interpretation is needed to match the full game idea."
+    : playable.readinessOutcome === "related_fallback"
+      ? "Your art is here. Some game actions were simplified to keep this version playable."
+      : "";
   controlsHint.textContent = plan.contract.touchControls === "four_way"
     ? "Use the four arrow buttons to steer. On a keyboard, use the arrow keys."
     : "Use left and right, then tap jump. You can tap jump once more in the air.";
@@ -132,7 +185,15 @@ function play(spec: unknown): void {
   requireElement<HTMLButtonElement>('[data-game-control="action"]').hidden = !(
     plan.contract.action === "projectile" && plan.goalKind === "defeat_boss"
   );
-  game = launchPlatformer({ parent, gameSpec: spec, onStateChange: showState });
+  game = launchPlatformer({
+    parent,
+    gameSpec: spec,
+    showTouchControls: window.innerWidth > 680,
+    onStateChange: showState,
+    onRuntimeEvent(event: RuntimeEvent) {
+      window.dispatchEvent(new CustomEvent<RuntimeEvent>("inkling:runtime-event", { detail: event }));
+    },
+  });
   enterPlayMode();
 }
 
@@ -147,6 +208,8 @@ function showGameWaiting(): void {
   accessibleControls.hidden = true;
   postPlayActions.hidden = true;
   playToolbar.hidden = true;
+  interpretationNote.hidden = true;
+  interpretationNote.textContent = "";
   gameShell.setAttribute("aria-label", "Game preview");
   gameShell.removeAttribute("aria-labelledby");
   gameShell.setAttribute("aria-describedby", "game-status");
@@ -168,6 +231,7 @@ function forgetPreparedDrawing(message = "Photo removed from this page."): void 
   drawingPreview.hidden = true;
   previewEmpty.hidden = false;
   makeGame.disabled = true;
+  usePicture.hidden = true;
   forgetDrawing.hidden = true;
   progressPanel.hidden = true;
   showCaptureStatus(message);
@@ -219,6 +283,7 @@ function startFreshDrawingSession(
   makeGame.disabled = true;
   makeGame.textContent = "Make my game";
   makeGame.removeAttribute("aria-busy");
+  usePicture.hidden = true;
   forgetDrawing.disabled = false;
   forgetDrawing.hidden = true;
   saveGame.disabled = true;
@@ -367,12 +432,28 @@ drawingInput.addEventListener("change", async () => {
     drawingPreview.src = preparedDrawing.dataUrl;
     drawingPreview.hidden = false;
     previewEmpty.hidden = true;
-    makeGame.disabled = false;
+    const warnings = preparedDrawing.quality.warnings;
+    makeGame.disabled = warnings.length > 0;
+    usePicture.hidden = warnings.length === 0;
     forgetDrawing.hidden = false;
-    showCaptureStatus("Your photo is ready. Tap Make my game, or choose a different photo.");
+    showCaptureStatus(warnings.includes("content_near_edge")
+      ? "Some marks may be close to the edge. Use this picture or choose another."
+      : warnings.includes("low_contrast")
+        ? "This drawing may be hard to see. Use this picture or choose another."
+        : warnings.includes("page_edge_uncertain")
+          ? "Please check that the preview contains only the drawing. Use this picture or choose another."
+          : "Your photo is ready. Tap Make my game, or choose a different photo.");
   } catch (error) {
     showCaptureStatus(error instanceof Error ? error.message : "That drawing could not be prepared.", true);
   }
+});
+
+usePicture.addEventListener("click", () => {
+  if (!preparedDrawing) return;
+  usePicture.hidden = true;
+  makeGame.disabled = false;
+  showCaptureStatus("Picture confirmed. Tap Make my game when you are ready.");
+  makeGame.focus();
 });
 
 makeGame.addEventListener("click", async () => {
@@ -412,6 +493,8 @@ makeGame.addEventListener("click", async () => {
       : (await response.json() as { playableGame?: unknown }).playableGame;
     if (sequence !== generationSequence) return;
     if (!currentSpec) throw new Error(errorMessage());
+    currentSpec = await certifyGeneratedGame(currentSpec);
+    if (sequence !== generationSequence) return;
     play(currentSpec);
     saveGame.disabled = false;
     forgetPreparedDrawing("Your drawing is now a playable game.");

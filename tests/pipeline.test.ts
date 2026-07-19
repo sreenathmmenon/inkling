@@ -20,6 +20,8 @@ import {
   createDrawingGenerationStreamHandler,
 } from "../services/gen/src/http.js";
 import { moderateShareCandidate } from "../services/share/src/share-service.js";
+import { createPlayContract } from "../packages/runtime/src/play-contract.js";
+import type { RuntimeTraceReport } from "../services/solve/src/runtime-trace.js";
 import {
   findProjectRoot,
   loadJson,
@@ -30,9 +32,35 @@ import type {
   PipelineCall,
   ResponsesClient,
   SchemaDocument,
+  GameSpec,
 } from "../runner/types.js";
 
 const SERVICE_SAFETY_ID = "a".repeat(64);
+
+const SHAREABLE_GAME_SPEC: GameSpec = {
+  primary_genre: "platformer", genre_confidence: 1, mood: null,
+  hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+  entities: [
+    { id: "floor", role: "platform", bbox: [0, 0.72, 1, 0.8], behavior: "static", linked_to: null, style_ref: "source" },
+    { id: "finish", role: "goal", bbox: [0.8, 0.5, 0.9, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+  ],
+  goal: { kind: "reach_goal", target_id: "finish" },
+  rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+  palette: ["#ffffff"], assumptions: [], flags: [],
+};
+const FAITHFUL_SHARE_CONTRACT = createPlayContract(SHAREABLE_GAME_SPEC);
+const FAITHFUL_RUNTIME_REPORT: RuntimeTraceReport = {
+  format: "inkling-runtime-trace-report-v1",
+  contractFormat: FAITHFUL_SHARE_CONTRACT.format,
+  templateId: FAITHFUL_SHARE_CONTRACT.templateId,
+  runtimeVersion: FAITHFUL_SHARE_CONTRACT.runtimeVersion,
+  valid: true,
+  blockers: [],
+  inputAccepted: true,
+  reachedTerminalState: true,
+  finalStatus: "won",
+  finalFrame: 180,
+};
 
 const root = findProjectRoot();
 const spec = loadPipelineSpec(root);
@@ -321,10 +349,20 @@ test("drawing generation returns original artwork only after the mandatory gates
   assert.equal(result.playableGame.format, "inkling-playable-game-v1");
   assert.equal(result.playableGame.gameSpec, result.scan.gameSpec);
   assert.equal(result.playableGame.artwork?.sourceDataUrl, image);
-  assert.deepEqual(result.playableGame.artwork?.entityCrops.hero_1, [0.05, 0.55, 0.15, 0.75]);
+  assert.deepEqual(
+    result.playableGame.artwork?.entityCrops.hero_1?.map((value) => Number(value.toFixed(3))),
+    [0.038, 0.526, 0.162, 0.774],
+  );
   assert.equal(result.playableGame.artwork?.heroRig?.tier, "squash_stretch_puppet");
   assert.equal(result.playableGame.readinessEvidence?.solvability.verdict, "ready");
   assert.equal(result.playableGame.readinessEvidence?.playtestReport.reached_goal, true);
+  assert.equal(result.playableGame.readinessEvidence?.runtimeTraceReport, null);
+  assert.equal(result.playableGame.readinessEvidence?.playContract.outcome, "related_fallback");
+  assert.ok(
+    result.playableGame.readinessEvidence?.playContract.unsupportedCapabilities.includes(
+      "dynamic_entity_behavior",
+    ),
+  );
 });
 
 test("drawing generation rejects remote or oversized image input before P1", async () => {
@@ -418,6 +456,8 @@ test("share moderation cannot be reached without passing P8 evidence", async () 
       title: "My game",
       playtestReport: { reached_goal: false, first_blocker: "blocked", time_to_win: null, seed: 1, visited: [] },
       solvability: { verdict: "repair" },
+      playContract: FAITHFUL_SHARE_CONTRACT,
+      runtimeTraceReport: FAITHFUL_RUNTIME_REPORT,
       safetyId: SERVICE_SAFETY_ID,
     }, {
       dryRun: true,
@@ -434,7 +474,44 @@ test("share moderation cannot be reached without passing P8 evidence", async () 
     title: "My game",
     playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 4, seed: 1, visited: ["hero"] },
     solvability: { verdict: "ready" },
+    playContract: FAITHFUL_SHARE_CONTRACT,
+    runtimeTraceReport: FAITHFUL_RUNTIME_REPORT,
     safetyId: SERVICE_SAFETY_ID,
   }, { dryRun: true });
   assert.equal(verdict.publishable, true);
+
+  const fallbackSpec = structuredClone(SHAREABLE_GAME_SPEC);
+  fallbackSpec.primary_genre = "maze";
+  const fallbackCalls: string[] = [];
+  await assert.rejects(
+    moderateShareCandidate({
+      renderedGame: "data:image/png;base64,aGVsbG8=",
+      title: "A generic fallback",
+      playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 4, seed: 1, visited: ["hero"] },
+      solvability: { verdict: "ready" },
+      playContract: createPlayContract(fallbackSpec),
+      runtimeTraceReport: FAITHFUL_RUNTIME_REPORT,
+      safetyId: SERVICE_SAFETY_ID,
+    }, {
+      dryRun: true,
+      onRequest(trace) {
+        fallbackCalls.push(trace.callId);
+      },
+    }),
+    /faithful runtime PlayContract/,
+  );
+  assert.deepEqual(fallbackCalls, [], "P11 must not run for a related fallback");
+
+  await assert.rejects(
+    moderateShareCandidate({
+      renderedGame: "data:image/png;base64,aGVsbG8=",
+      title: "No real replay",
+      playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 4, seed: 1, visited: ["hero"] },
+      solvability: { verdict: "ready" },
+      playContract: FAITHFUL_SHARE_CONTRACT,
+      runtimeTraceReport: { ...FAITHFUL_RUNTIME_REPORT, valid: false, blockers: ["idle_win"] },
+      safetyId: SERVICE_SAFETY_ID,
+    }, { dryRun: true }),
+    /production-runtime replay receipt/,
+  );
 });

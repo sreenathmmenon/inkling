@@ -9,6 +9,8 @@ import {
 import {
   createArtworkManifest,
   createPlayableGameDocument,
+  attachRuntimeTraceReport,
+  fitArtworkWithin,
   resolvePlayableGame,
 } from "../packages/runtime/src/artwork.js";
 import { createTouchControlLayout } from "../packages/runtime/src/platformer-controls.js";
@@ -23,6 +25,7 @@ import {
   type GameplayFeedbackEvent,
 } from "../packages/runtime/src/feedback-contract.js";
 import { createCoachingContract } from "../packages/runtime/src/coaching-contract.js";
+import { createPlayContract } from "../packages/runtime/src/play-contract.js";
 import { type GameSpec } from "../runner/types.js";
 import { findProjectRoot, loadJson } from "../runner/spec.js";
 
@@ -42,11 +45,9 @@ test("Lane A maps the live scan deterministically into a playable physics plan",
   assert.ok(first.hazards.some((hazard) => hazard.id === "enemy_1"));
   assert.equal(first.goal.id, "goal_1");
 
-  const safetyFloor = first.platforms.find((platform) => platform.id === "lane_a_safety_floor");
-  assert.ok(safetyFloor);
-  const floorTop = safetyFloor.y - safetyFloor.height / 2;
-  const triggerBottom = first.goalTrigger.y + first.goalTrigger.height / 2;
-  assert.ok(triggerBottom >= floorTop, "goal trigger must remain reachable from the safety floor");
+  assert.equal(first.goalTrigger.y, first.goal.y);
+  assert.ok(first.goalTrigger.width >= first.goal.width);
+  assert.ok(first.goalTrigger.height >= first.goal.height);
 });
 
 test("Lane A always supplies a complete offline fallback for invalid input", () => {
@@ -162,6 +163,96 @@ test("every authoritative genre resolves to a deterministic Lane A contract", ()
     assert.equal(plan.contract.id, primaryGenre);
     assert.ok(plan.goalTrigger.width > 0);
   }
+});
+
+test("PlayContract distinguishes faithful execution from a merely playable fallback", () => {
+  const platformer: GameSpec = {
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+    entities: [
+      { id: "floor", role: "platform", bbox: [0, 0.72, 1, 0.8], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.8, 0.5, 0.9, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const faithful = createPlayContract(platformer);
+  assert.equal(faithful.outcome, "faithful_ready");
+  assert.deepEqual(faithful.unsupportedCapabilities, []);
+
+  const maze = structuredClone(platformer);
+  maze.primary_genre = "maze";
+  const fallback = createPlayContract(maze);
+  assert.equal(fallback.outcome, "related_fallback");
+  assert.ok(fallback.unsupportedCapabilities.includes("maze_collision_topology"));
+  assert.ok(fallback.supportedCapabilities.includes("four_way_movement"));
+
+  const runner = structuredClone(platformer);
+  runner.primary_genre = "runner";
+  const runnerFallback = createPlayContract(runner);
+  assert.equal(runnerFallback.outcome, "related_fallback");
+  assert.ok(runnerFallback.unsupportedCapabilities.includes("manual_progress_input"));
+
+  const candidate = createPlayableGameDocument(platformer, undefined, undefined, {
+    playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 3, seed: 1, visited: ["hero", "finish"] },
+    solvability: { verdict: "ready" },
+  });
+  assert.equal(
+    resolvePlayableGame(candidate).readinessOutcome,
+    "related_fallback",
+    "capability fit alone must not claim faithful Ready",
+  );
+  const certified = attachRuntimeTraceReport(candidate, {
+    format: "inkling-runtime-trace-report-v1",
+    contractFormat: faithful.format,
+    templateId: faithful.templateId,
+    runtimeVersion: faithful.runtimeVersion,
+    valid: true,
+    blockers: [],
+    inputAccepted: true,
+    reachedTerminalState: true,
+    finalStatus: "won",
+    finalFrame: 180,
+  });
+  assert.equal(resolvePlayableGame(certified).readinessOutcome, "faithful_ready");
+});
+
+test("PlayContract rejects false-ready structural goals and unimplemented declared behavior", () => {
+  const game: GameSpec = {
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+    entities: [
+      { id: "enemy", role: "enemy", bbox: [0.5, 0.5, 0.6, 0.7], behavior: "patrol", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "collect_all", target_id: null },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: ["move faster after every pickup"] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const contract = createPlayContract(game);
+  assert.equal(contract.outcome, "needs_recast");
+  assert.ok(contract.blockers.includes("collect_all_has_no_collectible_entities"));
+  assert.ok(contract.unsupportedCapabilities.includes("dynamic_entity_behavior"));
+  assert.ok(contract.unsupportedCapabilities.includes("declared_rule_modifiers"));
+});
+
+test("PlayContract rejects safety-floor-only routes and invalid relationship graphs", () => {
+  const game: GameSpec = {
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+    entities: [
+      { id: "switch", role: "collectible", bbox: [0.4, 0.5, 0.5, 0.6], behavior: "static", linked_to: "door", style_ref: "source" },
+      { id: "door", role: "door", bbox: [0.6, 0.4, 0.7, 0.7], behavior: "static", linked_to: "switch", style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.8, 0.5, 0.9, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const contract = createPlayContract(game);
+  assert.equal(contract.outcome, "needs_recast");
+  assert.ok(contract.blockers.includes("ground_route_has_no_drawn_support"));
+  assert.ok(contract.blockers.includes("linked_entity_cycle"));
 });
 
 test("runner topology comes from drawn support geometry, not object names", () => {
@@ -355,8 +446,8 @@ test("a saved playable game carries only local original artwork and entity crops
     animations: ["idle", "walk", "jump", "bounce"],
     style_ref: "original",
   });
-  assert.deepEqual(artwork.entityCrops.hero, [0.1, 0.2, 0.3, 0.7]);
-  assert.deepEqual(artwork.entityCrops.goal, [0.7, 0.4, 0.8, 0.8]);
+  assert.deepEqual(artwork.entityCrops.hero?.map((value) => Number(value.toFixed(3))), [0.076, 0.14, 0.324, 0.76]);
+  assert.deepEqual(artwork.entityCrops.goal?.map((value) => Number(value.toFixed(3))), [0.688, 0.352, 0.812, 0.848]);
   assert.deepEqual(artwork.heroRig?.animations, ["idle", "walk", "jump", "bounce"]);
 
   const saved = createPlayableGameDocument(gameSpec, source, artwork.heroRig && {
@@ -373,10 +464,23 @@ test("a saved playable game carries only local original artwork and entity crops
   assert.equal(resolved.gameSpec, gameSpec);
   assert.equal(resolved.artwork?.sourceDataUrl, source);
   assert.equal(saved.readinessEvidence?.solvability.verdict, "ready");
+  assert.equal(saved.readinessEvidence?.playContract.outcome, "needs_recast");
+  assert.ok(
+    saved.readinessEvidence?.playContract.blockers.includes("ground_route_has_no_drawn_support"),
+  );
   assert.equal(resolvePlayableGame(gameSpec).artwork, undefined);
   assert.equal(resolvePlayableGame({
     format: "inkling-playable-game-v1",
     gameSpec,
     artwork: { format: "inkling-artwork-v1", sourceDataUrl: "https://example.com/art.png", entityCrops: {} },
   }).artwork, undefined, "Lane A must not fetch arbitrary artwork URLs");
+});
+
+test("original artwork always fits without changing its aspect ratio", () => {
+  const wide = fitArtworkWithin(400, 100, 120, 120);
+  assert.deepEqual(wide, { width: 120, height: 30 });
+  const tall = fitArtworkWithin(100, 400, 120, 120);
+  assert.deepEqual(tall, { width: 30, height: 120 });
+  assert.equal(wide.width / wide.height, 4);
+  assert.equal(tall.width / tall.height, 0.25);
 });

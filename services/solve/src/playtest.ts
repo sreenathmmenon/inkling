@@ -3,6 +3,10 @@ import {
   type PlannedEntity,
 } from "../../../packages/runtime/src/platformer-layout.js";
 import { PLATFORMER_PHYSICS } from "../../../packages/runtime/src/platformer-physics.js";
+import {
+  emptyInputFrame,
+  type InputFrame,
+} from "../../../packages/runtime/src/input-frame.js";
 import type { GameSpec, PlaytestReport } from "../../../runner/types.js";
 
 const DEFAULT_SEED = 0x1a2b3c4d;
@@ -163,9 +167,10 @@ function routeAroundHazards(
  * collectibles, goal trigger, and survival timer used by the Phaser player.
  * It deliberately has no wall-clock, network, or model dependency.
  */
-export function runPlaytest(
+function executePlaytest(
   gameSpec: GameSpec,
-  seed = DEFAULT_SEED,
+  seed: number,
+  inputFrames?: InputFrame[],
 ): PlaytestReport {
   const plan = createPlatformerPlan(gameSpec);
   const dt = PLATFORMER_PHYSICS.fixedStepSeconds;
@@ -210,11 +215,19 @@ export function runPlaytest(
 
   for (let frame = 0; frame < maxFrames; frame += 1) {
     const elapsedMs = frame * dt * 1_000;
+    const input = emptyInputFrame(frame + 1);
+    let inputRecorded = false;
+    const recordInput = (): void => {
+      if (inputRecorded) return;
+      inputFrames?.push(input);
+      inputRecorded = true;
+    };
     if (
       plan.contract.action === "projectile" &&
       plan.goalKind === "defeat_boss" &&
       elapsedMs - lastProjectileAt >= PLATFORMER_PHYSICS.projectileCooldownMs
     ) {
+      input.action = true;
       const dx = plan.goal.x - body.x;
       const dy = plan.goal.y - body.y;
       const magnitude = Math.max(1, Math.hypot(dx, dy));
@@ -254,6 +267,10 @@ export function runPlaytest(
       body.velocityY = destination
         ? Math.sign(destination.y - body.y) * PLATFORMER_PHYSICS.moveVelocityX
         : 0;
+      input.left = body.velocityX < 0;
+      input.right = body.velocityX > 0;
+      input.jump = body.velocityY < 0;
+      input.down = body.velocityY > 0;
       body.x = clamp(body.x + body.velocityX * dt, heroWidth / 2, 960 - heroWidth / 2);
       body.y = clamp(body.y + body.velocityY * dt, heroHeight / 2, 540 - heroHeight / 2);
     } else {
@@ -295,6 +312,8 @@ export function runPlaytest(
       }
       if (descendingFrom) targetX = descentExitX;
       const direction = Math.sign(targetX - body.x);
+      input.left = direction < 0;
+      input.right = direction > 0;
       body.velocityX = direction * PLATFORMER_PHYSICS.moveVelocityX;
       const hazardAhead = plan.hazards.some((hazard) => {
         const distance = (hazard.x - body.x) * (direction || 1);
@@ -308,6 +327,7 @@ export function runPlaytest(
       });
       const targetIsAbove = routeTarget.y < body.y - heroHeight * 0.35;
       if (grounded && !targetIsBelow && !descendingFrom && (targetIsAbove || hazardAhead)) {
+        input.jump = true;
         body.velocityY = PLATFORMER_PHYSICS.jumpVelocityY;
         grounded = false;
         groundedPlatform = undefined;
@@ -349,6 +369,7 @@ export function runPlaytest(
         }
       }
       if (body.y > 540 + heroHeight) {
+        recordInput();
         lives -= 1;
         if (lives <= 0) {
           return {
@@ -363,6 +384,8 @@ export function runPlaytest(
         continue;
       }
     }
+
+    recordInput();
 
     if (elapsedMs >= invulnerableUntil) {
       const hazard = plan.hazards.find((item) => overlapsHazard(body, heroWidth, heroHeight, item));
@@ -473,6 +496,27 @@ export function runPlaytest(
     seed,
     visited: [...visited],
   };
+}
+
+export function runPlaytest(
+  gameSpec: GameSpec,
+  seed = DEFAULT_SEED,
+): PlaytestReport {
+  return executePlaytest(gameSpec, seed);
+}
+
+export interface PlaytestTraceResult {
+  report: PlaytestReport;
+  inputFrames: InputFrame[];
+}
+
+/** Produces the deterministic policy trace that must be replayed by Phaser. */
+export function runPlaytestWithTrace(
+  gameSpec: GameSpec,
+  seed = DEFAULT_SEED,
+): PlaytestTraceResult {
+  const inputFrames: InputFrame[] = [];
+  return { report: executePlaytest(gameSpec, seed, inputFrames), inputFrames };
 }
 
 interface Repair {

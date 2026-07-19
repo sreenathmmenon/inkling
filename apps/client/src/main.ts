@@ -69,6 +69,7 @@ const objectiveDetail = requireElement<HTMLElement>("#objective-detail");
 const interpretationNote = requireElement<HTMLElement>("#interpretation-note");
 const gameShell = requireElement<HTMLElement>("#game-shell");
 const fullscreenGame = requireElement<HTMLButtonElement>("#fullscreen-game");
+const fullscreenNewDrawing = requireElement<HTMLButtonElement>("#fullscreen-new-drawing");
 const makeAnother = requireElement<HTMLButtonElement>("#make-another");
 const postPlayActions = requireElement<HTMLElement>("#post-play-actions");
 const assistGame = requireElement<HTMLButtonElement>("#assist-game");
@@ -79,6 +80,11 @@ const recastTitle = requireElement<HTMLElement>("#recast-title");
 const recastDetail = requireElement<HTMLElement>("#recast-detail");
 const playSafeVersion = requireElement<HTMLButtonElement>("#play-safe-version");
 const tryNewPicture = requireElement<HTMLButtonElement>("#try-new-picture");
+const capturePanel = requireElement<HTMLElement>("#capture-panel");
+const playStage = requireElement<HTMLElement>("#play-stage");
+const returnGame = requireElement<HTMLButtonElement>("#return-game");
+const saveStatus = requireElement<HTMLElement>("#save-status");
+const previewStage = requireElement<HTMLElement>(".preview-stage");
 
 // The standalone player may replace this at build time; the local capture
 // server intentionally does not need Vite's websocket client to do so.
@@ -90,6 +96,7 @@ let game: Phaser.Game | undefined;
 let playSequence = 0;
 let playerModule: typeof import("../../../packages/runtime/src/platformer.js") | undefined;
 let playerModulePromise: Promise<typeof import("../../../packages/runtime/src/platformer.js")> | undefined;
+let playerLoadAttempt = 0;
 let preparedDrawing: PreparedDrawing | undefined;
 let sourceDrawingFile: File | undefined;
 let preparationSequence = 0;
@@ -101,6 +108,22 @@ let generationSequence = 0;
 let activeGeneration: { controller: AbortController; sequence: number } | undefined;
 let pendingPlayableGame: unknown;
 let generationStageIndex = -1;
+let returnableGame: unknown;
+let saveFeedbackTimer: number | undefined;
+
+type ExperienceState = "capture-empty" | "capture-ready" | "generating" | "recast" | "playing" | "won" | "lost" | "player-error";
+const EXPERIENCE_STATES: readonly ExperienceState[] = [
+  "capture-empty", "capture-ready", "generating", "recast", "playing", "won", "lost", "player-error",
+];
+
+function renderExperienceState(state: ExperienceState): void {
+  document.body.classList.remove(...EXPERIENCE_STATES);
+  document.body.classList.add(state);
+  document.body.classList.toggle("has-drawing", state === "capture-ready" || state === "generating" || state === "recast");
+  document.body.classList.toggle("generating", state === "generating");
+  document.body.classList.toggle("game-won", state === "won");
+  document.body.classList.toggle("game-lost", state === "lost");
+}
 
 type GenerationStage = "checking" | "understanding" | "animating" | "testing";
 type GenerationEvent = {
@@ -120,7 +143,7 @@ declare global {
 }
 
 const STAGES: Array<{ id: GenerationStage; title: string; detail: string }> = [
-  { id: "checking", title: "Checking your drawing", detail: "Making sure it is safe to turn into a game." },
+  { id: "checking", title: "Checking your drawing", detail: "Giving your picture a quick, careful check." },
   { id: "understanding", title: "Finding your hero and goal", detail: "Reading the characters, objects, paths, and rules in your drawing." },
   { id: "animating", title: "Building your game", detail: "Keeping your strokes and connecting them to real game actions." },
   { id: "testing", title: "Making sure you can finish", detail: "Playing the exact game and checking that its goal can be reached." },
@@ -128,9 +151,19 @@ const STAGES: Array<{ id: GenerationStage; title: string; detail: string }> = [
 
 function loadPlayer(): Promise<typeof import("../../../packages/runtime/src/platformer.js")> {
   if (playerModule) return Promise.resolve(playerModule);
-  playerModulePromise ??= import("../../../packages/runtime/src/platformer.js").then((loaded) => {
+  if (playerModulePromise) return playerModulePromise;
+  const load = playerLoadAttempt++ === 0
+    ? import("../../../packages/runtime/src/platformer.js")
+    // A failed module fetch is cached for the lifetime of the document. The
+    // retry identity lets a child recover in place when connectivity returns.
+    // @ts-expect-error Vite treats this query as a distinct retry module.
+    : import("../../../packages/runtime/src/platformer.js?retry");
+  playerModulePromise = load.then((loaded) => {
     playerModule = loaded;
     return loaded;
+  }).catch((error: unknown) => {
+    playerModulePromise = undefined;
+    throw error;
   });
   return playerModulePromise;
 }
@@ -175,16 +208,19 @@ function showState(state: PlatformerState): void {
   status.dataset.gameState = state.status;
   status.classList.remove("error");
   if (state.status === "won") {
+    renderExperienceState("won");
     restart.hidden = false;
     saveGame.hidden = false;
-    status.textContent = "You made it! Play again or make another game.";
+    status.textContent = "You brought it to life! What will you make next?";
     return;
   }
   if (state.status === "lost") {
+    renderExperienceState("lost");
     restart.hidden = false;
-    status.textContent = "No lives left. Tap the game message or Restart game to try again.";
+    status.textContent = "No lives left. Tap Play again to try again.";
     return;
   }
+  renderExperienceState("playing");
   const collectibles = state.collectibleTotal
     ? ` · ${activeCounterLabel ?? "Found"} ${state.collected}/${state.collectibleTotal}`
     : "";
@@ -193,6 +229,7 @@ function showState(state: PlatformerState): void {
 
 function enterPlayMode(): void {
   document.body.classList.add("play-mode");
+  renderExperienceState("playing");
   playToolbar.hidden = false;
   window.requestAnimationFrame(() => {
     // Keep the compact objective and the complete control-bearing canvas in
@@ -235,9 +272,9 @@ async function play(spec: unknown): Promise<void> {
   objectiveDetail.textContent = objective.instruction;
   interpretationNote.hidden = playable.readinessOutcome === undefined || playable.readinessOutcome === "faithful_ready";
   interpretationNote.textContent = playable.readinessOutcome === "needs_recast"
-    ? "Your art is here in a simpler playable version. Some drawn actions are not included yet."
+    ? "Ready to play · Your art stayed the same; some game actions were simplified."
     : playable.readinessOutcome === "related_fallback"
-      ? "Your art is here. Some game actions were simplified to keep this version playable."
+      ? "Ready to play · Your art is here in a clear, finishable adventure."
       : "";
   controlsHint.textContent = plan.contract.touchControls === "four_way"
     ? "Use the four arrow buttons to steer. On a keyboard, use the arrow keys."
@@ -246,12 +283,34 @@ async function play(spec: unknown): Promise<void> {
   requireElement<HTMLButtonElement>('[data-game-control="action"]').hidden = !(
     plan.contract.action === "projectile" && plan.goalKind === "defeat_boss"
   );
-  const { launchPlatformer } = await loadPlayer();
+  accessibleControls.dataset.layout = plan.contract.touchControls === "four_way" ? "four-way" : "side";
+  accessibleControls.dataset.hasAction = String(!requireElement<HTMLButtonElement>('[data-game-control="action"]').hidden);
+  const jumpControlLabel = requireElement<HTMLElement>('[data-game-control="jump"] span');
+  jumpControlLabel.textContent = plan.contract.touchControls === "four_way" ? "Up" : "Jump";
+  let launchPlatformer: typeof import("../../../packages/runtime/src/platformer.js").launchPlatformer;
+  try {
+    ({ launchPlatformer } = await loadPlayer());
+  } catch {
+    if (sequence !== playSequence) return;
+    parent.hidden = true;
+    gameEmpty.hidden = false;
+    gameEmpty.querySelector("h2")!.textContent = "Your game needs one more try";
+    gameEmpty.querySelector("p")!.textContent = "Tap Play again. Your drawing and game are still here.";
+    status.dataset.gameState = "error";
+    status.classList.add("error");
+    status.textContent = "The player did not finish opening. Tap Play again.";
+    restart.hidden = false;
+    restart.disabled = false;
+    enterPlayMode();
+    renderExperienceState("player-error");
+    return;
+  }
   if (sequence !== playSequence) return;
   game = launchPlatformer({
     parent,
     gameSpec: spec,
-    showTouchControls: window.innerWidth > 680 && !window.matchMedia("(pointer: coarse)").matches,
+    showTouchControls: false,
+    presentation: "embedded",
     onStateChange: showState,
     onRuntimeEvent(event: RuntimeEvent) {
       window.dispatchEvent(new CustomEvent<RuntimeEvent>("inkling:runtime-event", { detail: event }));
@@ -279,6 +338,7 @@ function showGameWaiting(): void {
   gameShell.removeAttribute("aria-labelledby");
   gameShell.setAttribute("aria-describedby", "game-status");
   document.body.classList.remove("play-mode");
+  renderExperienceState("capture-empty");
   status.dataset.gameState = "waiting";
   status.classList.remove("error");
   status.textContent = "Ready when your drawing is.";
@@ -301,7 +361,7 @@ const QUALITY_COPY: Record<DrawingQualityWarning, string> = {
 function captureReviewMessage(warnings: readonly DrawingQualityWarning[]): string {
   if (!warnings.length) return "Your drawing is ready. Make the game, or adjust the crop if you want to.";
   const details = warnings.slice(0, 2).map((warning) => QUALITY_COPY[warning]);
-  return `${details.join("; ")}. You can still make the game, or adjust the crop if anything looks cut off.`;
+  return `Your drawing is ready! ${details.join("; ")}. Adjust the picture if anything looks cut off, or keep going.`;
 }
 
 function rangeNumber(input: HTMLInputElement): number {
@@ -334,7 +394,7 @@ function resetAdjustmentControls(): void {
   updateAdjustmentOutputs();
 }
 
-async function updatePreparedPicture(message: string): Promise<void> {
+async function updatePreparedPicture(message: string, focusReview = false): Promise<void> {
   const file = sourceDrawingFile;
   if (!file) return;
   const sequence = ++preparationSequence;
@@ -351,9 +411,17 @@ async function updatePreparedPicture(message: string): Promise<void> {
     adjustPicture.hidden = false;
     forgetDrawing.hidden = false;
     makeGame.disabled = false;
+    renderExperienceState("capture-ready");
     showCaptureStatus(captureReviewMessage(result.quality.warnings));
+    if (focusReview) {
+      window.requestAnimationFrame(() => previewStage.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      }));
+    }
   } catch (error) {
     if (sequence !== preparationSequence) return;
+    renderExperienceState("capture-empty");
     showCaptureStatus(error instanceof Error ? error.message : "That drawing could not be prepared.", true);
   }
 }
@@ -373,6 +441,7 @@ function forgetPreparedDrawing(message = "Photo removed from this page."): void 
   pendingPlayableGame = undefined;
   forgetDrawing.hidden = true;
   progressPanel.hidden = true;
+  renderExperienceState("capture-empty");
   showCaptureStatus(message);
 }
 
@@ -399,6 +468,7 @@ function cancelActiveGeneration(): void {
   makeGame.textContent = "Make my game";
   makeGame.removeAttribute("aria-busy");
   forgetDrawing.disabled = false;
+  renderExperienceState(preparedDrawing ? "capture-ready" : "capture-empty");
 }
 
 /**
@@ -436,6 +506,8 @@ function startFreshDrawingSession(
   objectiveTitle.textContent = "Game preview";
   objectiveDetail.textContent = "Your game will appear here after you choose a drawing.";
   showCaptureStatus(message);
+  returnGame.hidden = returnableGame === undefined;
+  renderExperienceState("capture-empty");
 
   window.requestAnimationFrame(() => drawingInput.focus());
 }
@@ -462,13 +534,24 @@ function startGenerationProgress(): void {
   generationStageIndex = -1;
   generationStartedAt = performance.now();
   showGenerationStage("checking");
+  renderExperienceState("generating");
+  // Phaser is the large lazy chunk. Load it while the real model pipeline is
+  // running so the reveal can begin immediately when the certified game lands.
+  void loadPlayer().catch(() => undefined);
   cancelGeneration.hidden = false;
   progressTime.textContent = "Just started";
+  window.requestAnimationFrame(() => {
+    capturePanel.scrollIntoView({
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+      block: "start",
+    });
+    progressPanel.focus({ preventScroll: true });
+  });
   generationProgressTimer = window.setInterval(() => {
     const seconds = Math.floor((performance.now() - generationStartedAt) / 1_000);
     progressTime.textContent = seconds < 30
-      ? `${seconds} seconds so far`
-      : `${seconds} seconds so far — still working, and every safety and playability check will finish.`;
+      ? `Magic in motion · ${seconds} seconds`
+      : `Still bringing it together · ${seconds} seconds`;
   }, 2_000);
 }
 
@@ -547,19 +630,38 @@ fileInput.addEventListener("change", async () => {
     status.dataset.gameState = "error";
     status.classList.add("error");
     status.textContent = "That saved game could not be opened. Try another Inkling game file.";
-    status.focus?.();
+    showCaptureStatus("That saved game could not be opened. Try another Inkling game file.", true);
+    if (document.body.classList.contains("play-mode")) status.focus();
+    else {
+      capturePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+      captureStatus.setAttribute("tabindex", "-1");
+      captureStatus.focus({ preventScroll: true });
+    }
   }
 });
 
 saveGame.addEventListener("click", () => {
-  const data = JSON.stringify(currentSpec, null, 2);
-  const blob = new Blob([`${data}\n`], { type: "application/json" });
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = "my-inkling-game.json";
-  link.click();
-  URL.revokeObjectURL(url);
+  try {
+    const data = JSON.stringify(currentSpec, null, 2);
+    const blob = new Blob([`${data}\n`], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = "my-inkling-game.json";
+    link.click();
+    // Safari can consume the object URL after the click task completes.
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+    window.clearTimeout(saveFeedbackTimer);
+    saveGame.textContent = "Download started";
+    saveStatus.textContent = "Your game download started.";
+    saveFeedbackTimer = window.setTimeout(() => {
+      saveGame.textContent = "Save game";
+      saveStatus.textContent = "";
+      saveFeedbackTimer = undefined;
+    }, 2_500);
+  } catch {
+    saveStatus.textContent = "The download did not start. Tap Save game to try again.";
+  }
 });
 
 drawingInput.addEventListener("change", async () => {
@@ -580,7 +682,10 @@ drawingInput.addEventListener("change", async () => {
   recastPanel.hidden = true;
   pendingPlayableGame = undefined;
   progressPanel.hidden = true;
-  await updatePreparedPicture("Preparing your drawing on this device…");
+  returnableGame = undefined;
+  returnGame.hidden = true;
+  renderExperienceState("capture-empty");
+  await updatePreparedPicture("Preparing your drawing on this device…", true);
 });
 
 adjustPicture.addEventListener("click", () => {
@@ -671,9 +776,10 @@ makeGame.addEventListener("click", async () => {
       pendingPlayableGame = currentSpec;
       progressPanel.hidden = true;
       recastPanel.hidden = false;
-      recastTitle.textContent = "Your drawing needs a simpler game path";
-      recastDetail.textContent = "Some game actions in this drawing are not ready yet. I can keep your art and make a simpler game that works.";
-      showCaptureStatus("Choose whether to play this safe version or try another picture.");
+      renderExperienceState("recast");
+      recastTitle.textContent = "Your game is ready to play";
+      recastDetail.textContent = "Inkling kept your art and chose a clear game path you can finish.";
+      showCaptureStatus("Your playable version is ready.");
       playSafeVersion.focus();
     } else {
       play(currentSpec);
@@ -686,6 +792,7 @@ makeGame.addEventListener("click", async () => {
     showCaptureStatus(visibleGenerationFailure(error), true);
     captureStatus.setAttribute("tabindex", "-1");
     captureStatus.focus();
+    renderExperienceState(preparedDrawing ? "capture-ready" : "capture-empty");
   } finally {
     if (activeGeneration?.sequence === sequence) activeGeneration = undefined;
     if (sequence === generationSequence) {
@@ -730,19 +837,41 @@ assistGame.addEventListener("click", () => {
   parent.focus({ preventScroll: true });
 });
 
-makeAnother.addEventListener("click", () => {
+async function startAnotherDrawing(): Promise<void> {
+  if (document.fullscreenElement) await document.exitFullscreen().catch(() => undefined);
+  returnableGame = currentSpec;
   startFreshDrawingSession();
+}
+
+makeAnother.addEventListener("click", () => void startAnotherDrawing());
+fullscreenNewDrawing.addEventListener("click", () => void startAnotherDrawing());
+
+returnGame.addEventListener("click", () => {
+  if (returnableGame === undefined) return;
+  currentSpec = returnableGame;
+  returnableGame = undefined;
+  returnGame.hidden = true;
+  void play(currentSpec);
 });
 
 if (!document.fullscreenEnabled) fullscreenGame.hidden = true;
 fullscreenGame.addEventListener("click", async () => {
   try {
     if (document.fullscreenElement) await document.exitFullscreen();
-    else await gameShell.requestFullscreen();
+    else await playStage.requestFullscreen();
   } catch {
     fullscreenGame.hidden = true;
   }
 });
+
+document.addEventListener("fullscreenchange", () => {
+  fullscreenGame.textContent = document.fullscreenElement ? "Exit full screen" : "Bigger game";
+});
+
+document.body.classList.toggle(
+  "touch-controls",
+  window.matchMedia("(pointer: coarse)").matches || navigator.maxTouchPoints > 0,
+);
 
 for (const button of accessibleControls.querySelectorAll<HTMLButtonElement>("[data-game-control]")) {
   const control = button.dataset.gameControl as PlatformerControl;
@@ -751,7 +880,11 @@ for (const button of accessibleControls.querySelectorAll<HTMLButtonElement>("[da
   button.addEventListener("pointerup", release);
   button.addEventListener("pointercancel", release);
   button.addEventListener("pointerleave", release);
-  button.addEventListener("click", () => {
+  button.addEventListener("click", (event) => {
+    // Pointer input was already handled by pointerdown/up. Browsers synthesize
+    // a click after pointerup; replaying it would keep moving after release.
+    // A detail of zero identifies keyboard/assistive activation.
+    if (event.detail !== 0) return;
     playerModule?.setPlatformerControl(game, control, true);
     window.setTimeout(release, control === "jump" || control === "action" ? 120 : 300);
   });

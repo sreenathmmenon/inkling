@@ -70,6 +70,8 @@ export interface PlatformerOptions {
   /** Fixed control trace used by the production-browser replay harness. */
   inputFrames?: readonly InputFrame[];
   showTouchControls?: boolean;
+  /** Standalone keeps all runtime chrome; embedded lets the host own headings. */
+  presentation?: "standalone" | "embedded";
 }
 
 export type PlatformerControl = "left" | "right" | "jump" | "down" | "action";
@@ -181,6 +183,7 @@ class PlatformerScene extends Phaser.Scene {
     private readonly onRuntimeEvent?: (event: RuntimeEvent) => void,
     inputFrames: readonly InputFrame[] = [],
     private readonly showTouchControls = true,
+    private readonly presentation: "standalone" | "embedded" = "standalone",
   ) {
     super("lane-a-platformer");
     this.coaching = createCoachingContract(plan);
@@ -243,29 +246,31 @@ class PlatformerScene extends Phaser.Scene {
     // Scenes are composed from isolated original-art crops. Repainting the
     // complete photo behind them creates ghost entities that remain after a
     // collectible disappears and makes repeated crops look like photo tiles.
-    this.add
-      .text(24, 18, this.plan.title, {
-        color: "#211c38",
-        fontFamily: "system-ui, sans-serif",
-        fontSize: "22px",
-        fontStyle: "bold",
-        backgroundColor: "rgba(255,255,255,0.82)",
-        padding: { x: 8, y: 4 },
-      })
-      .setScrollFactor(0)
-      .setDepth(20);
-    if (this.usesFreeMovement) {
+    if (this.presentation === "standalone") {
       this.add
-        .text(this.scale.width - 24, 22, this.plan.contract.instruction, {
-          color: `#${ink.toString(16).padStart(6, "0")}`,
+        .text(24, 18, this.plan.title, {
+          color: "#211c38",
           fontFamily: "system-ui, sans-serif",
-          fontSize: "16px",
+          fontSize: "22px",
           fontStyle: "bold",
+          backgroundColor: "rgba(255,255,255,0.82)",
+          padding: { x: 8, y: 4 },
         })
-        .setOrigin(1, 0)
         .setScrollFactor(0)
-        .setAlpha(0.78)
         .setDepth(20);
+      if (this.usesFreeMovement) {
+        this.add
+          .text(this.scale.width - 24, 22, this.plan.contract.instruction, {
+            color: `#${ink.toString(16).padStart(6, "0")}`,
+            fontFamily: "system-ui, sans-serif",
+            fontSize: "16px",
+            fontStyle: "bold",
+          })
+          .setOrigin(1, 0)
+          .setScrollFactor(0)
+          .setAlpha(0.78)
+          .setDepth(20);
+      }
     }
 
     for (const decoration of this.plan.decorations) this.addArtwork(decoration, 0, 0.82);
@@ -378,9 +383,10 @@ class PlatformerScene extends Phaser.Scene {
     });
 
     this.goalTrigger = this.physics.add.staticGroup();
-    const hasVisibleGoal = this.plan.goalKind !== "survive" && this.plan.goalKind !== "defeat_boss" && !(
-      this.plan.goalKind === "collect_all" && this.plan.goal.id === "lane_a_goal"
-    );
+    // Every objective cue comes from the same contract as the win predicate.
+    // In particular, collect-all worlds must never display a contradictory
+    // FINISH marker when collecting the final required item ends the game.
+    const hasVisibleGoal = createObjectiveContract(this.plan).finishRequired;
     if (hasVisibleGoal) {
       this.rectangle(this.plan.goal, dangerColor, ink, 0.85);
       this.addArtwork(this.plan.goal, 4, 1);
@@ -434,6 +440,15 @@ class PlatformerScene extends Phaser.Scene {
       this.physics.add.existing(trigger, true);
       this.goalTrigger.add(trigger);
       this.physics.add.overlap(this.hero, this.goalTrigger, () => this.touchGoal());
+    } else if (
+      this.plan.goalKind === "collect_all" &&
+      this.plan.goal.id !== "lane_a_goal" &&
+      !this.plan.collectibles.some((entity) => entity.id === this.plan.goal.id)
+    ) {
+      // A collect-all contract ends on the final required item, so this art is
+      // not a finish. Keep the child's non-required goal crop in the world as
+      // decoration without adding a contradictory label or win trigger.
+      this.addArtwork(this.plan.goal, 1, 0.82);
     }
 
     this.target = this.physics.add.staticGroup();
@@ -455,23 +470,25 @@ class PlatformerScene extends Phaser.Scene {
     }
 
     this.hud = this.add.text(24, 62, "", {
-      color: "#211c38",
-      fontFamily: "ui-monospace, monospace",
-      fontSize: "18px",
-      backgroundColor: "rgba(255,255,255,0.68)",
-      padding: { x: 8, y: 5 },
-    }).setScrollFactor(0).setDepth(120);
+      color: "#ffffff",
+      fontFamily: "Nunito Variable, system-ui, sans-serif",
+      fontSize: "17px",
+      fontStyle: "bold",
+      backgroundColor: "rgba(32,25,54,0.78)",
+      padding: { x: 10, y: 6 },
+    }).setScrollFactor(0).setDepth(120).setVisible(this.presentation === "standalone");
     this.message = this.add
       .text(this.scale.width / 2, this.scale.height / 2, "", {
         align: "center",
         color: "#ffffff",
-        fontFamily: "system-ui, sans-serif",
-        fontSize: "42px",
+        fontFamily: "Nunito Variable, system-ui, sans-serif",
+        fontSize: "32px",
         fontStyle: "bold",
-        backgroundColor: "rgba(38,50,56,0.9)",
-        padding: { x: 28, y: 20 },
+        backgroundColor: "rgba(75,47,212,0.9)",
+        padding: { x: 22, y: 14 },
       })
       .setOrigin(0.5)
+      .setPosition(this.scale.width / 2, 112)
       .setScrollFactor(0)
       .setDepth(200)
       .setVisible(false)
@@ -1511,7 +1528,9 @@ class PlatformerScene extends Phaser.Scene {
     if (this.status !== "playing") return;
     this.status = "won";
     this.physics.pause();
-    this.message.setText("You did it!\nTap to play again").setVisible(true);
+    if (this.presentation === "standalone") {
+      this.message.setText("You brought it to life!\nTap to play again").setVisible(true);
+    }
     this.emitFeedback("win", this.plan.goal.id, true);
     this.publishState();
   }
@@ -1519,7 +1538,9 @@ class PlatformerScene extends Phaser.Scene {
   private lose(): void {
     this.status = "lost";
     this.physics.pause();
-    this.message.setText("Try again\nTap to restart").setVisible(true);
+    if (this.presentation === "standalone") {
+      this.message.setText("Try again\nTap to restart").setVisible(true);
+    }
     this.emitFeedback("lose", null, false);
     this.publishState();
   }
@@ -1620,6 +1641,7 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
       options.onRuntimeEvent,
       options.inputFrames ?? [],
       options.showTouchControls ?? true,
+      options.presentation ?? "standalone",
     ),
   });
 }

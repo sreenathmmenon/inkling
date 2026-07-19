@@ -6,6 +6,7 @@ export interface ObjectiveContract {
   counterLabel: "Bonus" | "Found" | null;
   requiredTotal: number;
   optionalTotal: number;
+  finishRequired: boolean;
 }
 
 /**
@@ -22,6 +23,7 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
       counterLabel: total > 0 ? "Found" : null,
       requiredTotal: total,
       optionalTotal: 0,
+      finishRequired: false,
     };
   }
   if (plan.requiredCollectibleIds.length > 0) {
@@ -34,6 +36,7 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
       counterLabel: "Found",
       requiredTotal: required,
       optionalTotal: Math.max(0, total - required),
+      finishRequired: true,
     };
   }
   if (plan.goalKind === "survive") {
@@ -43,6 +46,7 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
       counterLabel: total > 0 ? "Bonus" : null,
       requiredTotal: 0,
       optionalTotal: total,
+      finishRequired: false,
     };
   }
   if (plan.goalKind === "defeat_boss") {
@@ -54,6 +58,7 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
       counterLabel: total > 0 ? "Bonus" : null,
       requiredTotal: 0,
       optionalTotal: total,
+      finishRequired: false,
     };
   }
   return {
@@ -64,5 +69,6 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
     counterLabel: total > 0 ? "Bonus" : null,
     requiredTotal: 0,
     optionalTotal: total,
+    finishRequired: true,
   };
 }

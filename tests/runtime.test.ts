@@ -473,6 +473,7 @@ test("objective copy and counters stay truthful without guessing drawing nouns",
     counterLabel: "Bonus",
     requiredTotal: 0,
     optionalTotal: 1,
+    finishRequired: true,
   });
 
   const collectPlan = { ...reachPlan, goalKind: "collect_all" };
@@ -480,6 +481,7 @@ test("objective copy and counters stay truthful without guessing drawing nouns",
   assert.equal(collectObjective.headline, "Find everything");
   assert.equal(collectObjective.counterLabel, "Found");
   assert.equal(collectObjective.requiredTotal, 1);
+  assert.equal(collectObjective.finishRequired, false);
   assert.doesNotMatch(JSON.stringify(collectObjective), /star|carrot|rocket|collectible/i);
 });
 

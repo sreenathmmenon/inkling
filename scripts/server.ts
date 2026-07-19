@@ -86,6 +86,26 @@ function setSecurityHeaders(response: ServerResponse): void {
   );
 }
 
+function rejectUpload(
+  request: IncomingMessage,
+  response: ServerResponse,
+  status: number,
+  error: string,
+  retryAfter?: string,
+): void {
+  // The browser may still be streaming a multi-megabyte drawing when an
+  // authorization, capacity, or rate gate rejects it. Keep consuming those
+  // bytes so reverse proxies can deliver the JSON response instead of
+  // resetting the HTTP/2 stream as a protocol error.
+  request.resume();
+  response.writeHead(status, {
+    "content-type": "application/json; charset=utf-8",
+    "cache-control": "no-store",
+    ...(retryAfter ? { "retry-after": retryAfter } : {}),
+  });
+  response.end(JSON.stringify({ error }));
+}
+
 async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
   const contentLength = Number(request.headers["content-length"] ?? 0);
   if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
@@ -243,30 +263,16 @@ const server = createHttpServer(async (request, response) => {
   if (pathname === "/api/games/drawing") {
     const key = sessionKey(requestUrl);
     if (!key) {
-      response.writeHead(401, {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-      });
-      response.end(JSON.stringify({ error: "missing_session" }));
+      rejectUpload(request, response, 401, "missing_session");
       return;
     }
     const replacingOwnJob = latestJobs.has(key);
     if (activeGenerations >= MAX_CONCURRENT_GENERATIONS && !replacingOwnJob) {
-      response.writeHead(503, {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-        "retry-after": "30",
-      });
-      response.end(JSON.stringify({ error: "generation_busy" }));
+      rejectUpload(request, response, 503, "generation_busy", "30");
       return;
     }
     if (!replacingOwnJob && !canGenerate(key)) {
-      response.writeHead(429, {
-        "content-type": "application/json; charset=utf-8",
-        "cache-control": "no-store",
-        "retry-after": "3600",
-      });
-      response.end(JSON.stringify({ error: "generation_rate_limited" }));
+      rejectUpload(request, response, 429, "generation_rate_limited", "3600");
       return;
     }
     activeGenerations += 1;

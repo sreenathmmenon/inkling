@@ -72,4 +72,12 @@ test("production server fails closed around anonymous sessions and browser data"
   assert.equal(noSession.status, 401);
   assert.equal(noSession.headers.get("cache-control"), "no-store");
   assert.deepEqual(await noSession.json(), { error: "missing_session" });
+
+  const largeRejectedUpload = await fetch(`${origin}/api/games/drawing`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: `data:image/png;base64,${"a".repeat(5 * 1024 * 1024)}`, request_id: "large-missing-session" }),
+  });
+  assert.equal(largeRejectedUpload.status, 401);
+  assert.deepEqual(await largeRejectedUpload.json(), { error: "missing_session" });
 });

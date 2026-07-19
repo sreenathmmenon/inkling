@@ -14,3 +14,8 @@ export function freshPlayerState(plan: PlatformerPlan): PlatformerState {
     assistActive: false,
   };
 }
+
+/** Help is actionable only before a boost starts, never while one is active. */
+export function shouldShowAssist(state: PlatformerState): boolean {
+  return state.status === "playing" && state.assistAvailable && !state.assistActive;
+}

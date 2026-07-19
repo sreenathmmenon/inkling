@@ -20,7 +20,7 @@ import {
   type DrawingQualityWarning,
   type PreparedDrawing,
 } from "./drawing-prep.js";
-import { freshPlayerState } from "./player-status.js";
+import { freshPlayerState, shouldShowAssist } from "./player-status.js";
 
 declare const __INKLING_GAMESPEC__: unknown;
 
@@ -167,7 +167,7 @@ async function certifyGeneratedGame(value: unknown): Promise<unknown> {
 }
 
 function showState(state: PlatformerState): void {
-  assistGame.hidden = !state.assistAvailable || state.status !== "playing";
+  assistGame.hidden = !shouldShowAssist(state);
   status.dataset.gameState = state.status;
   status.classList.remove("error");
   if (state.status === "won") {

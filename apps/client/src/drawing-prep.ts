@@ -3,14 +3,37 @@ export interface PreparedDrawing {
   width: number;
   height: number;
   crop: [number, number, number, number];
+  correction: DrawingCorrection;
   quality: DrawingQuality;
 }
 
-export type DrawingQualityWarning = "page_edge_uncertain" | "low_contrast" | "content_near_edge";
+export type DrawingQualityWarning =
+  | "page_edge_uncertain"
+  | "low_contrast"
+  | "content_near_edge"
+  | "blurry"
+  | "uneven_lighting"
+  | "page_skewed";
+
+export interface DrawingAdjustment {
+  /** Clockwise, transform-only rotation. Deliberately bounded by the UI. */
+  rotationDegrees?: number;
+  /** Insets into the rotated source, expressed from zero to one. */
+  cropInsets?: { left: number; top: number; right: number; bottom: number };
+}
+
+export interface DrawingCorrection {
+  rotationDegrees: number;
+  cropInsets: { left: number; top: number; right: number; bottom: number };
+  manuallyAdjusted: boolean;
+}
 
 export interface DrawingQuality {
   paperDetected: boolean;
   contrast: number;
+  sharpness: number;
+  lightingRange: number;
+  estimatedSkewDegrees: number;
   warnings: DrawingQualityWarning[];
 }
 
@@ -146,6 +169,130 @@ function percentileFromHistogram(histogram: Uint32Array, total: number, percenti
   return 1;
 }
 
+function pixelLuminance(image: { data: ArrayLike<number> }, pixel: number): number {
+  const offset = pixel * 4;
+  return (
+    (image.data[offset] ?? 255) * 0.2126 +
+    (image.data[offset + 1] ?? 255) * 0.7152 +
+    (image.data[offset + 2] ?? 255) * 0.0722
+  ) / 255;
+}
+
+function imageSharpness(image: { width: number; height: number; data: ArrayLike<number> }): number {
+  if (image.width < 3 || image.height < 3) return 0;
+  let sum = 0;
+  let sumSquared = 0;
+  let samples = 0;
+  const stride = Math.max(1, Math.floor(Math.max(image.width, image.height) / 800));
+  for (let y = 1; y < image.height - 1; y += stride) {
+    for (let x = 1; x < image.width - 1; x += stride) {
+      const center = y * image.width + x;
+      const laplacian =
+        pixelLuminance(image, center - image.width) +
+        pixelLuminance(image, center + image.width) +
+        pixelLuminance(image, center - 1) +
+        pixelLuminance(image, center + 1) -
+        4 * pixelLuminance(image, center);
+      sum += laplacian;
+      sumSquared += laplacian * laplacian;
+      samples += 1;
+    }
+  }
+  if (!samples) return 0;
+  const mean = sum / samples;
+  return Math.max(0, sumSquared / samples - mean * mean);
+}
+
+function imageLightingRange(image: { width: number; height: number; data: ArrayLike<number> }): number {
+  const grid = 4;
+  const tileSums = new Float64Array(grid * grid);
+  const tileCounts = new Uint32Array(grid * grid);
+  const stride = Math.max(1, Math.floor(Math.max(image.width, image.height) / 600));
+  for (let y = 0; y < image.height; y += stride) {
+    for (let x = 0; x < image.width; x += stride) {
+      const pixel = y * image.width + x;
+      const offset = pixel * 4;
+      const red = (image.data[offset] ?? 255) / 255;
+      const green = (image.data[offset + 1] ?? 255) / 255;
+      const blue = (image.data[offset + 2] ?? 255) / 255;
+      const lightest = Math.max(red, green, blue);
+      const darkest = Math.min(red, green, blue);
+      const saturation = lightest === 0 ? 0 : (lightest - darkest) / lightest;
+      const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+      // Compare likely substrate, not the child's saturated strokes.
+      if (luminance < 0.45 || saturation > 0.28) continue;
+      const tileX = Math.min(grid - 1, Math.floor((x / image.width) * grid));
+      const tileY = Math.min(grid - 1, Math.floor((y / image.height) * grid));
+      const tile = tileY * grid + tileX;
+      tileSums[tile] = (tileSums[tile] ?? 0) + luminance;
+      tileCounts[tile] = (tileCounts[tile] ?? 0) + 1;
+    }
+  }
+  const means: number[] = [];
+  for (let tile = 0; tile < tileSums.length; tile += 1) {
+    const count = tileCounts[tile] ?? 0;
+    if (count >= 8) means.push((tileSums[tile] ?? 0) / count);
+  }
+  return means.length >= 4 ? Math.max(...means) - Math.min(...means) : 0;
+}
+
+function regressionSlope(points: ReadonlyArray<readonly [number, number]>): number | undefined {
+  if (points.length < 8) return undefined;
+  let meanX = 0;
+  let meanY = 0;
+  for (const [x, y] of points) {
+    meanX += x;
+    meanY += y;
+  }
+  meanX /= points.length;
+  meanY /= points.length;
+  let numerator = 0;
+  let denominator = 0;
+  for (const [x, y] of points) {
+    numerator += (x - meanX) * (y - meanY);
+    denominator += (x - meanX) ** 2;
+  }
+  return denominator > 0 ? numerator / denominator : undefined;
+}
+
+/** Conservative skew evidence from light, low-saturation page edges. */
+export function estimatePaperSkewDegrees(
+  image: { width: number; height: number; data: ArrayLike<number> },
+): number {
+  const left: Array<readonly [number, number]> = [];
+  const right: Array<readonly [number, number]> = [];
+  const step = Math.max(1, Math.floor(image.height / 160));
+  const topCutoff = image.height * 0.12;
+  const bottomCutoff = image.height * 0.88;
+  for (let y = Math.ceil(topCutoff); y < bottomCutoff; y += step) {
+    let first = -1;
+    let last = -1;
+    for (let x = 0; x < image.width; x += 1) {
+      const offset = (y * image.width + x) * 4;
+      const red = (image.data[offset] ?? 255) / 255;
+      const green = (image.data[offset + 1] ?? 255) / 255;
+      const blue = (image.data[offset + 2] ?? 255) / 255;
+      const lightest = Math.max(red, green, blue);
+      const darkest = Math.min(red, green, blue);
+      const saturation = lightest === 0 ? 0 : (lightest - darkest) / lightest;
+      const luminance = red * 0.2126 + green * 0.7152 + blue * 0.0722;
+      if (luminance < 0.56 || saturation > 0.25) continue;
+      if (first < 0) first = x;
+      last = x;
+    }
+    if (first < 0 || last - first < image.width * 0.25) continue;
+    left.push([y, first]);
+    right.push([y, last]);
+  }
+  const slopes = [regressionSlope(left), regressionSlope(right)].filter(
+    (value): value is number => value !== undefined && Number.isFinite(value),
+  );
+  if (slopes.length < 2 || Math.abs((slopes[0] ?? 0) - (slopes[1] ?? 0)) > 0.14) return 0;
+  const slope = slopes.reduce((sum, value) => sum + value, 0) / slopes.length;
+  const degrees = Math.atan(slope) * 180 / Math.PI;
+  return Math.abs(degrees) <= 15 ? degrees : 0;
+}
+
 export function assessDrawingQuality(
   image: { width: number; height: number; data: ArrayLike<number> },
   contentBounds: readonly [number, number, number, number] | undefined,
@@ -163,9 +310,15 @@ export function assessDrawingQuality(
   }
   const contrast = percentileFromHistogram(histogram, pixels, 0.95) -
     percentileFromHistogram(histogram, pixels, 0.05);
+  const sharpness = imageSharpness(image);
+  const lightingRange = imageLightingRange(image);
+  const estimatedSkewDegrees = paperDetected ? estimatePaperSkewDegrees(image) : 0;
   const warnings: DrawingQualityWarning[] = [];
   if (!paperDetected) warnings.push("page_edge_uncertain");
   if (contrast < 0.16) warnings.push("low_contrast");
+  if (contrast >= 0.16 && sharpness < 0.0008) warnings.push("blurry");
+  if (lightingRange > 0.28) warnings.push("uneven_lighting");
+  if (Math.abs(estimatedSkewDegrees) > 2.5) warnings.push("page_skewed");
   if (contentBounds) {
     const [left, top, right, bottom] = contentBounds;
     const marginX = image.width * 0.012;
@@ -174,7 +327,37 @@ export function assessDrawingQuality(
       warnings.push("content_near_edge");
     }
   }
-  return { paperDetected, contrast, warnings };
+  return { paperDetected, contrast, sharpness, lightingRange, estimatedSkewDegrees, warnings };
+}
+
+function normalizedAdjustment(adjustment: DrawingAdjustment): Required<DrawingAdjustment> {
+  const rotationDegrees = Number.isFinite(adjustment.rotationDegrees)
+    ? Math.max(-180, Math.min(180, adjustment.rotationDegrees ?? 0))
+    : 0;
+  const raw = adjustment.cropInsets ?? { left: 0, top: 0, right: 0, bottom: 0 };
+  const cropInsets = {
+    left: Math.max(0, Math.min(0.45, raw.left)),
+    top: Math.max(0, Math.min(0.45, raw.top)),
+    right: Math.max(0, Math.min(0.45, raw.right)),
+    bottom: Math.max(0, Math.min(0.45, raw.bottom)),
+  };
+  if (cropInsets.left + cropInsets.right > 0.82) cropInsets.right = 0.82 - cropInsets.left;
+  if (cropInsets.top + cropInsets.bottom > 0.82) cropInsets.bottom = 0.82 - cropInsets.top;
+  return { rotationDegrees, cropInsets };
+}
+
+function adjustedBounds(
+  width: number,
+  height: number,
+  insets: Required<DrawingAdjustment>["cropInsets"],
+): [number, number, number, number] | undefined {
+  if (!Object.values(insets).some((value) => value > 0)) return undefined;
+  return [
+    Math.round(width * insets.left),
+    Math.round(height * insets.top),
+    Math.round(width * (1 - insets.right)),
+    Math.round(height * (1 - insets.bottom)),
+  ];
 }
 
 /**
@@ -182,7 +365,10 @@ export function assessDrawingQuality(
  * ink/content bounds, and emits a bounded PNG crop. The original pixels inside
  * that crop are retained unchanged; no art-restyling filters are applied.
  */
-export async function prepareDrawing(file: File): Promise<PreparedDrawing> {
+export async function prepareDrawing(
+  file: File,
+  requestedAdjustment: DrawingAdjustment = {},
+): Promise<PreparedDrawing> {
   if (!ALLOWED_TYPES.has(file.type)) {
     throw new Error("Choose a GIF, JPEG, PNG, or WebP drawing.");
   }
@@ -195,30 +381,45 @@ export async function prepareDrawing(file: File): Promise<PreparedDrawing> {
   if (image.naturalWidth < 16 || image.naturalHeight < 16) {
     throw new Error("Choose a larger photo of your drawing.");
   }
-  const analysisScale = Math.min(1, MAX_OUTPUT_EDGE / Math.max(image.naturalWidth, image.naturalHeight));
-  const analysisWidth = Math.max(1, Math.round(image.naturalWidth * analysisScale));
-  const analysisHeight = Math.max(1, Math.round(image.naturalHeight * analysisScale));
+  const adjustment = normalizedAdjustment(requestedAdjustment);
+  const radians = adjustment.rotationDegrees * Math.PI / 180;
+  const rotatedWidth = Math.abs(image.naturalWidth * Math.cos(radians)) +
+    Math.abs(image.naturalHeight * Math.sin(radians));
+  const rotatedHeight = Math.abs(image.naturalWidth * Math.sin(radians)) +
+    Math.abs(image.naturalHeight * Math.cos(radians));
+  const analysisScale = Math.min(1, MAX_OUTPUT_EDGE / Math.max(rotatedWidth, rotatedHeight));
+  const analysisWidth = Math.max(1, Math.round(rotatedWidth * analysisScale));
+  const analysisHeight = Math.max(1, Math.round(rotatedHeight * analysisScale));
   const analysis = document.createElement("canvas");
   analysis.width = analysisWidth;
   analysis.height = analysisHeight;
   const analysisContext = analysis.getContext("2d", { willReadFrequently: true });
   if (!analysisContext) throw new Error("This browser cannot prepare drawing images.");
-  analysisContext.drawImage(image, 0, 0, analysisWidth, analysisHeight);
+  analysisContext.fillStyle = "#ffffff";
+  analysisContext.fillRect(0, 0, analysisWidth, analysisHeight);
+  analysisContext.translate(analysisWidth / 2, analysisHeight / 2);
+  analysisContext.rotate(radians);
+  analysisContext.drawImage(
+    image,
+    -image.naturalWidth * analysisScale / 2,
+    -image.naturalHeight * analysisScale / 2,
+    image.naturalWidth * analysisScale,
+    image.naturalHeight * analysisScale,
+  );
+  analysisContext.setTransform(1, 0, 0, 1, 0, 0);
 
   const pixels = analysisContext.getImageData(0, 0, analysisWidth, analysisHeight);
   const paper = paperBounds(pixels);
   const ink = drawingBounds(pixels);
-  const detected = paper ?? ink;
+  const manual = adjustedBounds(analysisWidth, analysisHeight, adjustment.cropInsets);
+  const detected = manual ?? paper ?? ink;
   const quality = assessDrawingQuality(pixels, ink, paper !== undefined);
   const bounds = detected ?? [0, 0, analysisWidth, analysisHeight] as const;
   const [left, top, right, bottom] = bounds;
-  const sourceLeft = Math.round(left / analysisScale);
-  const sourceTop = Math.round(top / analysisScale);
-  const sourceWidth = Math.max(1, Math.round((right - left) / analysisScale));
-  const sourceHeight = Math.max(1, Math.round((bottom - top) / analysisScale));
-  const outputScale = Math.min(1, MAX_OUTPUT_EDGE / Math.max(sourceWidth, sourceHeight));
-  const width = Math.max(1, Math.round(sourceWidth * outputScale));
-  const height = Math.max(1, Math.round(sourceHeight * outputScale));
+  const sourceWidth = Math.max(1, right - left);
+  const sourceHeight = Math.max(1, bottom - top);
+  const width = sourceWidth;
+  const height = sourceHeight;
   const output = document.createElement("canvas");
   output.width = width;
   output.height = height;
@@ -226,9 +427,9 @@ export async function prepareDrawing(file: File): Promise<PreparedDrawing> {
   if (!outputContext) throw new Error("This browser cannot prepare drawing images.");
   outputContext.imageSmoothingEnabled = true;
   outputContext.drawImage(
-    image,
-    sourceLeft,
-    sourceTop,
+    analysis,
+    left,
+    top,
     sourceWidth,
     sourceHeight,
     0,
@@ -241,11 +442,16 @@ export async function prepareDrawing(file: File): Promise<PreparedDrawing> {
     width,
     height,
     crop: [
-      sourceLeft / image.naturalWidth,
-      sourceTop / image.naturalHeight,
-      Math.min(1, (sourceLeft + sourceWidth) / image.naturalWidth),
-      Math.min(1, (sourceTop + sourceHeight) / image.naturalHeight),
+      left / analysisWidth,
+      top / analysisHeight,
+      Math.min(1, right / analysisWidth),
+      Math.min(1, bottom / analysisHeight),
     ],
+    correction: {
+      rotationDegrees: adjustment.rotationDegrees,
+      cropInsets: adjustment.cropInsets,
+      manuallyAdjusted: adjustment.rotationDegrees !== 0 || manual !== undefined,
+    },
     quality,
   };
 }

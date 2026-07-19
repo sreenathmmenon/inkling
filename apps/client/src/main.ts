@@ -16,7 +16,12 @@ import {
 import type { GameSpec } from "../../../runner/types.js";
 import { runPlaytestWithTrace } from "../../../services/solve/src/playtest.js";
 import { validateRuntimeTrace } from "../../../services/solve/src/runtime-trace.js";
-import { prepareDrawing, type PreparedDrawing } from "./drawing-prep.js";
+import {
+  prepareDrawing,
+  type DrawingAdjustment,
+  type DrawingQualityWarning,
+  type PreparedDrawing,
+} from "./drawing-prep.js";
 
 declare const __INKLING_GAMESPEC__: unknown;
 
@@ -34,6 +39,17 @@ const saveGame = requireElement<HTMLButtonElement>("#save-game");
 const drawingInput = requireElement<HTMLInputElement>("#drawing-file");
 const makeGame = requireElement<HTMLButtonElement>("#make-game");
 const usePicture = requireElement<HTMLButtonElement>("#use-picture");
+const adjustPicture = requireElement<HTMLButtonElement>("#adjust-picture");
+const pictureAdjuster = requireElement<HTMLElement>("#picture-adjuster");
+const finishPicture = requireElement<HTMLButtonElement>("#finish-picture");
+const resetPicture = requireElement<HTMLButtonElement>("#reset-picture");
+const rotatePictureLeft = requireElement<HTMLButtonElement>("#rotate-picture-left");
+const rotatePictureRight = requireElement<HTMLButtonElement>("#rotate-picture-right");
+const straightenPicture = requireElement<HTMLInputElement>("#adjust-straighten");
+const trimLeft = requireElement<HTMLInputElement>("#adjust-left");
+const trimRight = requireElement<HTMLInputElement>("#adjust-right");
+const trimTop = requireElement<HTMLInputElement>("#adjust-top");
+const trimBottom = requireElement<HTMLInputElement>("#adjust-bottom");
 const captureStatus = requireElement<HTMLElement>("#capture-status");
 const drawingPreview = requireElement<HTMLImageElement>("#drawing-preview");
 const previewEmpty = requireElement<HTMLElement>("#preview-empty");
@@ -64,6 +80,9 @@ const initialGameSpec = typeof __INKLING_GAMESPEC__ === "undefined"
 let currentSpec: unknown = initialGameSpec;
 let game: Phaser.Game | undefined;
 let preparedDrawing: PreparedDrawing | undefined;
+let sourceDrawingFile: File | undefined;
+let preparationSequence = 0;
+let pictureQuarterTurns = 0;
 let generationProgressTimer: number | undefined;
 let generationStartedAt = 0;
 let activeCounterLabel: "Bonus" | "Found" | null = null;
@@ -224,14 +243,89 @@ function showCaptureStatus(message: string, error = false): void {
   captureStatus.classList.toggle("error", error);
 }
 
-function forgetPreparedDrawing(message = "Photo removed from this page."): void {
+const QUALITY_COPY: Record<DrawingQualityWarning, string> = {
+  page_edge_uncertain: "Check that the preview contains only the drawing",
+  low_contrast: "The marks may be hard to see",
+  content_near_edge: "Some marks are close to the edge",
+  blurry: "The photo looks a little blurry",
+  uneven_lighting: "A shadow or bright patch may hide some marks",
+  page_skewed: "The page looks tilted",
+};
+
+function captureReviewMessage(warnings: readonly DrawingQualityWarning[]): string {
+  if (!warnings.length) return "Your photo is ready. Tap Make my game, or adjust the picture.";
+  const details = warnings.slice(0, 2).map((warning) => QUALITY_COPY[warning]);
+  return `${details.join("; ")}. Adjust it, use this picture, or choose another.`;
+}
+
+function rangeNumber(input: HTMLInputElement): number {
+  const value = Number(input.value);
+  return Number.isFinite(value) ? value : 0;
+}
+
+function updateAdjustmentOutputs(): void {
+  for (const input of [straightenPicture, trimLeft, trimRight, trimTop, trimBottom]) {
+    const output = document.querySelector<HTMLOutputElement>(`output[for="${input.id}"]`);
+    if (output) output.value = `${input === straightenPicture ? rangeNumber(input) : Math.round(rangeNumber(input))}${input === straightenPicture ? "°" : "%"}`;
+  }
+}
+
+function currentDrawingAdjustment(): DrawingAdjustment {
+  return {
+    rotationDegrees: pictureQuarterTurns * 90 + rangeNumber(straightenPicture),
+    cropInsets: {
+      left: rangeNumber(trimLeft) / 100,
+      right: rangeNumber(trimRight) / 100,
+      top: rangeNumber(trimTop) / 100,
+      bottom: rangeNumber(trimBottom) / 100,
+    },
+  };
+}
+
+function resetAdjustmentControls(): void {
+  pictureQuarterTurns = 0;
+  for (const input of [straightenPicture, trimLeft, trimRight, trimTop, trimBottom]) input.value = "0";
+  updateAdjustmentOutputs();
+}
+
+async function updatePreparedPicture(message: string): Promise<void> {
+  const file = sourceDrawingFile;
+  if (!file) return;
+  const sequence = ++preparationSequence;
   preparedDrawing = undefined;
+  makeGame.disabled = true;
+  usePicture.hidden = true;
+  showCaptureStatus(message);
+  try {
+    const result = await prepareDrawing(file, currentDrawingAdjustment());
+    if (sequence !== preparationSequence || sourceDrawingFile !== file) return;
+    preparedDrawing = result;
+    drawingPreview.src = result.dataUrl;
+    drawingPreview.hidden = false;
+    previewEmpty.hidden = true;
+    adjustPicture.hidden = false;
+    forgetDrawing.hidden = false;
+    makeGame.disabled = result.quality.warnings.length > 0;
+    usePicture.hidden = result.quality.warnings.length === 0;
+    showCaptureStatus(captureReviewMessage(result.quality.warnings));
+  } catch (error) {
+    if (sequence !== preparationSequence) return;
+    showCaptureStatus(error instanceof Error ? error.message : "That drawing could not be prepared.", true);
+  }
+}
+
+function forgetPreparedDrawing(message = "Photo removed from this page."): void {
+  preparationSequence += 1;
+  preparedDrawing = undefined;
+  sourceDrawingFile = undefined;
   drawingInput.value = "";
   drawingPreview.removeAttribute("src");
   drawingPreview.hidden = true;
   previewEmpty.hidden = false;
   makeGame.disabled = true;
   usePicture.hidden = true;
+  adjustPicture.hidden = true;
+  pictureAdjuster.hidden = true;
   forgetDrawing.hidden = true;
   progressPanel.hidden = true;
   showCaptureStatus(message);
@@ -275,6 +369,8 @@ function startFreshDrawingSession(
   activeCounterLabel = null;
   showGameWaiting();
   preparedDrawing = undefined;
+  sourceDrawingFile = undefined;
+  preparationSequence += 1;
   drawingInput.value = "";
   fileInput.value = "";
   drawingPreview.removeAttribute("src");
@@ -284,6 +380,9 @@ function startFreshDrawingSession(
   makeGame.textContent = "Make my game";
   makeGame.removeAttribute("aria-busy");
   usePicture.hidden = true;
+  adjustPicture.hidden = true;
+  pictureAdjuster.hidden = true;
+  resetAdjustmentControls();
   forgetDrawing.disabled = false;
   forgetDrawing.hidden = true;
   saveGame.disabled = true;
@@ -420,32 +519,55 @@ drawingInput.addEventListener("change", async () => {
   if (!file) return;
   drawingInput.value = "";
   if (activeGeneration) cancelActiveGeneration();
+  preparationSequence += 1;
   preparedDrawing = undefined;
+  sourceDrawingFile = file;
+  resetAdjustmentControls();
   makeGame.disabled = true;
   drawingPreview.hidden = true;
   previewEmpty.hidden = false;
   forgetDrawing.hidden = true;
+  adjustPicture.hidden = true;
+  pictureAdjuster.hidden = true;
   progressPanel.hidden = true;
-  showCaptureStatus("Cropping your drawing on this device…");
-  try {
-    preparedDrawing = await prepareDrawing(file);
-    drawingPreview.src = preparedDrawing.dataUrl;
-    drawingPreview.hidden = false;
-    previewEmpty.hidden = true;
-    const warnings = preparedDrawing.quality.warnings;
-    makeGame.disabled = warnings.length > 0;
-    usePicture.hidden = warnings.length === 0;
-    forgetDrawing.hidden = false;
-    showCaptureStatus(warnings.includes("content_near_edge")
-      ? "Some marks may be close to the edge. Use this picture or choose another."
-      : warnings.includes("low_contrast")
-        ? "This drawing may be hard to see. Use this picture or choose another."
-        : warnings.includes("page_edge_uncertain")
-          ? "Please check that the preview contains only the drawing. Use this picture or choose another."
-          : "Your photo is ready. Tap Make my game, or choose a different photo.");
-  } catch (error) {
-    showCaptureStatus(error instanceof Error ? error.message : "That drawing could not be prepared.", true);
-  }
+  await updatePreparedPicture("Preparing your drawing on this device…");
+});
+
+adjustPicture.addEventListener("click", () => {
+  if (!sourceDrawingFile) return;
+  pictureAdjuster.hidden = false;
+  adjustPicture.setAttribute("aria-expanded", "true");
+  straightenPicture.focus();
+});
+
+finishPicture.addEventListener("click", () => {
+  pictureAdjuster.hidden = true;
+  adjustPicture.setAttribute("aria-expanded", "false");
+  if (!preparedDrawing) return;
+  makeGame.disabled = preparedDrawing.quality.warnings.length > 0;
+  usePicture.hidden = preparedDrawing.quality.warnings.length === 0;
+  showCaptureStatus(captureReviewMessage(preparedDrawing.quality.warnings));
+  adjustPicture.focus();
+});
+
+for (const input of [straightenPicture, trimLeft, trimRight, trimTop, trimBottom]) {
+  input.addEventListener("input", updateAdjustmentOutputs);
+  input.addEventListener("change", () => void updatePreparedPicture("Updating your preview on this device…"));
+}
+
+rotatePictureLeft.addEventListener("click", () => {
+  pictureQuarterTurns -= 1;
+  void updatePreparedPicture("Rotating your preview on this device…");
+});
+
+rotatePictureRight.addEventListener("click", () => {
+  pictureQuarterTurns += 1;
+  void updatePreparedPicture("Rotating your preview on this device…");
+});
+
+resetPicture.addEventListener("click", () => {
+  resetAdjustmentControls();
+  void updatePreparedPicture("Resetting your preview on this device…");
 });
 
 usePicture.addEventListener("click", () => {

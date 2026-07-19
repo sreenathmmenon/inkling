@@ -37,6 +37,16 @@
       #preview-empty span { display: block; margin-bottom: 10px; font-size: 3rem; }
       #drawing-preview { position: relative; z-index: 2; width: calc(100% - 36px); max-height: 300px; object-fit: contain; border-radius: 16px; box-shadow: 0 12px 28px #30275d28; }
       #drawing-preview[hidden], #preview-empty[hidden], #progress-panel[hidden] { display: none; }
+      #picture-adjuster { grid-column: 1 / -1; padding: 20px; border: 1px solid #ded8f5; border-radius: 20px; background: #faf9ff; }
+      #picture-adjuster[hidden], #adjust-picture[hidden] { display: none; }
+      #picture-adjuster h2 { margin: 0; font-size: 1.2rem; letter-spacing: -.035em; }
+      #picture-adjuster > p { margin: 6px 0 16px; color: #625b78; line-height: 1.45; }
+      .adjustment-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 22px; margin: 0; padding: 0; border: 0; }
+      .adjustment-grid legend { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+      .adjustment-grid label { display: grid; grid-template-columns: 1fr auto; gap: 7px 12px; color: #443b63; font-size: .88rem; font-weight: 800; }
+      .adjustment-grid label output { color: #6b6190; font-variant-numeric: tabular-nums; }
+      .adjustment-grid input[type="range"] { grid-column: 1 / -1; width: 100%; min-height: 36px; accent-color: #6248e5; }
+      .adjustment-actions { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 16px; }
       #progress-panel { grid-column: 1 / -1; padding-top: 28px; border-top: 1px solid #ece8f8; }
       #progress-title { margin: 0; font-size: 1.25rem; letter-spacing: -.035em; }
       #progress-detail { margin: 6px 0 20px; color: #6e6784; }
@@ -91,6 +101,8 @@
         #capture-title { max-width: 10ch; font-size: clamp(2.35rem, 13vw, 3.25rem); }
         .capture-actions > * { flex: 1 1 160px; text-align: center; }
         .preview-stage { min-height: 210px; }
+        .adjustment-grid { grid-template-columns: 1fr; }
+        .adjustment-actions > * { flex: 1 1 130px; }
         .progress-steps { grid-template-columns: 1fr 1fr; }
         #game { min-height: 190px; }
         #play-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 6px; padding: 10px 11px; border-radius: 16px; }
@@ -141,6 +153,7 @@
             <input id="drawing-file" type="file" accept="image/gif,image/jpeg,image/png,image/webp" capture="environment" />
             <button id="make-game" class="primary-action" type="button" disabled>Make my game</button>
             <button id="use-picture" type="button" hidden>Use this picture</button>
+            <button id="adjust-picture" type="button" aria-expanded="false" aria-controls="picture-adjuster" hidden>Adjust picture</button>
             <label class="file-label" for="spec-file">Open a saved game</label>
             <input id="spec-file" type="file" accept="application/json,.json" />
             <button id="forget-drawing" type="button" hidden>Remove photo</button>
@@ -150,6 +163,24 @@
           <div id="preview-empty"><span aria-hidden="true">✎</span>Your drawing will stay wonderfully yours.</div>
           <img id="drawing-preview" alt="Prepared crop of your drawing" hidden />
         </div>
+        <section id="picture-adjuster" aria-labelledby="picture-adjuster-title" hidden>
+          <h2 id="picture-adjuster-title">Keep only the drawing</h2>
+          <p>Rotate or trim the photo if the preview missed the paper. These controls move and crop the original pixels—they never redraw the art.</p>
+          <fieldset class="adjustment-grid">
+            <legend>Picture correction</legend>
+            <label>Straighten <output for="adjust-straighten">0°</output><input id="adjust-straighten" type="range" min="-12" max="12" step="1" value="0" /></label>
+            <label>Trim left <output for="adjust-left">0%</output><input id="adjust-left" type="range" min="0" max="40" step="1" value="0" /></label>
+            <label>Trim right <output for="adjust-right">0%</output><input id="adjust-right" type="range" min="0" max="40" step="1" value="0" /></label>
+            <label>Trim top <output for="adjust-top">0%</output><input id="adjust-top" type="range" min="0" max="40" step="1" value="0" /></label>
+            <label>Trim bottom <output for="adjust-bottom">0%</output><input id="adjust-bottom" type="range" min="0" max="40" step="1" value="0" /></label>
+          </fieldset>
+          <div class="adjustment-actions">
+            <button id="rotate-picture-left" type="button">Rotate left</button>
+            <button id="rotate-picture-right" type="button">Rotate right</button>
+            <button id="reset-picture" type="button">Reset</button>
+            <button id="finish-picture" class="primary-action" type="button">Done</button>
+          </div>
+        </section>
         <section id="progress-panel" hidden>
           <div aria-live="polite" aria-atomic="true">
             <h2 id="progress-title">Getting your game ready</h2>

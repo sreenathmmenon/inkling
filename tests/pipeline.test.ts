@@ -36,6 +36,7 @@ import type {
 } from "../runner/types.js";
 
 const SERVICE_SAFETY_ID = "a".repeat(64);
+const REQUEST_ID = "test-request-0001";
 
 const SHAREABLE_GAME_SPEC: GameSpec = {
   primary_genre: "platformer", genre_confidence: 1, mood: null,
@@ -393,17 +394,25 @@ test("HTTP generation derives safety identity on the server and returns no-store
   const response = await handler(new Request("https://inkling.test/api/games/drawing", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", safetyId: "do-not-trust-this" }),
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", request_id: REQUEST_ID, safetyId: "do-not-trust-this" }),
   }));
   assert.equal(response.status, 201);
   assert.equal(response.headers.get("cache-control"), "no-store");
-  const body = await response.json() as { playableGame?: { format?: string } };
+  const body = await response.json() as { requestId?: string; playableGame?: { format?: string } };
+  assert.equal(body.requestId, REQUEST_ID);
   assert.equal(body.playableGame?.format, "inkling-playable-game-v1");
+
+  const unbound = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=" }),
+  }));
+  assert.equal(unbound.status, 400);
 
   const crossOrigin = await handler(new Request("https://inkling.test/api/games/drawing", {
     method: "POST",
     headers: { "content-type": "application/json", origin: "https://not-inkling.test" },
-    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=" }),
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", request_id: REQUEST_ID }),
   }));
   assert.equal(crossOrigin.status, 403);
 
@@ -416,7 +425,7 @@ test("HTTP generation derives safety identity on the server and returns no-store
   const rejected = await missingSession(new Request("https://inkling.test/api/games/drawing", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=" }),
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", request_id: REQUEST_ID }),
   }));
   assert.equal(rejected.status, 401);
 });
@@ -431,19 +440,25 @@ test("streaming generation exposes only coarse pipeline stages before its playab
   const response = await handler(new Request("https://inkling.test/api/games/drawing", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=" }),
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", request_id: REQUEST_ID }),
   }));
   assert.equal(response.status, 200);
   assert.equal(response.headers.get("content-type"), "text/event-stream; charset=utf-8");
   const events = (await response.text()).trim().split("\n\n").map((line) => {
     const data = line.slice("data: ".length);
-    return JSON.parse(data) as { type: string; stage?: string; playableGame?: { format?: string } };
+    return JSON.parse(data) as { type: string; requestId?: string; stage?: string; playableGame?: { format?: string } };
   });
   assert.equal(events[0]?.type, "progress");
   assert.equal(events[0]?.stage, "checking");
+  assert.ok(events.every((event) => event.requestId === REQUEST_ID));
   assert.ok(events.some((event) => event.stage === "understanding"));
   assert.ok(events.some((event) => event.stage === "animating"));
   assert.ok(events.some((event) => event.stage === "testing"));
+  const order = ["checking", "understanding", "animating", "testing"];
+  const progress = events.filter((event) => event.type === "progress");
+  assert.ok(progress.every((event, index) => (
+    index === 0 || order.indexOf(event.stage ?? "") >= order.indexOf(progress[index - 1]?.stage ?? "")
+  )));
   assert.equal(events.at(-1)?.type, "complete");
   assert.equal(events.at(-1)?.playableGame?.format, "inkling-playable-game-v1");
 });

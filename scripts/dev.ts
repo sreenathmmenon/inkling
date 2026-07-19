@@ -5,6 +5,7 @@ import { resolve } from "node:path";
 import { createServer as createViteServer } from "vite";
 
 import { createDrawingGenerationStreamHandler } from "../services/gen/src/http.js";
+import { LatestGenerationJobAuthority } from "../services/gen/src/job-authority.js";
 import { findProjectRoot } from "../runner/spec.js";
 
 const MAX_REQUEST_BYTES = 12 * 1024 * 1024;
@@ -67,7 +68,7 @@ async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
   return Buffer.concat(chunks);
 }
 
-function requestFromNode(request: IncomingMessage, body: Buffer): Request {
+function requestFromNode(request: IncomingMessage, body: Buffer, signal?: AbortSignal): Request {
   const headers = new Headers();
   for (const [key, value] of Object.entries(request.headers)) {
     if (value === undefined) continue;
@@ -78,6 +79,7 @@ function requestFromNode(request: IncomingMessage, body: Buffer): Request {
     method,
     headers,
   };
+  if (signal) init.signal = signal;
   if (body.length > 0) init.body = body.toString("utf8");
   // Keep the browser-visible host. Rewriting localhost to 127.0.0.1 makes a
   // genuinely same-origin browser upload look cross-origin to the safety
@@ -108,11 +110,14 @@ async function writeResponse(response: ServerResponse, result: Response): Promis
 
 const root = findProjectRoot();
 const sessionSecret = randomBytes(32);
+const latestJobs = new LatestGenerationJobAuthority();
+function safetyId(request: Request): string | undefined {
+  const session = cookie(request, SESSION_COOKIE);
+  return session ? createHmac("sha256", sessionSecret).update(session).digest("hex") : undefined;
+}
 const handler = createDrawingGenerationStreamHandler({
   resolveSafetyId(request) {
-    const session = cookie(request, SESSION_COOKIE);
-    if (!session) return undefined;
-    return createHmac("sha256", sessionSecret).update(session).digest("hex");
+    return safetyId(request);
   },
 });
 const vite = await createViteServer({
@@ -136,13 +141,17 @@ const server = createHttpServer(async (request, response) => {
     return;
   }
   if (path === "/api/games/drawing") {
+    const key = safetyId(requestFromNode(request, Buffer.alloc(0)));
+    const lease = key ? latestJobs.begin(key) : undefined;
     try {
       const body = await readRequestBody(request);
-      await writeResponse(response, await handler(requestFromNode(request, body)));
+      await writeResponse(response, await handler(requestFromNode(request, body, lease?.controller.signal)));
     } catch (error) {
       const status = error instanceof Error && error.message === "request_too_large" ? 413 : 500;
       response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
       response.end(JSON.stringify({ error: status === 413 ? "request_too_large" : "generation_unavailable" }));
+    } finally {
+      lease?.release();
     }
     return;
   }

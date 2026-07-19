@@ -4,6 +4,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { extname, resolve, sep } from "node:path";
 
 import { createDrawingGenerationStreamHandler } from "../services/gen/src/http.js";
+import { LatestGenerationJobAuthority } from "../services/gen/src/job-authority.js";
 import { findProjectRoot } from "../runner/spec.js";
 
 const MAX_REQUEST_BYTES = 12 * 1024 * 1024;
@@ -29,6 +30,7 @@ const sessionSecret = configuredSessionSecret;
 const root = findProjectRoot();
 const publicRoot = resolve(root, "build/client");
 const generationHistory = new Map<string, number[]>();
+const latestJobs = new LatestGenerationJobAuthority();
 let activeGenerations = 0;
 let lastRatePruneAt = 0;
 
@@ -248,7 +250,8 @@ const server = createHttpServer(async (request, response) => {
       response.end(JSON.stringify({ error: "missing_session" }));
       return;
     }
-    if (activeGenerations >= MAX_CONCURRENT_GENERATIONS) {
+    const replacingOwnJob = latestJobs.has(key);
+    if (activeGenerations >= MAX_CONCURRENT_GENERATIONS && !replacingOwnJob) {
       response.writeHead(503, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
@@ -257,7 +260,7 @@ const server = createHttpServer(async (request, response) => {
       response.end(JSON.stringify({ error: "generation_busy" }));
       return;
     }
-    if (!canGenerate(key)) {
+    if (!replacingOwnJob && !canGenerate(key)) {
       response.writeHead(429, {
         "content-type": "application/json; charset=utf-8",
         "cache-control": "no-store",
@@ -267,7 +270,8 @@ const server = createHttpServer(async (request, response) => {
       return;
     }
     activeGenerations += 1;
-    const disconnect = new AbortController();
+    const lease = latestJobs.begin(key);
+    const disconnect = lease.controller;
     const abortDisconnectedGeneration = (): void => {
       if (!response.writableEnded) disconnect.abort(new Error("client_disconnected"));
     };
@@ -292,6 +296,7 @@ const server = createHttpServer(async (request, response) => {
     } finally {
       request.off("aborted", abortDisconnectedGeneration);
       response.off("close", abortDisconnectedGeneration);
+      lease.release();
       activeGenerations -= 1;
     }
     return;

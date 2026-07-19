@@ -14,6 +14,7 @@ export interface DrawingGenerationHttpOptions extends DrawingGenerationOptions {
 
 export interface DrawingGenerationProgressEvent {
   type: "progress" | "complete" | "error";
+  requestId: string;
   stage?: "checking" | "understanding" | "animating" | "testing";
   playableGame?: unknown;
   error?: "drawing_not_approved" | "game_not_finishable" | "invalid_drawing_request" | "generation_unavailable";
@@ -61,7 +62,7 @@ function stageForCall(callId: string): NonNullable<DrawingGenerationProgressEven
 async function requestPayload(
   request: Request,
   options: DrawingGenerationHttpOptions,
-): Promise<{ image: string; safetyId: string } | Response> {
+): Promise<{ image: string; safetyId: string; requestId: string } | Response> {
   if (request.method !== "POST") return json(405, { error: "method_not_allowed" });
   if (!isSameOriginRequest(request)) return json(403, { error: "cross_origin_request" });
   const contentType = request.headers.get("content-type") ?? "";
@@ -75,13 +76,18 @@ async function requestPayload(
   } catch {
     return json(400, { error: "invalid_json" });
   }
-  if (!isRecord(payload) || typeof payload.image !== "string") {
+  if (
+    !isRecord(payload) ||
+    typeof payload.image !== "string" ||
+    typeof payload.request_id !== "string" ||
+    !/^[A-Za-z0-9_-]{16,80}$/.test(payload.request_id)
+  ) {
     return json(400, { error: "invalid_drawing_request" });
   }
 
   const safetyId = await options.resolveSafetyId(request);
   if (!safetyId) return json(401, { error: "missing_session" });
-  return { image: payload.image, safetyId };
+  return { image: payload.image, safetyId, requestId: payload.request_id };
 }
 
 /**
@@ -103,7 +109,7 @@ export function createDrawingGenerationHandler(
         payload,
         { ...options, signal: request.signal },
       );
-      return json(201, { playableGame: result.playableGame });
+      return json(201, { requestId: payload.requestId, playableGame: result.playableGame });
     } catch (error) {
       const code = publicError(error);
       const status = code === "drawing_not_approved" || code === "game_not_finishable" ? 422
@@ -125,10 +131,18 @@ export function createDrawingGenerationStreamHandler(
     const payload = await requestPayload(request, options);
     if (payload instanceof Response) return payload;
     const encoder = new TextEncoder();
+    const stageOrder = ["checking", "understanding", "animating", "testing"] as const;
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
-        const emit = (event: DrawingGenerationProgressEvent): void => {
-          controller.enqueue(encoder.encode(`data: ${JSON.stringify(event)}\n\n`));
+        let highestStage = -1;
+        const emit = (event: Omit<DrawingGenerationProgressEvent, "requestId">): void => {
+          if (event.type === "progress" && event.stage) {
+            const index = stageOrder.indexOf(event.stage);
+            if (index < highestStage) return;
+            highestStage = index;
+          }
+          const boundEvent: DrawingGenerationProgressEvent = { ...event, requestId: payload.requestId };
+          controller.enqueue(encoder.encode(`data: ${JSON.stringify(boundEvent)}\n\n`));
         };
         emit({ type: "progress", stage: "checking" });
         try {
@@ -142,9 +156,20 @@ export function createDrawingGenerationStreamHandler(
           });
           emit({ type: "complete", playableGame: result.playableGame });
         } catch (error) {
-          emit({ type: "error", error: publicError(error) });
+          if (!request.signal.aborted) {
+            try {
+              emit({ type: "error", error: publicError(error) });
+            } catch {
+              // The client is already gone; never turn cancellation into an
+              // unhandled stream exception or a second model attempt.
+            }
+          }
         } finally {
-          controller.close();
+          try {
+            controller.close();
+          } catch {
+            // A cancelled reader has already closed its side of the stream.
+          }
         }
       },
     });

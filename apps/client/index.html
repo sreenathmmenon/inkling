@@ -61,6 +61,11 @@
       .progress-steps li.done { color: #395c48; background: #f0fbf3; border-color: #b7e1c1; }
       .progress-steps li.done::before { color: #fff; background: #4aa568; }
       @keyframes pulse { 50% { transform: scale(1.22); } }
+      #recast-panel { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 12px 22px; align-items: center; padding: 22px; border: 1px solid #cfc6fb; border-radius: 20px; background: linear-gradient(135deg, #f4f1ff, #fff9e8); }
+      #recast-panel[hidden] { display: none; }
+      #recast-title { margin: 0; font-size: 1.35rem; letter-spacing: -.04em; }
+      #recast-detail { margin: 6px 0 0; color: #5e5875; line-height: 1.5; }
+      .recast-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 9px; }
       #play-toolbar { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 14px 18px; align-items: center; margin-bottom: 14px; padding: 16px 18px; border: 1px solid #dfdaf5; border-radius: 20px; background: #fff; box-shadow: 0 12px 32px #30275d12; }
       #play-toolbar[hidden] { display: none; }
       #objective-title { margin: 0; font-size: clamp(1.2rem, 4vw, 1.65rem); letter-spacing: -.04em; }
@@ -91,6 +96,10 @@
       #forget-drawing[hidden] { display: none; }
       #use-picture[hidden] { display: none; }
       body.play-mode #capture-panel { display: none; }
+      body:not(.play-mode):not(.runtime-replay-mode) #game-shell,
+      body:not(.play-mode):not(.runtime-replay-mode) #game-status,
+      body:not(.play-mode):not(.runtime-replay-mode) #controls-hint,
+      body:not(.play-mode):not(.runtime-replay-mode) #post-play-actions { display: none; }
       body.play-mode main { width: min(100%, 1280px); }
       body.play-mode #game-shell { margin-inline: auto; }
       @media (min-width: 681px) and (min-height: 601px) {
@@ -106,6 +115,9 @@
         .adjustment-grid { grid-template-columns: 1fr; }
         .adjustment-actions > * { flex: 1 1 130px; }
         .progress-steps { grid-template-columns: 1fr 1fr; }
+        #recast-panel { grid-template-columns: 1fr; }
+        .recast-actions { justify-content: stretch; }
+        .recast-actions > * { flex: 1 1 140px; }
         #game { min-height: 190px; }
         #play-toolbar { grid-template-columns: minmax(0, 1fr) auto; gap: 8px; margin-bottom: 6px; padding: 10px 11px; border-radius: 16px; }
         #play-toolbar .eyebrow { display: none; }
@@ -192,10 +204,20 @@
           <button id="cancel-generation" type="button" hidden>Cancel</button>
           <ol class="progress-steps">
             <li data-stage="checking">Checking drawing</li>
-            <li data-stage="understanding">Understanding your world</li>
-            <li data-stage="animating">Bringing art to life</li>
-            <li data-stage="testing">Testing it can be won</li>
+            <li data-stage="understanding">Finding hero and goal</li>
+            <li data-stage="animating">Building your game</li>
+            <li data-stage="testing">Making sure you can finish</li>
           </ol>
+        </section>
+        <section id="recast-panel" aria-labelledby="recast-title" hidden>
+          <div>
+            <h2 id="recast-title">Your drawing can play</h2>
+            <p id="recast-detail">This version keeps your art and uses a simpler game action that works.</p>
+          </div>
+          <div class="recast-actions">
+            <button id="play-safe-version" class="primary-action" type="button">Play this version</button>
+            <button id="try-new-picture" type="button">Try another picture</button>
+          </div>
         </section>
       </section>
       <section id="play-toolbar" aria-labelledby="objective-title" hidden>

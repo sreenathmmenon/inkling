@@ -73,6 +73,11 @@ const postPlayActions = requireElement<HTMLElement>("#post-play-actions");
 const assistGame = requireElement<HTMLButtonElement>("#assist-game");
 const accessibleControls = requireElement<HTMLElement>("#accessible-controls");
 const runtimeReplayHost = requireElement<HTMLElement>("#runtime-replay-host");
+const recastPanel = requireElement<HTMLElement>("#recast-panel");
+const recastTitle = requireElement<HTMLElement>("#recast-title");
+const recastDetail = requireElement<HTMLElement>("#recast-detail");
+const playSafeVersion = requireElement<HTMLButtonElement>("#play-safe-version");
+const tryNewPicture = requireElement<HTMLButtonElement>("#try-new-picture");
 
 // The standalone player may replace this at build time; the local capture
 // server intentionally does not need Vite's websocket client to do so.
@@ -90,10 +95,13 @@ let generationStartedAt = 0;
 let activeCounterLabel: "Bonus" | "Found" | null = null;
 let generationSequence = 0;
 let activeGeneration: { controller: AbortController; sequence: number } | undefined;
+let pendingPlayableGame: unknown;
+let generationStageIndex = -1;
 
 type GenerationStage = "checking" | "understanding" | "animating" | "testing";
 type GenerationEvent = {
   type: "progress" | "complete" | "error";
+  requestId?: string;
   stage?: GenerationStage;
   playableGame?: unknown;
   error?: string;
@@ -109,12 +117,13 @@ declare global {
 
 const STAGES: Array<{ id: GenerationStage; title: string; detail: string }> = [
   { id: "checking", title: "Checking your drawing", detail: "Making sure it is safe to turn into a game." },
-  { id: "understanding", title: "Understanding your world", detail: "Finding your hero, objects, rules, and best game style." },
-  { id: "animating", title: "Bringing your art to life", detail: "Keeping your strokes and giving your world motion." },
-  { id: "testing", title: "Testing your game", detail: "Making sure your game can really be won." },
+  { id: "understanding", title: "Finding your hero and goal", detail: "Reading the characters, objects, paths, and rules in your drawing." },
+  { id: "animating", title: "Building your game", detail: "Keeping your strokes and connecting them to real game actions." },
+  { id: "testing", title: "Making sure you can finish", detail: "Playing the exact game and checking that its goal can be reached." },
 ];
 
 if (new URLSearchParams(window.location.search).has("runtime-replay")) {
+  document.body.classList.add("runtime-replay-mode");
   window.__INKLING_REPLAY__ = {
     run(gameSpec, inputFrames) {
       return replayPlatformerInBrowser({ parent, gameSpec, inputFrames });
@@ -196,7 +205,7 @@ function play(spec: unknown): void {
   objectiveDetail.textContent = objective.instruction;
   interpretationNote.hidden = playable.readinessOutcome === undefined || playable.readinessOutcome === "faithful_ready";
   interpretationNote.textContent = playable.readinessOutcome === "needs_recast"
-    ? "This is a safe playable version. A new interpretation is needed to match the full game idea."
+    ? "Your art is here in a simpler playable version. Some drawn actions are not included yet."
     : playable.readinessOutcome === "related_fallback"
       ? "Your art is here. Some game actions were simplified to keep this version playable."
       : "";
@@ -330,6 +339,8 @@ function forgetPreparedDrawing(message = "Photo removed from this page."): void 
   usePicture.hidden = true;
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
+  recastPanel.hidden = true;
+  pendingPlayableGame = undefined;
   forgetDrawing.hidden = true;
   progressPanel.hidden = true;
   showCaptureStatus(message);
@@ -342,6 +353,7 @@ function resetProgress(): void {
   progressTitle.textContent = "Getting your game ready";
   progressDetail.textContent = "We will show each real step as it starts.";
   progressTime.textContent = "Just started";
+  generationStageIndex = -1;
   for (const element of document.querySelectorAll<HTMLElement>(".progress-steps [data-stage]")) {
     element.classList.remove("active", "done");
     element.removeAttribute("aria-current");
@@ -370,6 +382,7 @@ function startFreshDrawingSession(
   cancelActiveGeneration();
 
   currentSpec = null;
+  pendingPlayableGame = undefined;
   activeCounterLabel = null;
   showGameWaiting();
   preparedDrawing = undefined;
@@ -386,6 +399,7 @@ function startFreshDrawingSession(
   usePicture.hidden = true;
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
+  recastPanel.hidden = true;
   resetAdjustmentControls();
   forgetDrawing.disabled = false;
   forgetDrawing.hidden = true;
@@ -400,7 +414,8 @@ function startFreshDrawingSession(
 function showGenerationStage(stage: GenerationStage): void {
   const index = STAGES.findIndex((item) => item.id === stage);
   const current = STAGES[index];
-  if (!current) return;
+  if (!current || index < generationStageIndex) return;
+  generationStageIndex = index;
   progressPanel.hidden = false;
   progressTitle.textContent = current.title;
   progressDetail.textContent = current.detail;
@@ -415,6 +430,7 @@ function showGenerationStage(stage: GenerationStage): void {
 
 function startGenerationProgress(): void {
   window.clearInterval(generationProgressTimer);
+  generationStageIndex = -1;
   generationStartedAt = performance.now();
   showGenerationStage("checking");
   cancelGeneration.hidden = false;
@@ -424,7 +440,13 @@ function startGenerationProgress(): void {
     progressTime.textContent = seconds < 30
       ? `${seconds} seconds so far`
       : `${seconds} seconds so far — still working, and every safety and playability check will finish.`;
-  }, 1_000);
+  }, 2_000);
+}
+
+function newRequestId(): string {
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return `inkling-${[...bytes].map((value) => value.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function stopGenerationProgress(): void {
@@ -449,6 +471,7 @@ function errorMessage(code?: string): string {
 async function readGenerationStream(
   response: Response,
   isCurrent: () => boolean,
+  expectedRequestId: string,
 ): Promise<unknown> {
   if (!response.body) throw new Error(errorMessage());
   const reader = response.body.getReader();
@@ -473,6 +496,7 @@ async function readGenerationStream(
         } catch {
           throw new Error(errorMessage());
         }
+        if (event.requestId !== expectedRequestId) throw new Error(errorMessage());
         if (event.type === "progress" && event.stage) {
           if (!isCurrent()) throw new DOMException("Generation cancelled", "AbortError");
           showGenerationStage(event.stage);
@@ -533,6 +557,8 @@ drawingInput.addEventListener("change", async () => {
   forgetDrawing.hidden = true;
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
+  recastPanel.hidden = true;
+  pendingPlayableGame = undefined;
   progressPanel.hidden = true;
   await updatePreparedPicture("Preparing your drawing on this device…");
 });
@@ -587,6 +613,9 @@ makeGame.addEventListener("click", async () => {
   activeGeneration?.controller.abort();
   const controller = new AbortController();
   const sequence = ++generationSequence;
+  const requestId = newRequestId();
+  recastPanel.hidden = true;
+  pendingPlayableGame = undefined;
   activeGeneration = { controller, sequence };
   makeGame.disabled = true;
   makeGame.textContent = "Making game…";
@@ -600,6 +629,7 @@ makeGame.addEventListener("click", async () => {
       headers: { "content-type": "application/json", accept: "text/event-stream" },
       body: JSON.stringify({
         image: preparedDrawing.dataUrl,
+        request_id: requestId,
       }),
       signal: controller.signal,
     });
@@ -614,16 +644,35 @@ makeGame.addEventListener("click", async () => {
       }
       throw new Error(errorMessage(body.error));
     }
-    currentSpec = response.headers.get("content-type")?.startsWith("text/event-stream")
-      ? await readGenerationStream(response, () => sequence === generationSequence)
-      : (await response.json() as { playableGame?: unknown }).playableGame;
+    if (response.headers.get("content-type")?.startsWith("text/event-stream")) {
+      currentSpec = await readGenerationStream(response, () => sequence === generationSequence, requestId);
+    } else {
+      const result = await response.json() as { requestId?: string; playableGame?: unknown };
+      if (result.requestId !== requestId) throw new Error(errorMessage());
+      currentSpec = result.playableGame;
+    }
     if (sequence !== generationSequence) return;
     if (!currentSpec) throw new Error(errorMessage());
     currentSpec = await certifyGeneratedGame(currentSpec);
     if (sequence !== generationSequence) return;
-    play(currentSpec);
-    saveGame.disabled = false;
-    forgetPreparedDrawing("Your drawing is now a playable game.");
+    const playable = resolvePlayableGame(currentSpec);
+    if (playable.readinessOutcome === "related_fallback" || playable.readinessOutcome === "needs_recast") {
+      pendingPlayableGame = currentSpec;
+      progressPanel.hidden = true;
+      recastPanel.hidden = false;
+      recastTitle.textContent = playable.readinessOutcome === "needs_recast"
+        ? "Your drawing needs a simpler game path"
+        : "Your drawing can play now";
+      recastDetail.textContent = playable.readinessOutcome === "needs_recast"
+        ? "Some game actions in this drawing are not ready yet. I can keep your art and make a simpler game that works."
+        : "This version keeps your art and simplifies only the unsupported actions so it stays playable.";
+      showCaptureStatus("Choose whether to play this safe version or try another picture.");
+      playSafeVersion.focus();
+    } else {
+      play(currentSpec);
+      saveGame.disabled = false;
+      forgetPreparedDrawing("Your drawing is now a playable game.");
+    }
   } catch (error) {
     if (sequence !== generationSequence || controller.signal.aborted) return;
     progressPanel.hidden = true;
@@ -637,13 +686,24 @@ makeGame.addEventListener("click", async () => {
     if (activeGeneration?.sequence === sequence) activeGeneration = undefined;
     if (sequence === generationSequence) {
       stopGenerationProgress();
-      makeGame.disabled = preparedDrawing === undefined;
+      makeGame.disabled = preparedDrawing === undefined || pendingPlayableGame !== undefined;
       makeGame.textContent = "Make my game";
       makeGame.removeAttribute("aria-busy");
       forgetDrawing.disabled = false;
     }
   }
 });
+
+playSafeVersion.addEventListener("click", () => {
+  if (pendingPlayableGame === undefined) return;
+  currentSpec = pendingPlayableGame;
+  pendingPlayableGame = undefined;
+  play(currentSpec);
+  saveGame.disabled = false;
+  forgetPreparedDrawing("Your drawing is now a playable game.");
+});
+
+tryNewPicture.addEventListener("click", () => startFreshDrawingSession());
 
 forgetDrawing.addEventListener("click", () => forgetPreparedDrawing());
 

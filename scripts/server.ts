@@ -4,7 +4,7 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { extname, resolve, sep } from "node:path";
 
 import { createDrawingGenerationStreamHandler } from "../services/gen/src/http.js";
-import { LatestGenerationJobAuthority } from "../services/gen/src/job-authority.js";
+import { GenerationAdmissionController } from "../services/gen/src/generation-admission.js";
 import { findProjectRoot } from "../runner/spec.js";
 
 const MAX_REQUEST_BYTES = 12 * 1024 * 1024;
@@ -12,6 +12,7 @@ const SESSION_COOKIE = "inkling_session";
 const RATE_WINDOW_MS = 60 * 60 * 1_000;
 const MAX_GENERATIONS_PER_WINDOW = 8;
 const MAX_CONCURRENT_GENERATIONS = 4;
+const MAX_GENERATION_MS = 8 * 60 * 1_000;
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "0.0.0.0";
 const configuredSessionSecret = process.env.INKLING_SESSION_SECRET;
@@ -29,10 +30,16 @@ const sessionSecret = configuredSessionSecret;
 
 const root = findProjectRoot();
 const publicRoot = resolve(root, "build/client");
-const generationHistory = new Map<string, number[]>();
-const latestJobs = new LatestGenerationJobAuthority();
-let activeGenerations = 0;
-let lastRatePruneAt = 0;
+const generationAdmission = new GenerationAdmissionController(
+  MAX_CONCURRENT_GENERATIONS,
+  MAX_GENERATIONS_PER_WINDOW,
+  RATE_WINDOW_MS,
+);
+const configuredBuildRevision = process.env.INKLING_BUILD_REVISION ?? process.env.RAILWAY_GIT_COMMIT_SHA;
+if (!configuredBuildRevision || !/^[a-f0-9]{7,64}$/i.test(configuredBuildRevision)) {
+  throw new Error("INKLING_BUILD_REVISION or RAILWAY_GIT_COMMIT_SHA must contain an immutable commit hash");
+}
+const buildRevision = configuredBuildRevision;
 
 function cookie(request: Request, name: string): string | undefined {
   for (const part of (request.headers.get("cookie") ?? "").split(";")) {
@@ -71,6 +78,7 @@ function appendSessionCookie(response: ServerResponse, session: string): void {
 }
 
 function setSecurityHeaders(response: ServerResponse): void {
+  response.setHeader("x-inkling-revision", buildRevision);
   response.setHeader("referrer-policy", "no-referrer");
   response.setHeader("x-content-type-options", "nosniff");
   response.setHeader("x-frame-options", "DENY");
@@ -145,25 +153,6 @@ async function writeWebResponse(response: ServerResponse, result: Response): Pro
 function sessionKey(request: Request): string | undefined {
   const session = cookie(request, SESSION_COOKIE);
   return session ? createHmac("sha256", sessionSecret).update(session).digest("hex") : undefined;
-}
-
-function canGenerate(key: string, now = Date.now()): boolean {
-  if (now - lastRatePruneAt >= RATE_WINDOW_MS) {
-    for (const [candidate, times] of generationHistory) {
-      const recent = times.filter((time) => now - time < RATE_WINDOW_MS);
-      if (recent.length === 0) generationHistory.delete(candidate);
-      else generationHistory.set(candidate, recent);
-    }
-    lastRatePruneAt = now;
-  }
-  const recent = (generationHistory.get(key) ?? []).filter((time) => now - time < RATE_WINDOW_MS);
-  if (recent.length >= MAX_GENERATIONS_PER_WINDOW) {
-    generationHistory.set(key, recent);
-    return false;
-  }
-  recent.push(now);
-  generationHistory.set(key, recent);
-  return true;
 }
 
 const generationHandler = createDrawingGenerationStreamHandler({
@@ -256,7 +245,7 @@ const server = createHttpServer(async (request, response) => {
       "content-type": "application/json; charset=utf-8",
       "cache-control": "no-store",
     });
-    response.end(JSON.stringify({ status: "ok" }));
+    response.end(JSON.stringify({ status: "ok", revision: buildRevision }));
     return;
   }
 
@@ -266,18 +255,24 @@ const server = createHttpServer(async (request, response) => {
       rejectUpload(request, response, 401, "missing_session");
       return;
     }
-    const replacingOwnJob = latestJobs.has(key);
-    if (activeGenerations >= MAX_CONCURRENT_GENERATIONS && !replacingOwnJob) {
-      rejectUpload(request, response, 503, "generation_busy", "30");
+    const admission = generationAdmission.begin(key);
+    if (!admission.accepted) {
+      const rateLimited = admission.reason === "rate_limited";
+      rejectUpload(
+        request,
+        response,
+        rateLimited ? 429 : 503,
+        rateLimited ? "generation_rate_limited" : "generation_busy",
+        rateLimited ? "3600" : "30",
+      );
       return;
     }
-    if (!replacingOwnJob && !canGenerate(key)) {
-      rejectUpload(request, response, 429, "generation_rate_limited", "3600");
-      return;
-    }
-    activeGenerations += 1;
-    const lease = latestJobs.begin(key);
+    const lease = admission.lease;
     const disconnect = lease.controller;
+    const generationDeadline = setTimeout(() => {
+      disconnect.abort(new Error("generation_deadline_exceeded"));
+    }, MAX_GENERATION_MS);
+    generationDeadline.unref();
     const abortDisconnectedGeneration = (): void => {
       if (!response.writableEnded) disconnect.abort(new Error("client_disconnected"));
     };
@@ -285,6 +280,7 @@ const server = createHttpServer(async (request, response) => {
     response.once("close", abortDisconnectedGeneration);
     try {
       const body = await readRequestBody(request);
+      await lease.activate();
       await writeWebResponse(response, await generationHandler(requestFromNode(request, body, disconnect.signal)));
     } catch (error) {
       const status = error instanceof Error && error.message === "request_too_large" ? 413 : 500;
@@ -300,10 +296,10 @@ const server = createHttpServer(async (request, response) => {
         response.end();
       }
     } finally {
+      clearTimeout(generationDeadline);
       request.off("aborted", abortDisconnectedGeneration);
       response.off("close", abortDisconnectedGeneration);
       lease.release();
-      activeGenerations -= 1;
     }
     return;
   }

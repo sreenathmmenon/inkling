@@ -228,6 +228,14 @@ test("PlayContract distinguishes faithful execution from a merely playable fallb
   assert.equal(faithful.outcome, "faithful_ready");
   assert.deepEqual(faithful.unsupportedCapabilities, []);
 
+  const safetyRecast = structuredClone(platformer);
+  safetyRecast.flags.push("p8_safety_recast");
+  assert.equal(
+    createPlayContract(safetyRecast).outcome,
+    "related_fallback",
+    "a certified mechanical recast must never be presented as the original idea faithfully executed",
+  );
+
   const maze = structuredClone(platformer);
   maze.primary_genre = "maze";
   const recast = createPlayContract(maze);

@@ -7,6 +7,7 @@ import { chromium, type Browser } from "playwright";
 
 import { createPlayContract } from "../packages/runtime/src/play-contract.js";
 import type { RuntimeEvent } from "../packages/runtime/src/runtime-events.js";
+import { createDeterministicSafetyRecast } from "../runner/pipeline.js";
 import type { GameSpec } from "../runner/types.js";
 import { runPlaytestWithTrace } from "../services/solve/src/playtest.js";
 import { validateRuntimeTrace } from "../services/solve/src/runtime-trace.js";
@@ -361,6 +362,19 @@ try {
       summaries.push("maze/wall-blocked");
     }
   }
+
+  const safetyRecast = createDeterministicSafetyRecast(hazardGameSpec);
+  const safetyAnalytic = runPlaytestWithTrace(safetyRecast, 42);
+  assert.equal(safetyAnalytic.report.reached_goal, true, "P8 safety recast analytic route failed");
+  assert.equal(createPlayContract(safetyRecast).outcome, "related_fallback");
+  const safetyEvents = await page.evaluate(async (input) => {
+    const api = window.__INKLING_REPLAY__;
+    if (!api) throw new Error("Inkling runtime replay API is unavailable");
+    return api.run(input.gameSpec, input.inputFrames);
+  }, { gameSpec: safetyRecast, inputFrames: safetyAnalytic.inputFrames }) as RuntimeEvent[];
+  assert.equal(safetyEvents.at(-1)?.state.status, "won", "production Phaser did not finish the P8 safety recast");
+  assert.ok(safetyEvents.some((event) => event.kind === "input_accepted"), "P8 safety recast finished without player input");
+  summaries.push(`p8-safety-recast@${safetyEvents.at(-1)?.frame ?? 0}`);
 
   await page.close();
   page = await createReplayPage();

@@ -30,3 +30,16 @@ test("generation authority is isolated between anonymous sessions", () => {
   assert.equal(second.controller.signal.aborted, false);
 });
 
+test("a replacement can wait until its predecessor has fully released", async () => {
+  const authority = new LatestGenerationJobAuthority();
+  const first = authority.begin("session");
+  const second = authority.begin("session");
+  let settled = false;
+  void second.predecessorDone.then(() => { settled = true; });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  first.release();
+  await second.predecessorDone;
+  assert.equal(settled, true);
+  second.release();
+});

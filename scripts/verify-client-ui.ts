@@ -581,29 +581,117 @@ try {
   assert.equal(await play.locator("body.play-mode").count(), 0, "new drawing did not leave the fullscreen game");
   await play.close();
 
-  const failedPlayer = await browser.newPage({ viewport: { width: 390, height: 844 } });
-  let blockedPlayerChunk = true;
-  await failedPlayer.route("**/assets/platformer-*.js", async (route) => {
-    if (blockedPlayerChunk) {
-      blockedPlayerChunk = false;
-      await route.abort("connectionfailed");
-      return;
-    }
-    await route.continue();
-  });
-  await failedPlayer.goto(baseUrl);
-  await failedPlayer.locator("#spec-file").setInputFiles({
-    name: "recoverable-game.json",
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 667, height: 375 },
+    { width: 844, height: 390 },
+  ]) {
+    const failedPlayer = await browser.newPage({ viewport, hasTouch: true });
+    let blockedPlayerChunk = true;
+    await failedPlayer.route("**/assets/platformer-*.js", async (route) => {
+      if (blockedPlayerChunk) {
+        blockedPlayerChunk = false;
+        await route.abort("connectionfailed");
+        return;
+      }
+      await route.continue();
+    });
+    await failedPlayer.goto(baseUrl);
+    await failedPlayer.locator("#spec-file").setInputFiles({
+      name: `recoverable-game-${viewport.width}x${viewport.height}.json`,
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(gameSpec)),
+    });
+    await failedPlayer.locator("body.player-error").waitFor();
+    assert.equal(await failedPlayer.locator("#accessible-controls").isVisible(), false, `failed player leaves movement controls visible at ${viewport.width}x${viewport.height}`);
+    const retry = failedPlayer.getByRole("button", { name: "Play again" });
+    const retryBox = await retry.boundingBox();
+    assert.ok(retryBox && retryBox.width >= 48 && retryBox.height >= 48 && retryBox.y >= 0 && retryBox.y + retryBox.height <= viewport.height, `player retry is unreachable at ${viewport.width}x${viewport.height}: ${JSON.stringify(retryBox)}`);
+    assert.equal(await failedPlayer.evaluate(() => (document.activeElement as HTMLElement | null)?.id), "restart", `player failure focus misses retry at ${viewport.width}x${viewport.height}`);
+    await retry.click();
+    await failedPlayer.locator("canvas").waitFor();
+    await failedPlayer.locator("body.playing").waitFor();
+    await failedPlayer.close();
+  }
+
+  const replacementRecovery = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  await replacementRecovery.goto(baseUrl);
+  await replacementRecovery.locator("#spec-file").setInputFiles({
+    name: "working-game.json",
     mimeType: "application/json",
     buffer: Buffer.from(JSON.stringify(gameSpec)),
   });
-  await failedPlayer.locator("body.player-error").waitFor();
-  assert.equal(await failedPlayer.locator("#accessible-controls").isVisible(), false, "failed player leaves movement controls visible");
-  assert.equal(await failedPlayer.getByRole("button", { name: "Play again" }).isVisible(), true, "failed player has no retry");
-  await failedPlayer.getByRole("button", { name: "Play again" }).click();
-  await failedPlayer.locator("canvas").waitFor();
-  await failedPlayer.locator("body.playing").waitFor();
-  await failedPlayer.close();
+  await replacementRecovery.locator("canvas").waitFor();
+  await replacementRecovery.locator("#make-another").click();
+  await replacementRecovery.locator("#drawing-file").setInputFiles({
+    name: "broken-next-picture.png",
+    mimeType: "image/png",
+    buffer: Buffer.from("not an image"),
+  });
+  await replacementRecovery.locator("#capture-status.error").waitFor();
+  assert.equal(await replacementRecovery.locator("#return-game").isVisible(), true, "a bad replacement image loses the working-game recovery path");
+  await replacementRecovery.locator("#return-game").click();
+  await replacementRecovery.locator("canvas").waitFor();
+  await replacementRecovery.locator("body.playing").waitFor();
+  await replacementRecovery.close();
+
+  const pointerOwnership = await browser.newPage({ viewport: { width: 390, height: 844 }, hasTouch: true });
+  await pointerOwnership.goto(baseUrl);
+  await pointerOwnership.locator("#spec-file").setInputFiles({
+    name: "pointer-ownership.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(gameSpec)),
+  });
+  await pointerOwnership.locator("canvas").waitFor();
+  const ownedRight = pointerOwnership.locator('[data-game-control="right"]');
+  await ownedRight.dispatchEvent("pointerdown", { pointerId: 201, pointerType: "touch" });
+  await ownedRight.dispatchEvent("pointerdown", { pointerId: 202, pointerType: "touch" });
+  await ownedRight.dispatchEvent("pointermove", { pointerId: 201, pointerType: "touch", clientX: 20, clientY: 20 });
+  await ownedRight.dispatchEvent("pointerup", { pointerId: 201, pointerType: "touch" });
+  assert.equal(await ownedRight.getAttribute("aria-pressed"), "true", "one finger released a control still owned by another finger");
+  const ownedJump = pointerOwnership.locator('[data-game-control="jump"]');
+  await ownedJump.dispatchEvent("pointerdown", { pointerId: 203, pointerType: "touch" });
+  assert.equal(await ownedJump.getAttribute("aria-pressed"), "true", "multi-touch jump did not stay active beside movement");
+  assert.equal(await pointerOwnership.evaluate(() => scrollY), 0, "game controls allowed the page to pan");
+  await ownedJump.dispatchEvent("pointercancel", { pointerId: 203, pointerType: "touch" });
+  await ownedRight.dispatchEvent("pointerup", { pointerId: 202, pointerType: "touch" });
+  assert.equal(await ownedRight.getAttribute("aria-pressed"), "false", "final pointer release left movement stuck on");
+  assert.equal(await ownedJump.getAttribute("aria-pressed"), "false", "cancelled jump stayed pressed");
+  await pointerOwnership.close();
+
+  for (const viewport of [
+    { width: 667, height: 375 },
+    { width: 740, height: 360 },
+  ]) {
+    const fullscreenLandscape = await browser.newPage({ viewport, hasTouch: true });
+    await fullscreenLandscape.goto(baseUrl);
+    await fullscreenLandscape.locator("#spec-file").setInputFiles({
+      name: `fullscreen-landscape-${viewport.width}x${viewport.height}.json`,
+      mimeType: "application/json",
+      buffer: Buffer.from(JSON.stringify(fourWayGameSpec)),
+    });
+    await fullscreenLandscape.locator("canvas").waitFor();
+    // Short landscape already fills the browser, so its fullscreen action is
+    // normally hidden. Reveal only the existing action to exercise the exact
+    // :fullscreen layout reached when a phone rotates while fullscreen.
+    await fullscreenLandscape.locator(".play-meta").evaluate((element) => { element.style.display = "block"; });
+    await fullscreenLandscape.locator("#accessible-controls").evaluate((element) => { element.style.display = "none"; });
+    await fullscreenLandscape.locator("#fullscreen-game").click();
+    await fullscreenLandscape.waitForFunction(() => document.fullscreenElement?.id === "play-stage");
+    await fullscreenLandscape.locator("#accessible-controls").evaluate((element) => { element.style.removeProperty("display"); });
+    const layout = await fullscreenLandscape.evaluate(() => {
+      const shell = document.querySelector<HTMLElement>("#game-shell")!.getBoundingClientRect();
+      const controls = document.querySelector<HTMLElement>("#accessible-controls")!.getBoundingClientRect();
+      return {
+        shell: { width: shell.width, height: shell.height, top: shell.top, bottom: shell.bottom },
+        controls: { top: controls.top, bottom: controls.bottom },
+        viewport: { width: innerWidth, height: innerHeight },
+      };
+    });
+    assert.ok(layout.shell.width >= viewport.width * 0.62 && layout.shell.width / layout.shell.height > 1.7, `fullscreen landscape collapsed into a portrait sliver at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
+    assert.ok(layout.shell.top >= 0 && layout.shell.bottom <= layout.viewport.height + 1 && layout.controls.top >= 0 && layout.controls.bottom <= layout.viewport.height + 1, `fullscreen landscape is clipped at ${viewport.width}x${viewport.height}: ${JSON.stringify(layout)}`);
+    await fullscreenLandscape.close();
+  }
 
   const smallFullscreen = await browser.newPage({ viewport: { width: 320, height: 568 } });
   await smallFullscreen.goto(baseUrl);
@@ -675,7 +763,7 @@ try {
   assert.ok(positions.left.x < positions.down.x && positions.down.x < positions.right.x, "four-way controls are not a spatial D-pad");
   await maze.close();
 
-  console.log("Client UI browser contract passed: touch/pointer phone, desktop, tablet, and landscape viewports; review/progress/recovery, play/fullscreen/win/replay, and spatial controls.");
+  console.log("Client UI browser contract passed: touch/pointer phone, desktop, tablet, and landscape viewports; review/progress/recovery, replacement recovery, multi-pointer ownership, player-load retry, play/fullscreen/win/replay, and spatial controls.");
 } finally {
   await browser.close();
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));

@@ -5,14 +5,17 @@ import test from "node:test";
 import type { Responses } from "openai/resources/responses/responses";
 
 import {
+  createDeterministicSafetyRecast,
   ModelOutputError,
   PipelineBlocked,
+  SolvabilityError,
   runMultipageStitch,
   runPhotoScan,
   runPipeline,
   runShareModeration,
   runVoiceEdit,
 } from "../runner/pipeline.js";
+import { runPlaytest } from "../services/solve/src/playtest.js";
 import { validateJsonSchema } from "../runner/schema-validation.js";
 import { generateDrawingGame } from "../services/gen/src/drawing-service.js";
 import {
@@ -21,6 +24,7 @@ import {
 } from "../services/gen/src/http.js";
 import { moderateShareCandidate } from "../services/share/src/share-service.js";
 import { createPlayContract } from "../packages/runtime/src/play-contract.js";
+import { createPlatformerPlan } from "../packages/runtime/src/platformer-layout.js";
 import type { RuntimeTraceReport } from "../services/solve/src/runtime-trace.js";
 import {
   findProjectRoot,
@@ -33,6 +37,7 @@ import type {
   ResponsesClient,
   SchemaDocument,
   GameSpec,
+  JsonObject,
 } from "../runner/types.js";
 
 const SERVICE_SAFETY_ID = "a".repeat(64);
@@ -65,6 +70,163 @@ const FAITHFUL_RUNTIME_REPORT: RuntimeTraceReport = {
 
 const root = findProjectRoot();
 const spec = loadPipelineSpec(root);
+
+test("the final P8 safety recast is deterministic, art-preserving, and finishable", () => {
+  const unsafe = structuredClone(SHAREABLE_GAME_SPEC);
+  unsafe.primary_genre = "shooter";
+  unsafe.hero.bbox = [0.76, 0.04, 0.94, 0.24];
+  unsafe.entities = [
+    { id: "hero", role: "hazard", bbox: [0, 0, 1, 1], behavior: "chase", linked_to: "missing", style_ref: "child-ink" },
+    { id: "hero", role: "boss", bbox: [0.4, 0.2, 0.7, 0.8], behavior: "shooter", linked_to: null, style_ref: "child-paint" },
+  ];
+  unsafe.goal = { kind: "defeat_boss", target_id: "missing" };
+
+  const first = createDeterministicSafetyRecast(unsafe);
+  const second = createDeterministicSafetyRecast(unsafe);
+  assert.deepEqual(first, second);
+  assert.equal(first.primary_genre, "platformer");
+  assert.ok(first.flags.includes("p8_safety_recast"));
+  assert.deepEqual(first.hero, unsafe.hero, "the child's extracted hero crop must remain unchanged");
+  assert.deepEqual(
+    first.entities.slice(0, unsafe.entities.length).map(({ bbox, style_ref }) => ({ bbox, style_ref })),
+    unsafe.entities.map(({ bbox, style_ref }) => ({ bbox, style_ref })),
+    "every original entity crop and style reference must remain unchanged",
+  );
+  assert.ok(first.entities.slice(0, unsafe.entities.length).every((entity) => (
+    entity.role === "decoration" && entity.behavior === "static" && entity.linked_to === null
+  )));
+  assert.equal(new Set(first.entities.map((entity) => entity.id)).size, first.entities.length);
+  assert.equal(createPlayContract(first).outcome, "related_fallback");
+  assert.equal(runPlaytest(first).reached_goal, true);
+});
+
+test("P8 spends its declared loop on a certified safety recast instead of returning a retry", async () => {
+  let activeCallId = "";
+  let p8Attempts = 0;
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        const callId = activeCallId;
+        const value = callId === "P1"
+          ? { verdict: "allow", reason_code: "none" }
+          : callId === "P0_calibrate"
+            ? { complexity: "simple" }
+            : callId === "P2"
+              ? SHAREABLE_GAME_SPEC
+              : callId === "P3"
+                ? { topology: "blob", tier: "squash_stretch_puppet", joints: [], animations: ["idle"], style_ref: null }
+                : callId === "P4"
+                  ? { layers: [{ source: "source-page", parallax: 0.5 }] }
+                  : callId === "P5"
+                    ? { music_pack_id: "base", sfx_pack_id: "base" }
+                    : callId === "P8"
+                      ? ++p8Attempts < 3
+                        ? { verdict: "unsolvable_by_design", repairs: null, fallback: "survive_mode" }
+                        : { verdict: "ready", repairs: [], fallback: "none" }
+                      : {};
+        return { id: `mock-${callId}`, output_text: JSON.stringify(value), output: [] };
+      },
+    },
+  };
+
+  const result = await runPipeline(
+    { image: "data:image/png;base64,cDgtc2FmZXR5LXJlY2FzdA==" },
+    {
+      safetyId: "p8-safety-recast-user",
+      client,
+      onRequest(trace) {
+        activeCallId = trace.callId;
+      },
+    },
+  );
+  assert.equal(p8Attempts, 3, "the final P8 call must certify the recast rather than be skipped");
+  assert.equal(result.solvability.verdict, "ready");
+  assert.equal(result.playtestReport.reached_goal, true);
+  assert.ok(result.gameSpec.flags.includes("p8_safety_recast"));
+  assert.ok(result.degraded.includes("P8:deterministic_safety_recast"));
+  assert.equal(createPlayContract(result.gameSpec).outcome, "related_fallback");
+});
+
+const BLOCKED_GAME_SPEC: GameSpec = {
+  ...structuredClone(SHAREABLE_GAME_SPEC),
+  entities: [
+    SHAREABLE_GAME_SPEC.entities[0]!,
+    { id: "door", role: "door", bbox: [0.48, 0.25, 0.55, 0.8], behavior: "static", linked_to: null, style_ref: "source" },
+    SHAREABLE_GAME_SPEC.entities[1]!,
+  ],
+};
+
+function pipelineWithP8Sequence(
+  verdicts: JsonObject[],
+  gameSpec: GameSpec = SHAREABLE_GAME_SPEC,
+): { result: ReturnType<typeof runPipeline>; attempts: () => number } {
+  let activeCallId = "";
+  let attempts = 0;
+  const client: ResponsesClient = { responses: { async create() {
+    const value = activeCallId === "P1" ? { verdict: "allow", reason_code: "none" }
+      : activeCallId === "P0_calibrate" ? { complexity: "simple" }
+      : activeCallId === "P2" ? gameSpec
+      : activeCallId === "P3" ? { topology: "blob", tier: "squash_stretch_puppet", joints: [], animations: ["idle"], style_ref: null }
+      : activeCallId === "P4" ? { layers: [{ source: "source-page", parallax: 0.5 }] }
+      : activeCallId === "P5" ? { music_pack_id: "base", sfx_pack_id: "base" }
+      : activeCallId === "P8" ? verdicts[Math.min(attempts++, verdicts.length - 1)]
+      : {};
+    return { id: `mock-${activeCallId}`, output_text: JSON.stringify(value), output: [] };
+  } } };
+  return {
+    result: runPipeline(
+      { image: "data:image/png;base64,cDgtc3RhdGUtbWFjaGluZQ==" },
+      { safetyId: "p8-state-machine-user", client, onRequest(trace) { activeCallId = trace.callId; } },
+    ),
+    attempts: () => attempts,
+  };
+}
+
+test("P8 uses every remaining certification attempt after recast and fails closed", async () => {
+  for (const verdict of [
+    { verdict: "repair", repairs: null, fallback: null },
+    { verdict: "unsolvable_by_design", repairs: null, fallback: "survive_mode" },
+  ]) {
+    const run = pipelineWithP8Sequence([verdict]);
+    await assert.rejects(run.result, SolvabilityError);
+    assert.equal(run.attempts(), 4, "all four declared P8 attempts must run before fail-closed exhaustion");
+  }
+});
+
+test("persistent false-ready is accepted only after the deterministic recast passes locally", async () => {
+  assert.equal(runPlaytest(BLOCKED_GAME_SPEC).reached_goal, false);
+  const run = pipelineWithP8Sequence([
+    { verdict: "ready", repairs: [], fallback: "none" },
+  ], BLOCKED_GAME_SPEC);
+  const result = await run.result;
+  assert.equal(run.attempts(), 2, "the false-ready result must trigger recast before another P8 certification");
+  assert.ok(result.degraded.some((entry) => entry.startsWith("P8:false_ready:")));
+  assert.ok(result.gameSpec.flags.includes("p8_safety_recast"));
+  assert.equal(result.playtestReport.reached_goal, true);
+});
+
+test("mixed P8 outcomes certify the final recast without skipping the ordered gate", async () => {
+  const run = pipelineWithP8Sequence([
+    { verdict: "repair", repairs: null, fallback: null },
+    { verdict: "unsolvable_by_design", repairs: null, fallback: "survive_mode" },
+    { verdict: "ready", repairs: [], fallback: "none" },
+  ]);
+  const result = await run.result;
+  assert.equal(run.attempts(), 3);
+  assert.equal(result.solvability.verdict, "ready");
+  assert.ok(result.gameSpec.flags.includes("p8_safety_recast"));
+});
+
+test("model style metadata cannot masquerade as trusted synthetic provenance", () => {
+  const source = structuredClone(SHAREABLE_GAME_SPEC);
+  source.entities[1]!.style_ref = "lane-a-placeholder";
+  const plan = createPlatformerPlan(source);
+  assert.equal(plan.goal.styleRef, "lane-a-placeholder");
+  assert.equal(plan.goal.artworkSource, "drawing", "the source crop remains eligible for artwork rendering");
+
+  const recast = createPlatformerPlan(createDeterministicSafetyRecast(source));
+  assert.equal(recast.goal.artworkSource, "synthetic");
+});
 
 function assertSchemaNode(node: unknown, location: string): void {
   assert.equal(typeof node, "object", `${location} must be an object`);

@@ -294,9 +294,16 @@ export function createPlayContract(gameSpec: GameSpec): PlayContract {
   const supportedCapabilities = required.filter((capability) => available.has(capability));
   const unsupportedCapabilities = required.filter((capability) => !available.has(capability));
   const blockers = structuralBlockers(gameSpec, plan);
+  const explicitlyRelatedFallback = gameSpec.flags.some((flag) => (
+    flag === "deterministic_fallback" ||
+    flag === "lane_a_fallback" ||
+    flag === "p8_safety_recast" ||
+    flag === "collect_all_fallback" ||
+    flag === "survive_mode_fallback"
+  ));
   const outcome: PlayContractOutcome = blockers.length > 0
     ? "needs_recast"
-    : unsupportedCapabilities.length > 0
+    : explicitlyRelatedFallback || unsupportedCapabilities.length > 0
       ? "related_fallback"
       : "faithful_ready";
 

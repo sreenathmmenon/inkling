@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import type { Responses } from "openai/resources/responses/responses";
 
 import { validateBehaviorOperation } from "../packages/sdk/src/validator.js";
+import { P8_SYNTHETIC_ENTITY_PREFIX } from "../packages/runtime/src/synthetic-entity.js";
 import {
   applyBoundedRepairs,
   runPlaytest,
@@ -107,6 +108,72 @@ function fallbackGameSpec(): GameSpec {
     palette: ["source-page"],
     assumptions: ["The safe fallback keeps the scanned art playable."],
     flags: ["deterministic_fallback"],
+  };
+}
+
+function uniqueEntityId(base: string, used: Set<string>): string {
+  let candidate = base;
+  let suffix = 2;
+  while (used.has(candidate)) candidate = `${base}_${suffix++}`;
+  used.add(candidate);
+  return candidate;
+}
+
+/**
+ * Converts any extracted world into the deterministic Lane A floor without
+ * recognizing drawing nouns. Original hero/entity crops remain at their
+ * drawn coordinates as non-colliding art; only the mechanics are recast to a
+ * ground route and a generated finish on the opposite side of the hero.
+ */
+export function createDeterministicSafetyRecast(source: GameSpec): GameSpec {
+  const used = new Set<string>([source.hero.id]);
+  const decorations = source.entities.map((entity, index) => ({
+    ...entity,
+    // The model's ids remain data, never trusted provenance. Re-key source
+    // marks into a separate namespace so only runner-created mechanics can
+    // carry the reserved synthetic prefix used by Lane A rendering.
+    id: uniqueEntityId(`drawing_mark_${index + 1}`, used),
+    role: "decoration",
+    behavior: "static",
+    linked_to: null,
+    bbox: [...entity.bbox] as GameSpec["entities"][number]["bbox"],
+  }));
+  const groundId = uniqueEntityId(`${P8_SYNTHETIC_ENTITY_PREFIX}ground`, used);
+  const goalId = uniqueEntityId(`${P8_SYNTHETIC_ENTITY_PREFIX}finish`, used);
+  const heroCenter = (source.hero.bbox[0] + source.hero.bbox[2]) / 2;
+  const goalLeft = heroCenter <= 0.5 ? 0.82 : 0.06;
+  return {
+    ...source,
+    primary_genre: "platformer",
+    genre_confidence: 0,
+    hero: { ...source.hero, bbox: [...source.hero.bbox] },
+    entities: [
+      ...decorations,
+      {
+        id: groundId,
+        role: "platform",
+        bbox: [0.02, 0.9, 0.98, 0.96],
+        behavior: "static",
+        linked_to: null,
+        style_ref: "synthetic-ground",
+      },
+      {
+        id: goalId,
+        role: "goal",
+        bbox: [goalLeft, 0.7, goalLeft + 0.12, 0.9],
+        behavior: "static",
+        linked_to: null,
+        style_ref: "synthetic-finish",
+      },
+    ],
+    goal: { kind: "reach_goal", target_id: goalId },
+    rules: { ...source.rules, difficulty_hint: "chill", modifiers: [] },
+    palette: [...source.palette],
+    assumptions: [
+      ...source.assumptions,
+      "Lane A recast the mechanics to its deterministic finishable floor after the solvability repair loop.",
+    ],
+    flags: [...new Set([...source.flags, "p8_safety_recast"])],
   };
 }
 
@@ -617,6 +684,8 @@ class PipelineRunner {
     let playtestReport = runPlaytest(gameSpec);
     const iterations = p8.max_iterations ?? 1;
     let objectiveFallbackApplied = false;
+    let safetyRecastApplied = false;
+    let solvabilityPassed = false;
     for (let iteration = 0; iteration < iterations; iteration += 1) {
       playtestReport = runPlaytest(gameSpec);
       state.playtest_report = playtestReport;
@@ -625,12 +694,39 @@ class PipelineRunner {
       solvability = verdict;
       state.results.P8 = verdict;
       if (verdict.verdict === "ready") {
-        if (!playtestReport.reached_goal) {
-          throw new SolvabilityError("P8 returned ready for a failed headless playtest");
+        if (playtestReport.reached_goal) {
+          solvabilityPassed = true;
+          break;
         }
-        break;
+        // P8 remains a hard gate: a model verdict can never overrule the
+        // deterministic playtest. Treat false-ready as a repair outcome and
+        // spend the remaining declared iterations on a safe recast.
+        this.degraded.push(`P8:false_ready:${playtestReport.first_blocker ?? "unknown"}`);
       }
-      if (verdict.verdict === "repair") {
+
+      const effectiveVerdict = verdict.verdict === "ready" ? "repair" : verdict.verdict;
+      const reserveFinalCertification = iteration >= iterations - 2;
+      if (!safetyRecastApplied && (
+        verdict.verdict === "ready" || objectiveFallbackApplied || reserveFinalCertification
+      )) {
+        gameSpec = createDeterministicSafetyRecast(gameSpec);
+        state.gamespec = gameSpec;
+        state.results[extraction.id] = gameSpec;
+        state.results.P2 = gameSpec;
+        behaviorPatches.length = 0;
+        for (const entityId of Object.keys(behaviorFallbacks)) delete behaviorFallbacks[entityId];
+        state.results.P7 = { patches: [], fallbacks: {} };
+        safetyRecastApplied = true;
+        this.degraded.push("P8:deterministic_safety_recast");
+        continue;
+      }
+      if (safetyRecastApplied) {
+        // The recast is the final deterministic mutation. Every remaining
+        // declared attempt is reserved for P8 to certify that exact world;
+        // non-ready verdicts cannot trigger another fallback or abort early.
+        continue;
+      }
+      if (effectiveVerdict === "repair") {
         const repairResult = applyBoundedRepairs(gameSpec, verdict.repairs);
         if (repairResult.applied > 0) {
           continue;
@@ -638,7 +734,7 @@ class PipelineRunner {
         this.degraded.push(`P8:no_applicable_repair:${repairResult.rejected.join(",")}`);
       }
       if (!objectiveFallbackApplied && (
-        verdict.verdict === "unsolvable_by_design" || verdict.verdict === "repair"
+        effectiveVerdict === "unsolvable_by_design" || effectiveVerdict === "repair"
       )) {
         // A child can draw a world without declaring an explicit finish line.
         // Use the GameSpec's own semantic inventory before falling back to a
@@ -654,11 +750,11 @@ class PipelineRunner {
         continue;
       }
       throw new SolvabilityError(
-        `P8 did not approve the game: ${String(verdict.verdict)}; ` +
+        `P8 did not approve the game: ${String(effectiveVerdict)}; ` +
         `headless blocker: ${playtestReport.first_blocker ?? "none"}`,
       );
     }
-    if (!solvability || solvability.verdict !== "ready") {
+    if (!solvabilityPassed || !solvability || solvability.verdict !== "ready" || !playtestReport.reached_goal) {
       throw new SolvabilityError(
         `P8 exhausted its repair loop before ready; ` +
         `headless blocker: ${playtestReport?.first_blocker ?? "none"}`,

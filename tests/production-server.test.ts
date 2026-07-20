@@ -43,6 +43,7 @@ test("production server fails closed around anonymous sessions and browser data"
       PORT: String(port),
       OPENAI_API_KEY: "test-only-not-a-real-key",
       INKLING_SESSION_SECRET: "test-only-session-secret-at-least-32-characters",
+      INKLING_BUILD_REVISION: "0123456789abcdef0123456789abcdef01234567",
     },
     stdio: "ignore",
   });
@@ -52,6 +53,12 @@ test("production server fails closed around anonymous sessions and browser data"
 
   const origin = `http://127.0.0.1:${port}`;
   await waitUntilReady(origin, child);
+  const health = await fetch(`${origin}/healthz`);
+  assert.deepEqual(await health.json(), {
+    status: "ok",
+    revision: "0123456789abcdef0123456789abcdef01234567",
+  });
+  assert.equal(health.headers.get("x-inkling-revision"), "0123456789abcdef0123456789abcdef01234567");
   const page = await fetch(origin);
   assert.equal(page.status, 200);
   assert.equal(page.headers.get("cache-control"), "no-store");
@@ -63,6 +70,7 @@ test("production server fails closed around anonymous sessions and browser data"
   assert.match(page.headers.get("content-security-policy") ?? "", /connect-src 'self'/);
   assert.match(page.headers.get("permissions-policy") ?? "", /microphone=\(\)/);
   assert.match(page.headers.get("set-cookie") ?? "", /HttpOnly; Secure; SameSite=Strict/);
+  assert.equal(page.headers.get("x-inkling-revision"), "0123456789abcdef0123456789abcdef01234567");
 
   const noSession = await fetch(`${origin}/api/games/drawing`, {
     method: "POST",

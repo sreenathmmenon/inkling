@@ -132,9 +132,22 @@ export function createDrawingGenerationStreamHandler(
     if (payload instanceof Response) return payload;
     const encoder = new TextEncoder();
     const stageOrder = ["checking", "understanding", "animating", "testing"] as const;
+    const streamAbort = new AbortController();
+    const forwardRequestAbort = (): void => {
+      streamAbort.abort(request.signal.reason);
+    };
+    if (request.signal.aborted) forwardRequestAbort();
+    else request.signal.addEventListener("abort", forwardRequestAbort, { once: true });
     const stream = new ReadableStream<Uint8Array>({
       async start(controller) {
         let highestStage = -1;
+        const heartbeat = setInterval(() => {
+          try {
+            controller.enqueue(encoder.encode(": keep-alive\n\n"));
+          } catch {
+            streamAbort.abort(new Error("generation_stream_closed"));
+          }
+        }, 15_000);
         const emit = (event: Omit<DrawingGenerationProgressEvent, "requestId">): void => {
           if (event.type === "progress" && event.stage) {
             const index = stageOrder.indexOf(event.stage);
@@ -148,7 +161,7 @@ export function createDrawingGenerationStreamHandler(
         try {
           const result = await generateDrawingGame(payload, {
             ...options,
-            signal: request.signal,
+            signal: streamAbort.signal,
             onRequest(trace, modelRequest) {
               options.onRequest?.(trace, modelRequest);
               emit({ type: "progress", stage: stageForCall(trace.callId) });
@@ -156,7 +169,7 @@ export function createDrawingGenerationStreamHandler(
           });
           emit({ type: "complete", playableGame: result.playableGame });
         } catch (error) {
-          if (!request.signal.aborted) {
+          if (!streamAbort.signal.aborted) {
             try {
               emit({ type: "error", error: publicError(error) });
             } catch {
@@ -165,12 +178,17 @@ export function createDrawingGenerationStreamHandler(
             }
           }
         } finally {
+          clearInterval(heartbeat);
+          request.signal.removeEventListener("abort", forwardRequestAbort);
           try {
             controller.close();
           } catch {
             // A cancelled reader has already closed its side of the stream.
           }
         }
+      },
+      cancel() {
+        streamAbort.abort(new Error("generation_stream_cancelled"));
       },
     });
     return new Response(stream, {

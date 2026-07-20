@@ -6,6 +6,7 @@ import {
 } from "./relationship-contract.js";
 import { mazeTopologyIsFinishable } from "./maze-topology.js";
 import { WORLD_HEIGHT, WORLD_WIDTH } from "./world-geometry.js";
+import { isP8SyntheticEntityId } from "./synthetic-entity.js";
 
 export { WORLD_HEIGHT, WORLD_WIDTH } from "./world-geometry.js";
 
@@ -25,6 +26,7 @@ export interface PlannedEntity {
   id: string;
   role: string;
   styleRef: string;
+  artworkSource: "drawing" | "synthetic";
   x: number;
   y: number;
   width: number;
@@ -140,6 +142,7 @@ function planned(
   bbox: unknown,
   fallback: BBox,
   limits: { minWidth: number; minHeight: number; maxWidth: number; maxHeight: number },
+  artworkSource: PlannedEntity["artworkSource"] = "drawing",
 ): PlannedEntity {
   const [left, top, right, bottom] = normalizeBBox(bbox, fallback);
   const width = clamp((right - left) * WORLD_WIDTH, limits.minWidth, limits.maxWidth);
@@ -148,6 +151,7 @@ function planned(
     id,
     role,
     styleRef,
+    artworkSource,
     x: clamp(((left + right) / 2) * WORLD_WIDTH, width / 2, WORLD_WIDTH - width / 2),
     y: clamp(((top + bottom) / 2) * WORLD_HEIGHT, height / 2, WORLD_HEIGHT - height / 2),
     width,
@@ -270,6 +274,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     id: "lane_a_safety_floor",
     role: "platform",
     styleRef: "lane-a-placeholder",
+    artworkSource: "synthetic",
     x: WORLD_WIDTH / 2,
     y: WORLD_HEIGHT - 18,
     width: WORLD_WIDTH,
@@ -280,6 +285,10 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     id: typeof entity.id === "string" ? entity.id : `entity_${index + 1}`,
     role: typeof entity.role === "string" ? entity.role : "decoration",
     styleRef: typeof entity.style_ref === "string" ? entity.style_ref : "source-drawing",
+    artworkSource: Array.isArray(spec.flags) && spec.flags.includes("p8_safety_recast") &&
+      typeof entity.id === "string" && isP8SyntheticEntityId(entity.id)
+      ? "synthetic" as const
+      : "drawing" as const,
     bbox: entity.bbox,
   }));
   const relationships = keyDoorRelationships(spec);
@@ -291,7 +300,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
         minHeight: contract.id === "maze" ? 12 : 16,
         maxWidth: WORLD_WIDTH,
         maxHeight: contract.id === "maze" ? WORLD_HEIGHT : 72,
-      }),
+      }, entity.artworkSource),
     );
   platforms.push(safetyFloor);
 
@@ -302,7 +311,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       minHeight: 64,
       maxWidth: 96,
       maxHeight: 220,
-    }));
+    }, entity.artworkSource));
 
   const waterVolumes = entities
     .filter((entity) => entity.role === "water")
@@ -311,7 +320,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       minHeight: 56,
       maxWidth: WORLD_WIDTH,
       maxHeight: WORLD_HEIGHT,
-    }));
+    }, entity.artworkSource));
 
   const rawHero = planned(
       spec.hero.id,
@@ -331,6 +340,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
     id: "lane_a_goal",
     role: "goal",
     styleRef: "lane-a-placeholder",
+    artworkSource: "synthetic" as const,
     bbox: [0.86, 0.66, 0.94, 0.82] as BBox,
   };
   const rawGoal = planned(target.id, "goal", target.styleRef, target.bbox, [0.86, 0.66, 0.94, 0.82], {
@@ -338,7 +348,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       minHeight: 54,
       maxWidth: 72,
       maxHeight: 96,
-    });
+    }, target.artworkSource);
   const goal = usesFreeMovement ? rawGoal : snapOntoSurface(rawGoal, platforms);
 
   const hazards = entities
@@ -357,7 +367,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
           minHeight: 28,
           maxWidth: 88,
           maxHeight: 64,
-        });
+        }, entity.artworkSource);
       return usesFreeMovement ? hazard : snapOntoSurface(hazard, platforms);
     });
   const hero = usesFreeMovement
@@ -371,7 +381,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
         minHeight: 24,
         maxWidth: 42,
         maxHeight: 42,
-      });
+        }, entity.artworkSource);
       return usesFreeMovement ? collectible : snapOntoSurface(collectible, platforms);
     });
   const decorations = entities
@@ -381,7 +391,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       minHeight: 18,
       maxWidth: 260,
       maxHeight: 220,
-    }));
+    }, entity.artworkSource));
   const requiredCollectibleIds = spec.goal.kind === "collect_all"
     ? collectibles.map((collectible) => collectible.id)
     : relationships.map((relationship) => relationship.keyId);
@@ -391,6 +401,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       ...goal,
       id: `${goal.id}_trigger`,
       styleRef: "lane-a-goal-trigger",
+      artworkSource: "synthetic",
       width: Math.max(64, goal.width),
       height: Math.max(64, goal.height),
     }
@@ -398,6 +409,7 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       ...goal,
       id: `${goal.id}_trigger`,
       styleRef: "lane-a-goal-trigger",
+      artworkSource: "synthetic",
       width: Math.max(64, goal.width + 20),
       height: Math.max(64, goal.height + 20),
     };

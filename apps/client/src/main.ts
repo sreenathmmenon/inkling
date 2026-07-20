@@ -110,6 +110,11 @@ let pendingPlayableGame: unknown;
 let generationStageIndex = -1;
 let returnableGame: unknown;
 let saveFeedbackTimer: number | undefined;
+const gameControlReleases: Array<() => void> = [];
+
+function releaseAllGameControls(): void {
+  for (const release of gameControlReleases) release();
+}
 
 type ExperienceState = "capture-empty" | "capture-ready" | "generating" | "recast" | "playing" | "won" | "lost" | "player-error";
 const EXPERIENCE_STATES: readonly ExperienceState[] = [
@@ -231,9 +236,9 @@ function showState(state: PlatformerState): void {
   status.textContent = `Lives ${state.lives}${collectibles}${state.assistActive ? " · Help boost on" : ""}`;
 }
 
-function enterPlayMode(): void {
+function enterPlayMode(state: "playing" | "player-error" = "playing", focusTarget: HTMLElement = parent): void {
   document.body.classList.add("play-mode");
-  renderExperienceState("playing");
+  renderExperienceState(state);
   playToolbar.hidden = false;
   window.requestAnimationFrame(() => {
     // Keep the compact objective and the complete control-bearing canvas in
@@ -243,12 +248,13 @@ function enterPlayMode(): void {
       behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
       block: "start",
     });
-    parent.focus({ preventScroll: true });
+    focusTarget.focus({ preventScroll: true });
   });
 }
 
 async function play(spec: unknown): Promise<void> {
   const sequence = ++playSequence;
+  releaseAllGameControls();
   game?.destroy(true);
   game = undefined;
   parent.replaceChildren();
@@ -306,8 +312,7 @@ async function play(spec: unknown): Promise<void> {
     status.textContent = "The player did not finish opening. Tap Play again.";
     restart.hidden = false;
     restart.disabled = false;
-    enterPlayMode();
-    renderExperienceState("player-error");
+    enterPlayMode("player-error", restart);
     return;
   }
   if (sequence !== playSequence) return;
@@ -326,6 +331,7 @@ async function play(spec: unknown): Promise<void> {
 
 function showGameWaiting(): void {
   playSequence += 1;
+  releaseAllGameControls();
   game?.destroy(true);
   game = undefined;
   parent.replaceChildren();
@@ -416,6 +422,8 @@ async function updatePreparedPicture(message: string, focusReview = false): Prom
     adjustPicture.hidden = false;
     forgetDrawing.hidden = false;
     makeGame.disabled = false;
+    returnableGame = undefined;
+    returnGame.hidden = true;
     renderExperienceState("capture-ready");
     showCaptureStatus(captureReviewMessage(result.quality.warnings));
     if (focusReview) {
@@ -687,8 +695,6 @@ drawingInput.addEventListener("change", async () => {
   recastPanel.hidden = true;
   pendingPlayableGame = undefined;
   progressPanel.hidden = true;
-  returnableGame = undefined;
-  returnGame.hidden = true;
   renderExperienceState("capture-empty");
   await updatePreparedPicture("Preparing your drawing on this device…", true);
 });
@@ -880,20 +886,62 @@ document.body.classList.toggle(
 
 for (const button of accessibleControls.querySelectorAll<HTMLButtonElement>("[data-game-control]")) {
   const control = button.dataset.gameControl as PlatformerControl;
-  const release = (): void => playerModule?.setPlatformerControl(game, control, false);
-  button.addEventListener("pointerdown", () => playerModule?.setPlatformerControl(game, control, true));
-  button.addEventListener("pointerup", release);
-  button.addEventListener("pointercancel", release);
-  button.addEventListener("pointerleave", release);
+  const activePointers = new Set<number>();
+  let keyboardActive = false;
+  let keyboardTimer: number | undefined;
+  let applied = false;
+  const sync = (): void => {
+    const pressed = activePointers.size > 0 || keyboardActive;
+    button.setAttribute("aria-pressed", String(pressed));
+    button.classList.toggle("pressed", pressed);
+    if (pressed === applied) return;
+    applied = pressed;
+    playerModule?.setPlatformerControl(game, control, pressed);
+  };
+  const releasePointer = (event: PointerEvent): void => {
+    if (!activePointers.delete(event.pointerId)) return;
+    sync();
+  };
+  const releaseAll = (): void => {
+    window.clearTimeout(keyboardTimer);
+    keyboardTimer = undefined;
+    keyboardActive = false;
+    activePointers.clear();
+    sync();
+  };
+  button.setAttribute("aria-pressed", "false");
+  button.addEventListener("pointerdown", (event) => {
+    if (event.pointerType === "mouse" && event.button !== 0) return;
+    event.preventDefault();
+    activePointers.add(event.pointerId);
+    try { button.setPointerCapture(event.pointerId); } catch { /* global release remains active */ }
+    sync();
+  });
+  button.addEventListener("pointerup", releasePointer);
+  button.addEventListener("pointercancel", releasePointer);
+  button.addEventListener("lostpointercapture", releasePointer);
+  window.addEventListener("pointerup", releasePointer);
+  window.addEventListener("pointercancel", releasePointer);
   button.addEventListener("click", (event) => {
     // Pointer input was already handled by pointerdown/up. Browsers synthesize
     // a click after pointerup; replaying it would keep moving after release.
     // A detail of zero identifies keyboard/assistive activation.
     if (event.detail !== 0) return;
-    playerModule?.setPlatformerControl(game, control, true);
-    window.setTimeout(release, control === "jump" || control === "action" ? 120 : 300);
+    window.clearTimeout(keyboardTimer);
+    keyboardActive = true;
+    sync();
+    keyboardTimer = window.setTimeout(() => {
+      keyboardActive = false;
+      keyboardTimer = undefined;
+      sync();
+    }, control === "jump" || control === "action" ? 120 : 300);
   });
+  gameControlReleases.push(releaseAll);
 }
+window.addEventListener("blur", releaseAllGameControls);
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") releaseAllGameControls();
+});
 saveGame.disabled = currentSpec === null || currentSpec === undefined;
 if (currentSpec === null || currentSpec === undefined) showGameWaiting();
 else play(currentSpec);

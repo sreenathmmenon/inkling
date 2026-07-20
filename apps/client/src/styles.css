@@ -232,9 +232,12 @@ body.play-mode #play-stage { width: 100%; }
 body.game-won #play-toolbar { border-color: rgba(42,174,125,.35); background: linear-gradient(110deg, #f3fff9, #fffdf7); }
 body.game-lost #play-toolbar { background: linear-gradient(110deg, #fff5f5, #fffdf7); }
 body.playing .play-meta .hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
-body.game-won .play-meta, body.game-lost .play-meta { padding: 15px 17px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,253,249,.94); box-shadow: 0 10px 28px rgba(64,45,120,.1); }
+body.game-won .play-meta, body.game-lost .play-meta, body.player-error .play-meta { padding: 15px 17px; border: 1px solid var(--line); border-radius: 18px; background: rgba(255,253,249,.94); box-shadow: 0 10px 28px rgba(64,45,120,.1); }
 body.game-won #game-status { left: 50%; color: #174f3c; background: rgba(228,255,243,.94); border-color: rgba(42,174,125,.42); font-size: 1.08rem; transform: translateX(-50%); }
 body.game-lost #game-status { left: 50%; color: #7f2d42; background: rgba(255,240,243,.95); border-color: rgba(180,58,88,.35); transform: translateX(-50%); }
+body.player-error #game-status { left: 50%; color: #7f2d42 !important; background: rgba(255,240,243,.95); border-color: rgba(180,58,88,.35); transform: translateX(-50%); }
+body.player-error #game-empty { min-height: 0; aspect-ratio: 16 / 9; }
+body.player-error .hint { display: none; }
 body.game-won #post-play-actions .primary-action { color: #fff; }
 body.game-won #accessible-controls, body.game-lost #accessible-controls { display: none; }
 body.game-won .hint, body.game-lost .hint { display: none; }
@@ -251,7 +254,8 @@ body.play-mode.touch-controls #accessible-controls { position: static; display: 
 body.play-mode.touch-controls #accessible-controls[data-layout="side"] { grid-template-columns: repeat(4, minmax(0,1fr)); }
 body.play-mode.touch-controls #accessible-controls[data-layout="four-way"] { grid-template-columns: repeat(3, minmax(0,1fr)); grid-template-rows: repeat(2, 56px); width: min(100%, 230px); }
 body.play-mode.touch-controls #accessible-controls[data-layout="four-way"][data-has-action="true"] { grid-template-columns: repeat(5, minmax(0,1fr)); width: min(100%, 380px); }
-body.play-mode.touch-controls #accessible-controls button { min-width: 0; min-height: 58px; padding: 8px; border-radius: 16px; color: #fff; background: rgba(255,255,255,.13); }
+body.play-mode.touch-controls #accessible-controls button { min-width: 0; min-height: 58px; padding: 8px; border-radius: 16px; color: #fff; background: rgba(255,255,255,.13); touch-action: none; user-select: none; -webkit-user-select: none; }
+body.play-mode.touch-controls #accessible-controls button.pressed { background: var(--violet); transform: scale(.96); }
 body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="left"] { grid-column: 1; }
 body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="right"] { grid-column: 2; }
 body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="jump"] { grid-column: 3 / 5; }
@@ -279,7 +283,8 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode.touch-controls #game-shell { width: min(100%, calc((100svh - 320px) * 16 / 9)); }
   body.play-mode.touch-controls.four-way-controls #game-shell { width: min(100%, calc((100svh - 380px) * 16 / 9)); }
   body.play-mode.game-won #game-shell,
-  body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 356px) * 16 / 9)); }
+  body.play-mode.game-lost #game-shell,
+  body.play-mode.player-error #game-shell { width: min(100%, calc((100svh - 356px) * 16 / 9)); }
 }
 
 @media (max-width: 760px) {
@@ -426,11 +431,14 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="jump"] { grid-column: 3; }
   body.play-mode.playing .play-meta { display: none; }
   body.play-mode.game-won #game-shell,
-  body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 176px) * 16 / 9)); }
+  body.play-mode.game-lost #game-shell,
+  body.play-mode.player-error #game-shell { width: min(100%, calc((100svh - 176px) * 16 / 9)); }
   body.play-mode.game-won .play-meta,
-  body.play-mode.game-lost .play-meta { display: block; width: min(100%, 540px); margin: 6px auto 0; padding: 6px 8px; }
+  body.play-mode.game-lost .play-meta,
+  body.play-mode.player-error .play-meta { display: block; width: min(100%, 540px); margin: 6px auto 0; padding: 6px 8px; }
   body.play-mode.game-won #post-play-actions,
-  body.play-mode.game-lost #post-play-actions { justify-content: center; margin-top: 4px; }
+  body.play-mode.game-lost #post-play-actions,
+  body.play-mode.player-error #post-play-actions { justify-content: center; margin-top: 4px; }
 }
 
 #play-stage:fullscreen { position: relative; display: flex; width: 100vw; height: 100vh; height: 100svh; flex-direction: column; align-items: center; justify-content: center; padding: max(8px, env(safe-area-inset-top)) max(8px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); background: #171326; }
@@ -445,7 +453,7 @@ body.game-won #play-stage:fullscreen #post-play-actions > #fullscreen-new-drawin
 body.game-lost #play-stage:fullscreen #post-play-actions > #fullscreen-new-drawing { display: inline-flex; }
 #play-stage:fullscreen #game-status, #play-stage:fullscreen .hint { color: #fff; }
 
-@media (max-width: 760px) {
+@media (max-width: 760px) and (orientation: portrait) {
   #play-stage:fullscreen #game-shell { width: min(100%, calc((100svh - 190px) * 4 / 5)); flex: 0 0 auto; }
   #play-stage:fullscreen #accessible-controls { position: static; width: min(100%, 390px); flex: 0 0 auto; }
 }
@@ -453,17 +461,22 @@ body.game-lost #play-stage:fullscreen #post-play-actions > #fullscreen-new-drawi
 /* Terminal actions participate in fullscreen layout so they never cover the
    win/loss message, even when three child-sized buttons wrap on a small phone. */
 body.game-won #play-stage:fullscreen #game-shell,
-body.game-lost #play-stage:fullscreen #game-shell { width: min(100%, calc((100svh - 112px) * 16 / 9)); }
+body.game-lost #play-stage:fullscreen #game-shell,
+body.player-error #play-stage:fullscreen #game-shell { width: min(100%, calc((100svh - 112px) * 16 / 9)); }
 body.game-won #play-stage:fullscreen .play-meta,
-body.game-lost #play-stage:fullscreen .play-meta { position: static; width: min(100%, 390px); margin: 10px 0 0; }
+body.game-lost #play-stage:fullscreen .play-meta,
+body.player-error #play-stage:fullscreen .play-meta { position: static; width: min(100%, 390px); margin: 10px 0 0; }
 body.game-won #play-stage:fullscreen #game-status { color: #174f3c; }
 body.game-lost #play-stage:fullscreen #game-status { color: #7f2d42; }
 body.game-won #play-stage:fullscreen #post-play-actions,
-body.game-lost #play-stage:fullscreen #post-play-actions { justify-content: center; }
+body.game-lost #play-stage:fullscreen #post-play-actions,
+body.player-error #play-stage:fullscreen #post-play-actions { justify-content: center; }
 
-@media (max-width: 760px) {
+@media (max-width: 760px) and (orientation: portrait) {
   body.game-won #play-stage:fullscreen #game-shell,
-  body.game-lost #play-stage:fullscreen #game-shell { width: min(100%, calc((100svh - 150px) * 4 / 5)); }
+  body.game-lost #play-stage:fullscreen #game-shell,
+  body.player-error #play-stage:fullscreen #game-shell { width: min(100%, calc((100svh - 150px) * 4 / 5)); }
+  body.player-error #game-empty { aspect-ratio: 4 / 5; }
 }
 
 /* Terminal state must win even when the last tapped control still matches

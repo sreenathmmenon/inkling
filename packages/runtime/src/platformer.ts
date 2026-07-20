@@ -1137,6 +1137,7 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   private canRenderEntityArtwork(entity: PlannedEntity): boolean {
+    if (entity.artworkSource === "synthetic") return false;
     const crop = this.artwork?.entityCrops[entity.id];
     if (!crop || !this.textures.exists(this.artworkTextureKey)) return false;
     const [left, top, right, bottom] = crop;

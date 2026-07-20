@@ -382,6 +382,7 @@ try {
       shell: { top: shell.top, bottom: shell.bottom },
       controls: { top: controlRect.top, bottom: controlRect.bottom },
       viewportHeight: innerHeight,
+      scrollHeight: document.documentElement.scrollHeight,
       horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
       buttons,
     };
@@ -390,6 +391,7 @@ try {
   assert.ok(shortFourWayLayout.shell.top >= 0 && shortFourWayLayout.shell.bottom <= shortFourWayLayout.viewportHeight, `short-phone four-way game is clipped: ${JSON.stringify(shortFourWayLayout)}`);
   assert.ok(shortFourWayLayout.controls.top >= 0 && shortFourWayLayout.controls.bottom <= shortFourWayLayout.viewportHeight, `short-phone four-way controls are clipped: ${JSON.stringify(shortFourWayLayout)}`);
   assert.ok(shortFourWayLayout.buttons.length >= 4 && shortFourWayLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.bottom <= shortFourWayLayout.viewportHeight), `short-phone four-way targets are incomplete: ${JSON.stringify(shortFourWayLayout)}`);
+  assert.ok(shortFourWayLayout.scrollHeight <= shortFourWayLayout.viewportHeight + 1, `short-phone four-way play creates a hidden scroll row: ${JSON.stringify(shortFourWayLayout)}`);
   assert.ok(shortFourWayLayout.horizontalOverflow <= 1, `short-phone four-way play overflows horizontally: ${JSON.stringify(shortFourWayLayout)}`);
   const shortFourWayLeft = shortFourWay.locator('[data-game-control="left"]');
   await shortFourWayLeft.dispatchEvent("pointerdown", { pointerId: 41, pointerType: "touch" });
@@ -481,6 +483,7 @@ try {
     return {
       controls: { left: controlRect.left, top: controlRect.top, right: controlRect.right, bottom: controlRect.bottom },
       shellBottom: shellRect.bottom,
+      scrollHeight: document.documentElement.scrollHeight,
       position: getComputedStyle(controls).position,
       layout: controls.dataset.layout,
       viewport: { width: innerWidth, height: innerHeight },
@@ -492,6 +495,7 @@ try {
   assert.ok(landscapeLayout.controls.left >= 0 && landscapeLayout.controls.top >= 0, `landscape controls start outside the viewport: ${JSON.stringify(landscapeLayout)}`);
   assert.ok(landscapeLayout.controls.right <= landscapeLayout.viewport.width && landscapeLayout.controls.bottom <= landscapeLayout.viewport.height, `landscape controls fall outside the viewport: ${JSON.stringify(landscapeLayout)}`);
   assert.ok(landscapeLayout.shellBottom <= landscapeLayout.viewport.height + 1, `landscape game falls below the viewport: ${JSON.stringify(landscapeLayout)}`);
+  assert.ok(landscapeLayout.scrollHeight <= landscapeLayout.viewport.height + 1, `landscape play mode creates a hidden scroll row: ${JSON.stringify(landscapeLayout)}`);
   assert.ok(await landscapeTouch.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), "landscape play mode overflows horizontally");
   assert.ok(landscapeLayout.buttons.length >= 4 && landscapeLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.bottom <= landscapeLayout.viewport.height), `landscape touch targets are unavailable: ${JSON.stringify(landscapeLayout)}`);
   const landscapeRows = [...new Set(landscapeLayout.buttons.map((button) => button.top))].sort((left, right) => left - right);

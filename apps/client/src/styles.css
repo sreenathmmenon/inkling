@@ -392,9 +392,16 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode #objective-title { font-size: 1rem; }
   body.play-mode #interpretation-note { margin-top: 4px; padding: 4px 7px; font-size: .68rem; line-height: 1.2; }
   body.play-mode .new-drawing-action { min-width: 48px; min-height: 48px; }
+  body.play-mode #play-stage { position: relative; }
   body.play-mode #game-shell { width: min(100%, calc((100svh - 184px) * 4 / 5)); margin-inline: auto; }
-  body.play-mode.four-way-controls #game-shell { width: min(100%, calc((100svh - 232px) * 4 / 5)); }
+  body.play-mode.four-way-controls #game-shell { width: min(100%, calc((100svh - 248px) * 4 / 5)); }
   body.play-mode #accessible-controls { margin: 7px auto 0; }
+  /* Keep the secondary fullscreen action reachable without making it a
+     fourth vertical row. This compact in-game placement is independent of
+     the drawing and leaves the complete spatial controller in normal flow. */
+  body.play-mode.playing #play-stage:not(:fullscreen) .play-meta { position: absolute; z-index: 200; top: 7px; right: 7px; margin: 0; }
+  body.play-mode.playing #play-stage:not(:fullscreen) #save-status { display: none; }
+  body.play-mode.playing #game-status { max-width: calc(100% - 130px); }
   body.play-mode.game-won #game-shell,
   body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 248px) * 4 / 5)); }
   body.play-mode.game-won .play-meta,
@@ -418,7 +425,7 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode #play-toolbar { margin-bottom: 5px; padding: 7px 10px; }
   body.play-mode #play-toolbar .eyebrow, body.play-mode #objective-detail { display: none; }
   body.play-mode #objective-title { font-size: 1rem; }
-  body.play-mode #game-shell { width: min(100%, calc((100svh - 82px) * 16 / 9)); }
+  body.play-mode #game-shell { width: min(100%, calc((100svh - 86px) * 16 / 9)); }
   body.play-mode #game { aspect-ratio: 16 / 9; }
   body.play-mode.touch-controls #accessible-controls,
   body.play-mode.touch-controls #accessible-controls:focus-within { position: fixed; z-index: 300; right: auto; bottom: max(7px, env(safe-area-inset-bottom)); left: max(9px, env(safe-area-inset-left)); display: grid; gap: 7px; margin: 0; padding: 0; background: transparent; box-shadow: none; pointer-events: none; }
@@ -571,7 +578,7 @@ body.play-mode.playing.assist-available .assist-action { color: #153e33; border:
 
 @media (max-height: 600px) and (orientation: landscape) {
   body.play-mode #game-shell { width: min(100%, calc((100svh - 58px) * 16 / 9)); }
-  body.play-mode.touch-controls #game-shell { width: min(100%, calc((100svh - 82px) * 16 / 9)); }
+  body.play-mode.touch-controls #game-shell { width: min(100%, calc((100svh - 86px) * 16 / 9)); }
   body.play-mode.game-won #game-shell, body.play-mode.game-lost #game-shell, body.play-mode.player-error #game-shell { width: min(100%, calc((100svh - 164px) * 16 / 9)); }
   body.play-mode #play-toolbar { width: min(100%, 940px); min-height: 48px; }
   body.play-mode.touch-controls #accessible-controls[data-layout="side"] { right: max(9px, env(safe-area-inset-right)); left: max(9px, env(safe-area-inset-left)); grid-template-columns: 58px 58px 1fr 108px; width: auto; }

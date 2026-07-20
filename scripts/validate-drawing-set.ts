@@ -147,6 +147,7 @@ async function runCase(file: DrawingFile): Promise<DrawingCaseResult> {
   const bytes = await readFile(resolve(directory, file.path));
   const calls: RequestTrace[] = [];
   let extractedGameSpec: unknown;
+  let extractedBehaviors: Array<{ role: string; behavior: string }> | undefined;
   const solvabilityVerdicts: unknown[] = [];
   process.stdout.write(`Scanning ${file.path}\n`);
   const startedAt = performance.now();
@@ -160,7 +161,17 @@ async function runCase(file: DrawingFile): Promise<DrawingCaseResult> {
       {
         onRequest: (trace) => calls.push(trace),
         onResult(callId, result) {
-          if (callId === "P2" || callId === "P2_photo") extractedGameSpec = result;
+          if (callId === "P2" || callId === "P2_photo") {
+            extractedGameSpec = result;
+            const entities = (result as { entities?: Array<{ role?: unknown; behavior?: unknown }> }).entities;
+            if (Array.isArray(entities)) {
+              // Enum values only — never ids, names, styles, or coordinates.
+              extractedBehaviors = entities.map((entity) => ({
+                role: String(entity.role ?? "unknown"),
+                behavior: String(entity.behavior ?? "unknown"),
+              }));
+            }
+          }
           if (callId === "P8") solvabilityVerdicts.push(result);
         },
       },
@@ -178,7 +189,10 @@ async function runCase(file: DrawingFile): Promise<DrawingCaseResult> {
       p8Iterations: metrics.p8Iterations,
       safetyRecast: metrics.safetyRecast,
       objectiveFallback: metrics.objectiveFallback,
+      recastRung: metrics.recastRung,
       calls: metrics.calls,
+      degraded: generated.scan.degraded.map(safeError),
+      ...(extractedBehaviors !== undefined ? { extractedBehaviors } : {}),
       ...(playContractOutcome !== undefined ? { playContractOutcome } : {}),
     };
   } catch (error) {

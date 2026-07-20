@@ -2,11 +2,19 @@ import OpenAI from "openai";
 import type { Responses } from "openai/resources/responses/responses";
 
 import { validateBehaviorOperation } from "../packages/sdk/src/validator.js";
-import { P8_SYNTHETIC_ENTITY_PREFIX } from "../packages/runtime/src/synthetic-entity.js";
 import {
   applyBoundedRepairs,
   runPlaytest,
 } from "../services/solve/src/playtest.js";
+import {
+  buildRungCandidate,
+  createDeterministicSafetyRecast,
+  pruneBehaviorPatchesForWorld,
+  RECAST_RUNG_ORDER,
+  type RecastRung,
+} from "./recast-ladder.js";
+
+export { createDeterministicSafetyRecast } from "./recast-ladder.js";
 import {
   callMap,
   findProjectRoot,
@@ -140,72 +148,6 @@ function fallbackGameSpec(): GameSpec {
     palette: ["source-page"],
     assumptions: ["The safe fallback keeps the scanned art playable."],
     flags: ["deterministic_fallback"],
-  };
-}
-
-function uniqueEntityId(base: string, used: Set<string>): string {
-  let candidate = base;
-  let suffix = 2;
-  while (used.has(candidate)) candidate = `${base}_${suffix++}`;
-  used.add(candidate);
-  return candidate;
-}
-
-/**
- * Converts any extracted world into the deterministic Lane A floor without
- * recognizing drawing nouns. Original hero/entity crops remain at their
- * drawn coordinates as non-colliding art; only the mechanics are recast to a
- * ground route and a generated finish on the opposite side of the hero.
- */
-export function createDeterministicSafetyRecast(source: GameSpec): GameSpec {
-  const used = new Set<string>([source.hero.id]);
-  const decorations = source.entities.map((entity, index) => ({
-    ...entity,
-    // The model's ids remain data, never trusted provenance. Re-key source
-    // marks into a separate namespace so only runner-created mechanics can
-    // carry the reserved synthetic prefix used by Lane A rendering.
-    id: uniqueEntityId(`drawing_mark_${index + 1}`, used),
-    role: "decoration",
-    behavior: "static",
-    linked_to: null,
-    bbox: [...entity.bbox] as GameSpec["entities"][number]["bbox"],
-  }));
-  const groundId = uniqueEntityId(`${P8_SYNTHETIC_ENTITY_PREFIX}ground`, used);
-  const goalId = uniqueEntityId(`${P8_SYNTHETIC_ENTITY_PREFIX}finish`, used);
-  const heroCenter = (source.hero.bbox[0] + source.hero.bbox[2]) / 2;
-  const goalLeft = heroCenter <= 0.5 ? 0.82 : 0.06;
-  return {
-    ...source,
-    primary_genre: "platformer",
-    genre_confidence: 0,
-    hero: { ...source.hero, bbox: [...source.hero.bbox] },
-    entities: [
-      ...decorations,
-      {
-        id: groundId,
-        role: "platform",
-        bbox: [0.02, 0.9, 0.98, 0.96],
-        behavior: "static",
-        linked_to: null,
-        style_ref: "synthetic-ground",
-      },
-      {
-        id: goalId,
-        role: "goal",
-        bbox: [goalLeft, 0.7, goalLeft + 0.12, 0.9],
-        behavior: "static",
-        linked_to: null,
-        style_ref: "synthetic-finish",
-      },
-    ],
-    goal: { kind: "reach_goal", target_id: goalId },
-    rules: { ...source.rules, difficulty_hint: "chill", modifiers: [] },
-    palette: [...source.palette],
-    assumptions: [
-      ...source.assumptions,
-      "Lane A recast the mechanics to its deterministic finishable floor after the solvability repair loop.",
-    ],
-    flags: [...new Set([...source.flags, "p8_safety_recast"])],
   };
 }
 
@@ -721,15 +663,65 @@ class PipelineRunner {
     iterationsUsed: number;
     safetyRecast: boolean;
     objectiveFallback: boolean;
+    recastRung: RecastRung | null;
   }> {
     let { gameSpec } = context;
     let solvability: JsonObject | undefined;
     let playtestReport = runPlaytest(gameSpec);
     const iterations = call.max_iterations ?? 1;
     let iterationsUsed = 0;
-    let objectiveFallbackApplied = false;
-    let safetyRecastApplied = false;
+    let rungCursor = -1;
+    let recastRung: RecastRung | null = null;
     let solvabilityPassed = false;
+
+    const adoptWorld = (next: GameSpec, rung: RecastRung): void => {
+      // Patches survive only for entities the rung left intact; a demoted
+      // entity's behavior module is dropped with it, never orphaned.
+      const pruned = pruneBehaviorPatchesForWorld(
+        context.behaviorPatches,
+        context.behaviorFallbacks,
+        gameSpec,
+        next,
+      );
+      context.behaviorPatches.length = 0;
+      context.behaviorPatches.push(...pruned.patches);
+      for (const entityId of Object.keys(context.behaviorFallbacks)) {
+        delete context.behaviorFallbacks[entityId];
+      }
+      Object.assign(context.behaviorFallbacks, pruned.fallbacks);
+      gameSpec = next;
+      state.gamespec = gameSpec;
+      state.results[context.extractionResultId] = gameSpec;
+      state.results.P2 = gameSpec;
+      for (const fanned of this.spec.calls) {
+        if (fanned.fan_out_over) {
+          state.results[fanned.id] = {
+            patches: context.behaviorPatches,
+            fallbacks: context.behaviorFallbacks,
+          };
+        }
+      }
+      recastRung = rung;
+      this.degraded.push(`${call.id}:recast_ladder:${rung}`);
+    };
+
+    // Climbs to the next ladder rung whose candidate world the deterministic
+    // playtester certifies. The cursor is monotonic: the ladder never climbs
+    // down, and the terminal full-floor rung is finishable by construction.
+    const advanceLadder = (report: PlaytestReport): boolean => {
+      for (let index = rungCursor + 1; index < RECAST_RUNG_ORDER.length; index += 1) {
+        rungCursor = index;
+        const rung = RECAST_RUNG_ORDER[index];
+        if (!rung) continue;
+        const candidate = buildRungCandidate(rung, gameSpec, report);
+        if (!candidate) continue;
+        if (!runPlaytest(candidate).reached_goal) continue;
+        adoptWorld(candidate, rung);
+        return true;
+      }
+      return false;
+    };
+
     for (let iteration = 0; iteration < iterations; iteration += 1) {
       iterationsUsed = iteration + 1;
       playtestReport = runPlaytest(gameSpec);
@@ -738,72 +730,39 @@ class PipelineRunner {
       if (!isRecord(verdict)) throw new ModelOutputError(call.id, "invalid verdict shape");
       solvability = verdict;
       state.results[call.id] = verdict;
-      // The declared loop_until expression is the model's exit condition. The
-      // deterministic playtest is ANDed on top and can never be overruled:
-      // treat false-ready as a repair outcome and spend the remaining
-      // declared iterations on a safe recast.
+      // The declared loop_until expression is the model's exit condition.
+      // The deterministic playtest is ANDed on top and can never be overruled.
       const modelCertified = expressionIsTrue(call.loop_until, verdict);
+      if (modelCertified && playtestReport.reached_goal) {
+        solvabilityPassed = true;
+        break;
+      }
       if (modelCertified) {
-        if (playtestReport.reached_goal) {
-          solvabilityPassed = true;
-          break;
-        }
         this.degraded.push(`${call.id}:false_ready:${playtestReport.first_blocker ?? "unknown"}`);
       }
+      if (iteration === iterations - 1) break;
 
-      const effectiveVerdict = modelCertified ? "repair" : verdict.verdict;
-      const reserveFinalCertification = iteration >= iterations - 2;
-      if (!safetyRecastApplied && (
-        modelCertified || objectiveFallbackApplied || reserveFinalCertification
-      )) {
-        gameSpec = createDeterministicSafetyRecast(gameSpec);
-        state.gamespec = gameSpec;
-        state.results[context.extractionResultId] = gameSpec;
-        state.results.P2 = gameSpec;
-        context.behaviorPatches.length = 0;
-        for (const entityId of Object.keys(context.behaviorFallbacks)) {
-          delete context.behaviorFallbacks[entityId];
-        }
-        for (const fanned of this.spec.calls) {
-          if (fanned.fan_out_over) state.results[fanned.id] = { patches: [], fallbacks: {} };
-        }
-        safetyRecastApplied = true;
-        this.degraded.push(`${call.id}:deterministic_safety_recast`);
-        continue;
-      }
-      if (safetyRecastApplied) {
-        // The recast is the final deterministic mutation. Every remaining
-        // declared attempt is reserved for the gate to certify that exact
-        // world; non-ready verdicts cannot trigger another fallback or abort.
-        continue;
-      }
-      if (effectiveVerdict === "repair") {
+      // A locally finishable world is never altered: the playtest outranks a
+      // disagreeing model verdict in both directions, so the remaining budget
+      // re-certifies the same world instead of degrading the child's drawing
+      // to satisfy the model.
+      if (playtestReport.reached_goal) continue;
+
+      // Model-guided bounded repair keeps priority while more than one gate
+      // call remains; the last transition is reserved so whatever the ladder
+      // adopts still gets its mandatory certification.
+      const remaining = iterations - iterationsUsed;
+      if (!modelCertified && verdict.verdict === "repair" && remaining > 1) {
         const repairResult = applyBoundedRepairs(gameSpec, verdict.repairs);
-        if (repairResult.applied > 0) {
-          continue;
-        }
+        if (repairResult.applied > 0) continue;
         this.degraded.push(`${call.id}:no_applicable_repair:${repairResult.rejected.join(",")}`);
       }
-      if (!objectiveFallbackApplied && (
-        effectiveVerdict === "unsolvable_by_design" || effectiveVerdict === "repair"
-      )) {
-        // A child can draw a world without declaring an explicit finish line.
-        // Use the GameSpec's own semantic inventory before falling back to a
-        // timer: found collectibles become the objective. The gate still
-        // reruns and must approve; this never skips or reorders it.
-        const hasCollectibles = gameSpec.entities.some((entity) => entity.role === "collectible");
-        gameSpec.goal = hasCollectibles
-          ? { kind: "collect_all", target_id: null }
-          : { kind: "survive", target_id: null };
-        const fallbackFlag = hasCollectibles ? "collect_all_fallback" : "survive_mode_fallback";
-        if (!gameSpec.flags.includes(fallbackFlag)) gameSpec.flags.push(fallbackFlag);
-        objectiveFallbackApplied = true;
-        continue;
+      if (!advanceLadder(playtestReport)) {
+        throw new SolvabilityError(
+          `${call.id} could not construct a locally finishable world; ` +
+          `headless blocker: ${playtestReport.first_blocker ?? "none"}`,
+        );
       }
-      throw new SolvabilityError(
-        `${call.id} did not approve the game: ${String(effectiveVerdict)}; ` +
-        `headless blocker: ${playtestReport.first_blocker ?? "none"}`,
-      );
     }
     if (
       !solvabilityPassed ||
@@ -821,8 +780,11 @@ class PipelineRunner {
       solvability,
       playtestReport,
       iterationsUsed,
-      safetyRecast: safetyRecastApplied,
-      objectiveFallback: objectiveFallbackApplied,
+      safetyRecast: recastRung === "guarded_floor" || recastRung === "full_floor",
+      objectiveFallback:
+        gameSpec.flags.includes("collect_all_fallback") ||
+        gameSpec.flags.includes("survive_mode_fallback"),
+      recastRung,
     };
   }
 
@@ -842,6 +804,7 @@ class PipelineRunner {
     let p8Iterations = 0;
     let safetyRecast = false;
     let objectiveFallback = false;
+    let recastRung: string | null = null;
 
     for (const step of this.spec.execution_graph.scan_path) {
       if (typeof step === "string") {
@@ -866,6 +829,7 @@ class PipelineRunner {
           p8Iterations = certified.iterationsUsed;
           safetyRecast = certified.safetyRecast;
           objectiveFallback = certified.objectiveFallback;
+          recastRung = certified.recastRung;
         } else if (id === extractionId) {
           try {
             const extracted = await this.structured(call, state);
@@ -960,6 +924,7 @@ class PipelineRunner {
       p8Iterations,
       safetyRecast,
       objectiveFallback,
+      recastRung,
       finalGenre: gameSpec.primary_genre,
       degradedCount: this.degraded.length,
     };

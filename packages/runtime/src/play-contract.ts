@@ -299,6 +299,9 @@ export function createPlayContract(gameSpec: GameSpec): PlayContract {
     flag === "deterministic_fallback" ||
     flag === "lane_a_fallback" ||
     flag === "p8_safety_recast" ||
+    flag === "p8_guarded_floor" ||
+    flag === "p8_reach_support" ||
+    flag === "p8_optional_pickups" ||
     flag === "collect_all_fallback" ||
     flag === "survive_mode_fallback"
   ));

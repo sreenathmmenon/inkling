@@ -101,7 +101,7 @@ test("the final P8 safety recast is deterministic, art-preserving, and finishabl
   assert.equal(runPlaytest(first).reached_goal, true);
 });
 
-test("P8 spends its declared loop on a certified safety recast instead of returning a retry", async () => {
+test("a locally finishable world is never degraded to satisfy a disagreeing model", async () => {
   let activeCallId = "";
   let p8Attempts = 0;
   const client: ResponsesClient = {
@@ -133,19 +133,25 @@ test("P8 spends its declared loop on a certified safety recast instead of return
   const result = await runPipeline(
     { image: "data:image/png;base64,cDgtc2FmZXR5LXJlY2FzdA==" },
     {
-      safetyId: "p8-safety-recast-user",
+      safetyId: "p8-hold-world-user",
       client,
       onRequest(trace) {
         activeCallId = trace.callId;
       },
     },
   );
-  assert.equal(p8Attempts, 3, "the final P8 call must certify the recast rather than be skipped");
+  assert.equal(p8Attempts, 3, "the gate re-certifies the same world until the model agrees");
   assert.equal(result.solvability.verdict, "ready");
   assert.equal(result.playtestReport.reached_goal, true);
-  assert.ok(result.gameSpec.flags.includes("p8_safety_recast"));
-  assert.ok(result.degraded.includes("P8:deterministic_safety_recast"));
-  assert.equal(createPlayContract(result.gameSpec).outcome, "related_fallback");
+  assert.deepEqual(result.gameSpec.flags, [], "the child's finishable world is not degraded");
+  assert.equal(result.metrics.recastRung, null);
+  assert.deepEqual(
+    result.gameSpec.entities.map(({ id, role, bbox }) => ({ id, role, bbox })),
+    SHAREABLE_GAME_SPEC.entities.map(({ id, role, bbox }) => ({ id, role, bbox })),
+    "every drawn entity keeps its role and position",
+  );
+  assert.equal(result.degraded.some((entry) => entry.includes("recast")), false);
+  assert.equal(createPlayContract(result.gameSpec).outcome, "faithful_ready");
 });
 
 const BLOCKED_GAME_SPEC: GameSpec = {
@@ -183,7 +189,7 @@ function pipelineWithP8Sequence(
   };
 }
 
-test("P8 uses every remaining certification attempt after recast and fails closed", async () => {
+test("a model that never approves a locally finishable world exhausts the gate and fails closed", async () => {
   for (const verdict of [
     { verdict: "repair", repairs: null, fallback: null },
     { verdict: "unsolvable_by_design", repairs: null, fallback: "survive_mode" },
@@ -194,19 +200,28 @@ test("P8 uses every remaining certification attempt after recast and fails close
   }
 });
 
-test("persistent false-ready is accepted only after the deterministic recast passes locally", async () => {
+test("persistent false-ready climbs the ladder and certifies without destroying the drawn world", async () => {
   assert.equal(runPlaytest(BLOCKED_GAME_SPEC).reached_goal, false);
   const run = pipelineWithP8Sequence([
     { verdict: "ready", repairs: [], fallback: "none" },
   ], BLOCKED_GAME_SPEC);
   const result = await run.result;
-  assert.equal(run.attempts(), 2, "the false-ready result must trigger recast before another P8 certification");
+  assert.equal(run.attempts(), 2, "the ladder rung is adopted immediately and certified by the next call");
   assert.ok(result.degraded.some((entry) => entry.startsWith("P8:false_ready:")));
-  assert.ok(result.gameSpec.flags.includes("p8_safety_recast"));
+  assert.ok(result.degraded.includes("P8:recast_ladder:objective_fallback"));
+  assert.equal(result.gameSpec.flags.includes("p8_safety_recast"), false, "no synthetic recast for a world the objective rung can save");
+  assert.ok(result.gameSpec.flags.includes("survive_mode_fallback"));
+  assert.equal(result.metrics.recastRung, "objective_fallback");
+  assert.equal(result.metrics.safetyRecast, false);
+  assert.equal(
+    result.gameSpec.entities.find((entity) => entity.id === "door")?.role,
+    "door",
+    "the drawn door keeps its role instead of becoming scenery",
+  );
   assert.equal(result.playtestReport.reached_goal, true);
 });
 
-test("mixed P8 outcomes certify the final recast without skipping the ordered gate", async () => {
+test("mixed P8 outcomes re-certify the unchanged world through the ordered gate", async () => {
   const run = pipelineWithP8Sequence([
     { verdict: "repair", repairs: null, fallback: null },
     { verdict: "unsolvable_by_design", repairs: null, fallback: "survive_mode" },
@@ -215,7 +230,8 @@ test("mixed P8 outcomes certify the final recast without skipping the ordered ga
   const result = await run.result;
   assert.equal(run.attempts(), 3);
   assert.equal(result.solvability.verdict, "ready");
-  assert.ok(result.gameSpec.flags.includes("p8_safety_recast"));
+  assert.deepEqual(result.gameSpec.flags, [], "a locally passing world survives model disagreement unchanged");
+  assert.equal(result.metrics.recastRung, null);
 });
 
 test("model style metadata cannot masquerade as trusted synthetic provenance", () => {
@@ -810,6 +826,46 @@ test("P7 escalates to its declared effort once before an entity falls back to st
   );
   assert.equal(result.behaviorFallbacks["walker"], "static");
   assert.deepEqual(result.behaviorPatches, []);
+});
+
+test("chip corrections re-derive through the full ordered gate chain", async () => {
+  const order: string[] = [];
+  let p2Input = "";
+  const handler = createDrawingGenerationStreamHandler({
+    dryRun: true,
+    resolveSafetyId() {
+      return SERVICE_SAFETY_ID;
+    },
+    onRequest(trace, request) {
+      order.push(trace.callId);
+      if (trace.callId === "P2") p2Input = JSON.stringify(request.input);
+    },
+  });
+  const response = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      image: "data:image/png;base64,aGVsbG8=",
+      request_id: REQUEST_ID,
+      corrections: ["The red blob is an enemy."],
+    }),
+  }));
+  assert.equal(response.status, 200);
+  await response.text();
+  assert.equal(order[0], "P1", "a correction is a full re-derivation: safety still runs first");
+  assert.ok(order.includes("P8"), "solvability still gates the corrected world");
+  assert.ok(p2Input.includes("The red blob is an enemy."), "the correction reaches the extractor as context");
+
+  const rejected = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      image: "data:image/png;base64,aGVsbG8=",
+      request_id: REQUEST_ID,
+      corrections: ["", "x".repeat(500)],
+    }),
+  }));
+  assert.equal(rejected.status, 400, "malformed corrections are refused before any model call");
 });
 
 test("share moderation cannot be reached without passing P8 evidence", async () => {

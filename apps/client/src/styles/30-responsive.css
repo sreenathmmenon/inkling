@@ -16,8 +16,8 @@
   .brand-mark svg { width: 21px; }
   .quiet-file-action { min-height: 48px; justify-content: center; padding: 0 10px; color: #51496a; background: rgba(255,255,255,.66); font-size: .72rem; }
   .quiet-file-action svg { width: 17px; }
-  #capture-panel { grid-template-columns: 1fr; grid-template-areas: "copy" "action" "preview" "adjust" "progress" "recast"; gap: 0; min-height: 0; padding: 30px 25px 27px; border-radius: 28px; }
-  body.has-drawing #capture-panel { grid-template-areas: "copy" "preview" "action" "adjust" "progress" "recast"; }
+  #capture-panel { grid-template-columns: 1fr; grid-template-areas: "copy" "action" "preview" "adjust" "progress" "safe-offer"; gap: 0; min-height: 0; padding: 30px 25px 27px; border-radius: 28px; }
+  body.has-drawing #capture-panel { grid-template-areas: "copy" "preview" "action" "adjust" "progress" "safe-offer"; }
   #capture-title { font-size: clamp(3.2rem, 16vw, 4.5rem); }
   .hero-copy { margin-top: 20px; font-size: 1.03rem; }
   #capture-status { font-size: 1rem; }
@@ -51,9 +51,9 @@
   .progress-steps li > span { width: 34px; height: 34px; }
   .progress-steps li.active { transform: translateX(4px); }
   .progress-steps small { display: none; }
-  #recast-panel { grid-template-columns: auto 1fr; }
-  .recast-actions { grid-column: 1 / -1; justify-content: stretch; }
-  .recast-actions > * { flex: 1 1 130px; }
+  #safe-offer-panel { grid-template-columns: auto 1fr; }
+  .safe-offer-actions { grid-column: 1 / -1; justify-content: stretch; }
+  .safe-offer-actions > * { flex: 1 1 130px; }
   footer { flex-direction: column; gap: 6px; padding-inline: 8px; }
 
   body.play-mode { padding: max(7px, env(safe-area-inset-top)) max(7px, env(safe-area-inset-right)) max(12px, env(safe-area-inset-bottom)) max(7px, env(safe-area-inset-left)); }

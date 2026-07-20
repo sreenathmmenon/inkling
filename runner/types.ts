@@ -169,6 +169,8 @@ export interface GenerationMetrics {
   p8Iterations: number;
   safetyRecast: boolean;
   objectiveFallback: boolean;
+  /** Which recast-ladder rung was adopted, or null when the world survived unchanged. */
+  recastRung: string | null;
   finalGenre: string;
   degradedCount: number;
 }

@@ -35,6 +35,11 @@ export interface DrawingCaseResult {
   p8Iterations?: number;
   safetyRecast?: boolean;
   objectiveFallback?: boolean;
+  recastRung?: string | null;
+  /** Enum-only (role, behavior) pairs from the raw P2 extraction — no drawing content. */
+  extractedBehaviors?: Array<{ role: string; behavior: string }>;
+  /** Internal degrade trail, scrubbed of any image payloads. */
+  degraded?: string[];
   calls?: GenerationMetrics["calls"];
   error?: string;
   diagnostics?: { gameSpec?: unknown; solvabilityVerdicts: unknown[] };
@@ -163,6 +168,7 @@ export function caseToQualityRecord(result: DrawingCaseResult): GenerationQualit
     if (result.p8Iterations !== undefined) record.p8Iterations = result.p8Iterations;
     if (result.safetyRecast !== undefined) record.safetyRecast = result.safetyRecast;
     if (result.objectiveFallback !== undefined) record.objectiveFallback = result.objectiveFallback;
+    if (result.recastRung !== undefined) record.recastRung = result.recastRung;
     if (result.calls !== undefined) record.calls = result.calls;
     return record;
   }

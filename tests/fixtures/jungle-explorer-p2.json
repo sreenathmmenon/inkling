@@ -1,0 +1,373 @@
+{
+  "primary_genre": "platformer",
+  "genre_confidence": 0.97,
+  "mood": "jungle adventure",
+  "hero": {
+    "id": "hero_1",
+    "name": "Explorer",
+    "bbox": [
+      0.14,
+      0.36,
+      0.24,
+      0.48
+    ],
+    "style_ref": "colored-pencil-safari-explorer"
+  },
+  "entities": [
+    {
+      "id": "platform_1",
+      "role": "platform",
+      "bbox": [
+        0.02,
+        0.46,
+        0.35,
+        0.5
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-mossy-vine-ledge"
+    },
+    {
+      "id": "platform_2",
+      "role": "platform",
+      "bbox": [
+        0.35,
+        0.43,
+        0.67,
+        0.47
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-mossy-vine-ledge"
+    },
+    {
+      "id": "platform_3",
+      "role": "platform",
+      "bbox": [
+        0.65,
+        0.47,
+        0.98,
+        0.51
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-mossy-vine-ledge"
+    },
+    {
+      "id": "platform_4",
+      "role": "platform",
+      "bbox": [
+        0.27,
+        0.31,
+        0.76,
+        0.35
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-mossy-vine-ledge"
+    },
+    {
+      "id": "platform_5",
+      "role": "platform",
+      "bbox": [
+        0.03,
+        0.13,
+        0.55,
+        0.17
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-mossy-vine-ledge"
+    },
+    {
+      "id": "platform_6",
+      "role": "platform",
+      "bbox": [
+        0.54,
+        0.19,
+        0.98,
+        0.23
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-temple-ledge"
+    },
+    {
+      "id": "platform_7",
+      "role": "platform",
+      "bbox": [
+        0.06,
+        0.62,
+        0.7,
+        0.66
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-mossy-vine-ledge"
+    },
+    {
+      "id": "platform_8",
+      "role": "platform",
+      "bbox": [
+        0.03,
+        0.83,
+        0.52,
+        0.87
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "rough-colored-pencil-mossy-vine-ledge"
+    },
+    {
+      "id": "bridge_1",
+      "role": "platform",
+      "bbox": [
+        0.42,
+        0.74,
+        0.97,
+        0.8
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "hand-drawn-rope-and-plank-bridge"
+    },
+    {
+      "id": "snake_1",
+      "role": "enemy",
+      "bbox": [
+        0.36,
+        0.26,
+        0.55,
+        0.32
+      ],
+      "behavior": "patrol",
+      "linked_to": null,
+      "style_ref": "orange-colored-pencil-spotted-snake"
+    },
+    {
+      "id": "snake_2",
+      "role": "enemy",
+      "bbox": [
+        0.69,
+        0.4,
+        0.86,
+        0.48
+      ],
+      "behavior": "patrol",
+      "linked_to": null,
+      "style_ref": "orange-colored-pencil-spotted-snake"
+    },
+    {
+      "id": "gem_purple",
+      "role": "collectible",
+      "bbox": [
+        0.31,
+        0.09,
+        0.37,
+        0.14
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "purple-colored-pencil-faceted-gem"
+    },
+    {
+      "id": "gem_blue_1",
+      "role": "collectible",
+      "bbox": [
+        0.66,
+        0.28,
+        0.72,
+        0.33
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "blue-colored-pencil-faceted-gem"
+    },
+    {
+      "id": "gem_yellow",
+      "role": "collectible",
+      "bbox": [
+        0.42,
+        0.4,
+        0.48,
+        0.45
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "yellow-colored-pencil-faceted-gem"
+    },
+    {
+      "id": "gem_red",
+      "role": "collectible",
+      "bbox": [
+        0.3,
+        0.56,
+        0.36,
+        0.62
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "red-colored-pencil-faceted-gem"
+    },
+    {
+      "id": "gem_green",
+      "role": "collectible",
+      "bbox": [
+        0.58,
+        0.56,
+        0.64,
+        0.61
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "green-colored-pencil-faceted-gem"
+    },
+    {
+      "id": "gem_blue_2",
+      "role": "collectible",
+      "bbox": [
+        0.32,
+        0.78,
+        0.38,
+        0.83
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "blue-colored-pencil-faceted-gem"
+    },
+    {
+      "id": "spikes_1",
+      "role": "hazard",
+      "bbox": [
+        0.36,
+        0.9,
+        0.72,
+        0.97
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "dark-graphite-jagged-spikes"
+    },
+    {
+      "id": "torch_1",
+      "role": "hazard",
+      "bbox": [
+        0.6,
+        0.12,
+        0.65,
+        0.2
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "colored-pencil-stone-brazier-with-orange-flame"
+    },
+    {
+      "id": "torch_2",
+      "role": "hazard",
+      "bbox": [
+        0.8,
+        0.12,
+        0.85,
+        0.2
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "colored-pencil-stone-brazier-with-orange-flame"
+    },
+    {
+      "id": "waterfall_1",
+      "role": "water",
+      "bbox": [
+        0.74,
+        0.5,
+        0.9,
+        0.91
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "blue-colored-pencil-waterfall-and-pool"
+    },
+    {
+      "id": "waterfall_2",
+      "role": "water",
+      "bbox": [
+        0.16,
+        0.74,
+        0.29,
+        0.85
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "blue-colored-pencil-small-cascade"
+    },
+    {
+      "id": "temple_1",
+      "role": "decoration",
+      "bbox": [
+        0.57,
+        0.02,
+        0.91,
+        0.21
+      ],
+      "behavior": "static",
+      "linked_to": "goal_1",
+      "style_ref": "gold-brown-colored-pencil-vine-covered-stone-temple"
+    },
+    {
+      "id": "goal_1",
+      "role": "goal",
+      "bbox": [
+        0.68,
+        0.07,
+        0.8,
+        0.19
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "dark-graphite-arched-temple-entrance"
+    },
+    {
+      "id": "jungle_1",
+      "role": "decoration",
+      "bbox": [
+        0,
+        0,
+        1,
+        0.98
+      ],
+      "behavior": "static",
+      "linked_to": null,
+      "style_ref": "dense-green-colored-pencil-palms-vines-rocks-and-foliage"
+    }
+  ],
+  "goal": {
+    "kind": "reach_goal",
+    "target_id": "goal_1"
+  },
+  "rules": {
+    "lives": 3,
+    "difficulty_hint": "spicy",
+    "modifiers": [
+      "waterfalls_have_downward_current",
+      "gems_are_optional_collectibles"
+    ]
+  },
+  "palette": [
+    "#397c4a",
+    "#789b3d",
+    "#d59b38",
+    "#e47c28",
+    "#48a4d8",
+    "#75458b",
+    "#dfbd28",
+    "#c65b62"
+  ],
+  "assumptions": [
+    "The explorer is the hero.",
+    "The dark temple entrance is the finish.",
+    "The snakes patrol their ledges.",
+    "The six floating gems are optional collectibles.",
+    "I used three lives because no life count is written."
+  ],
+  "flags": []
+}

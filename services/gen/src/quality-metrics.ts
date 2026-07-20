@@ -17,6 +17,7 @@ export interface GenerationQualityRecord {
   p8Iterations?: number;
   safetyRecast?: boolean;
   objectiveFallback?: boolean;
+  recastRung?: string | null;
   degradedCount?: number;
   certification: "valid" | "invalid" | "not_measured";
   calls?: GenerationMetrics["calls"];
@@ -34,6 +35,7 @@ export function buildPlayableQualityRecord(
     p8Iterations: scan.metrics.p8Iterations,
     safetyRecast: scan.metrics.safetyRecast,
     objectiveFallback: scan.metrics.objectiveFallback,
+    recastRung: scan.metrics.recastRung,
     degradedCount: scan.metrics.degradedCount,
     certification: "not_measured",
     calls: scan.metrics.calls,
@@ -69,6 +71,7 @@ export interface GenerationQualitySummary {
   playContractOutcomes: Record<string, number>;
   finalGenres: Record<string, number>;
   certification: Record<string, number>;
+  recastRungs: Record<string, number>;
   safetyRecastRate: number;
   objectiveFallbackRate: number;
   p8IterationsMean: number;
@@ -87,6 +90,7 @@ export function summarizeQualityRecords(
   const playContractOutcomes: Record<string, number> = {};
   const finalGenres: Record<string, number> = {};
   const certification: Record<string, number> = {};
+  const recastRungs: Record<string, number> = {};
   const durations: number[] = [];
   const callDurations = new Map<string, number[]>();
   let playable = 0;
@@ -104,6 +108,7 @@ export function summarizeQualityRecords(
       if (record.playContractOutcome) count(playContractOutcomes, record.playContractOutcome);
       if (record.safetyRecast) recasts += 1;
       if (record.objectiveFallback) objectiveFallbacks += 1;
+      count(recastRungs, record.recastRung ?? "none");
       if (typeof record.p8Iterations === "number") {
         p8IterationsSum += record.p8Iterations;
         p8Samples += 1;
@@ -134,6 +139,7 @@ export function summarizeQualityRecords(
     playContractOutcomes,
     finalGenres,
     certification,
+    recastRungs,
     safetyRecastRate: playable === 0 ? 0 : recasts / playable,
     objectiveFallbackRate: playable === 0 ? 0 : objectiveFallbacks / playable,
     p8IterationsMean: p8Samples === 0 ? 0 : p8IterationsSum / p8Samples,

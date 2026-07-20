@@ -69,10 +69,16 @@ function stageForCall(callId: string): NonNullable<DrawingGenerationProgressEven
   return "testing";
 }
 
+const MAX_CORRECTIONS = 6;
+const MAX_CORRECTION_LENGTH = 240;
+
 async function requestPayload(
   request: Request,
   options: DrawingGenerationHttpOptions,
-): Promise<{ image: string; safetyId: string; requestId: string } | Response> {
+): Promise<
+  | { image: string; safetyId: string; requestId: string; corrections?: string[] }
+  | Response
+> {
   if (request.method !== "POST") return json(405, { error: "method_not_allowed" });
   if (!isSameOriginRequest(request)) return json(403, { error: "cross_origin_request" });
   const contentType = request.headers.get("content-type") ?? "";
@@ -95,9 +101,30 @@ async function requestPayload(
     return json(400, { error: "invalid_drawing_request" });
   }
 
+  // Corrections are the model's own previously returned guesses, echoed back
+  // when the child rejects one. Bound them tightly; they re-derive the whole
+  // game through every ordered gate, never patch it.
+  let corrections: string[] | undefined;
+  if (payload.corrections !== undefined) {
+    const candidate = payload.corrections;
+    const valid = Array.isArray(candidate) &&
+      candidate.length > 0 &&
+      candidate.length <= MAX_CORRECTIONS &&
+      candidate.every((item) =>
+        typeof item === "string" && item.trim().length > 0 && item.length <= MAX_CORRECTION_LENGTH,
+      );
+    if (!valid) return json(400, { error: "invalid_drawing_request" });
+    corrections = candidate as string[];
+  }
+
   const safetyId = await options.resolveSafetyId(request);
   if (!safetyId) return json(401, { error: "missing_session" });
-  return { image: payload.image, safetyId, requestId: payload.request_id };
+  return {
+    image: payload.image,
+    safetyId,
+    requestId: payload.request_id,
+    ...(corrections ? { corrections } : {}),
+  };
 }
 
 /**
@@ -114,9 +141,14 @@ export function createDrawingGenerationHandler(
 
     try {
       const result = await generateDrawingGame(
-        // An anonymous child flow sends only the prepared image. Deliberately
-        // do not forward arbitrary browser metadata into model prompts.
-        payload,
+        // An anonymous child flow sends only the prepared image plus, at most,
+        // its own echoed-back guesses to correct. Deliberately do not forward
+        // arbitrary browser metadata into model prompts.
+        {
+          image: payload.image,
+          safetyId: payload.safetyId,
+          ...(payload.corrections ? { context: { corrections: payload.corrections } } : {}),
+        },
         { ...options, signal: request.signal },
       );
       return json(201, { requestId: payload.requestId, playableGame: result.playableGame });
@@ -177,7 +209,11 @@ export function createDrawingGenerationStreamHandler(
           }
         };
         try {
-          const result = await generateDrawingGame(payload, {
+          const result = await generateDrawingGame({
+            image: payload.image,
+            safetyId: payload.safetyId,
+            ...(payload.corrections ? { context: { corrections: payload.corrections } } : {}),
+          }, {
             ...options,
             signal: streamAbort.signal,
             onRequest(trace, modelRequest) {

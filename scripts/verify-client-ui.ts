@@ -128,11 +128,11 @@ try {
   const recastDecision = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await recastDecision.goto(baseUrl);
   await recastDecision.evaluate(() => {
-    document.body.classList.add("recast", "has-drawing");
-    document.querySelector<HTMLElement>("#recast-panel")!.hidden = false;
+    document.body.classList.add("safe-offer", "has-drawing");
+    document.querySelector<HTMLElement>("#safe-offer-panel")!.hidden = false;
   });
-  assert.equal(await recastDecision.locator(".capture-action-zone").isVisible(), false, "recast decision retains a stale Make my game action");
-  assert.equal(await recastDecision.locator("#recast-panel").isVisible(), true, "recast decision is hidden");
+  assert.equal(await recastDecision.locator(".capture-action-zone").isVisible(), false, "safe-offer decision retains a stale Make my game action");
+  assert.equal(await recastDecision.locator("#safe-offer-panel").isVisible(), true, "safe-offer decision is hidden");
   await recastDecision.close();
 
   const malformed = await browser.newPage({ viewport: { width: 390, height: 844 } });

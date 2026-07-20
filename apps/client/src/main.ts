@@ -25,6 +25,12 @@ import {
   visibleGenerationFailure,
 } from "./generation-copy.js";
 import { attachMotionDelight } from "./motion-delight.js";
+import {
+  appendCorrection,
+  assumptionChips,
+  interpretationNoteText,
+  type CertificationOutcome,
+} from "./interpretation-status.js";
 import { freshPlayerState, shouldShowAssist } from "./player-status.js";
 import { attachSoundFeedback } from "./sound-feedback.js";
 
@@ -77,9 +83,10 @@ const postPlayActions = requireElement<HTMLElement>("#post-play-actions");
 const assistGame = requireElement<HTMLButtonElement>("#assist-game");
 const accessibleControls = requireElement<HTMLElement>("#accessible-controls");
 const runtimeReplayHost = requireElement<HTMLElement>("#runtime-replay-host");
-const recastPanel = requireElement<HTMLElement>("#recast-panel");
-const recastTitle = requireElement<HTMLElement>("#recast-title");
-const recastDetail = requireElement<HTMLElement>("#recast-detail");
+const safeOfferPanel = requireElement<HTMLElement>("#safe-offer-panel");
+const safeOfferTitle = requireElement<HTMLElement>("#safe-offer-title");
+const safeOfferDetail = requireElement<HTMLElement>("#safe-offer-detail");
+const assumptionChipList = requireElement<HTMLElement>("#assumption-chips");
 const playSafeVersion = requireElement<HTMLButtonElement>("#play-safe-version");
 const tryNewPicture = requireElement<HTMLButtonElement>("#try-new-picture");
 const capturePanel = requireElement<HTMLElement>("#capture-panel");
@@ -121,21 +128,26 @@ let pendingPlayableGame: unknown;
 let generationStageIndex = -1;
 let returnableGame: unknown;
 let saveFeedbackTimer: number | undefined;
+let pendingCorrections: string[] = [];
+let lastCertification: CertificationOutcome = "not_applicable";
 const gameControlReleases: Array<() => void> = [];
 
 function releaseAllGameControls(): void {
   for (const release of gameControlReleases) release();
 }
 
-type ExperienceState = "capture-empty" | "capture-ready" | "generating" | "recast" | "playing" | "won" | "lost" | "player-error";
+// "safe-offer" is the PlayContract needs_recast surface (offer to play the
+// certified safe version). It is deliberately named apart from the pipeline's
+// P8 safety-recast ladder, which is a different mechanism.
+type ExperienceState = "capture-empty" | "capture-ready" | "generating" | "safe-offer" | "playing" | "won" | "lost" | "player-error";
 const EXPERIENCE_STATES: readonly ExperienceState[] = [
-  "capture-empty", "capture-ready", "generating", "recast", "playing", "won", "lost", "player-error",
+  "capture-empty", "capture-ready", "generating", "safe-offer", "playing", "won", "lost", "player-error",
 ];
 
 function renderExperienceState(state: ExperienceState): void {
   document.body.classList.remove(...EXPERIENCE_STATES);
   document.body.classList.add(state);
-  document.body.classList.toggle("has-drawing", state === "capture-ready" || state === "generating" || state === "recast");
+  document.body.classList.toggle("has-drawing", state === "capture-ready" || state === "generating" || state === "safe-offer");
   document.body.classList.toggle("generating", state === "generating");
   document.body.classList.toggle("game-won", state === "won");
   document.body.classList.toggle("game-lost", state === "lost");
@@ -202,20 +214,28 @@ if (new URLSearchParams(window.location.search).has("runtime-replay")) {
   };
 }
 
-async function certifyGeneratedGame(value: unknown): Promise<unknown> {
+async function certifyGeneratedGame(
+  value: unknown,
+): Promise<{ value: unknown; certification: CertificationOutcome }> {
   const playable = resolvePlayableGame(value);
-  if (!playable.playContract || playable.playContract.outcome !== "faithful_ready") return value;
+  if (!playable.playContract || playable.playContract.outcome !== "faithful_ready") {
+    return { value, certification: "not_applicable" };
+  }
   try {
     const gameSpec = playable.gameSpec as GameSpec;
     const analytic = runPlaytestWithTrace(gameSpec);
-    if (!analytic.report.reached_goal) return value;
+    if (!analytic.report.reached_goal) return { value, certification: "unverified" };
     const events = await replayInProduction(gameSpec, analytic.inputFrames, runtimeReplayHost);
     const report = validateRuntimeTrace(events, playable.playContract);
-    return attachRuntimeTraceReport(value, report);
+    return {
+      value: attachRuntimeTraceReport(value, report),
+      certification: report.valid ? "certified" : "unverified",
+    };
   } catch {
-    // Lane A remains playable. Without a real matching receipt the resolver
-    // keeps the result in its honest fallback state and sharing stays blocked.
-    return value;
+    // Lane A remains playable, but the child is told rather than shown a
+    // silently-normal game: an unverified result never celebrates as if the
+    // full runtime check had passed, and sharing stays blocked.
+    return { value, certification: "unverified" };
   }
 }
 
@@ -231,7 +251,9 @@ function showState(state: PlatformerState): void {
     restart.hidden = false;
     saveGame.hidden = false;
     status.textContent = "You brought it to life! What will you make next?";
-    motionDelight.stateChanged(state.status);
+    // An unverified game never celebrates as though the full runtime check
+    // passed; the win still counts, the flourish waits for a verified one.
+    if (lastCertification !== "unverified") motionDelight.stateChanged(state.status);
     restart.focus({ preventScroll: true });
     return;
   }
@@ -295,12 +317,16 @@ async function play(spec: unknown): Promise<void> {
   showState(freshPlayerState(plan));
   objectiveTitle.textContent = objective.headline;
   objectiveDetail.textContent = objective.instruction;
-  interpretationNote.hidden = playable.readinessOutcome === undefined || playable.readinessOutcome === "faithful_ready";
-  interpretationNote.textContent = playable.readinessOutcome === "needs_recast"
-    ? "Ready to play · Your art stayed the same; some game actions were simplified."
-    : playable.readinessOutcome === "related_fallback"
-      ? "Ready to play · Your art is here in a clear, finishable adventure."
-      : "";
+  const specForNotices = playable.gameSpec as GameSpec | undefined;
+  const noteText = interpretationNoteText(
+    playable.readinessOutcome,
+    Array.isArray(specForNotices?.flags) ? specForNotices.flags : [],
+    lastCertification,
+  );
+  interpretationNote.hidden = noteText === "";
+  interpretationNote.textContent = noteText;
+  document.body.classList.toggle("game-unverified", lastCertification === "unverified");
+  renderAssumptionChips(specForNotices);
   controlsHint.textContent = plan.contract.touchControls === "four_way"
     ? "Use the four arrow buttons to steer. On a keyboard, use the arrow keys."
     : "Use left and right, then tap jump. You can tap jump once more in the air.";
@@ -347,6 +373,35 @@ async function play(spec: unknown): Promise<void> {
   enterPlayMode();
 }
 
+/**
+ * Renders the model's child-readable guesses as correctable chips. A chip tap
+ * rejects that guess and re-derives the whole game through every ordered gate
+ * with the correction as context — possible only while the drawing is still
+ * held on this page.
+ */
+function renderAssumptionChips(spec: GameSpec | undefined): void {
+  assumptionChipList.replaceChildren();
+  const guesses = spec && Array.isArray(spec.assumptions) ? assumptionChips(spec.assumptions) : [];
+  const canCorrect = preparedDrawing !== undefined && guesses.length > 0;
+  assumptionChipList.hidden = !canCorrect;
+  if (!canCorrect) return;
+  for (const guess of guesses) {
+    const item = document.createElement("li");
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "assumption-chip";
+    button.textContent = `${guess} — Not right? Tap to fix it.`;
+    button.addEventListener("click", () => {
+      if (!preparedDrawing || activeGeneration) return;
+      pendingCorrections = appendCorrection(pendingCorrections, guess);
+      showGameWaiting();
+      void runGeneration();
+    });
+    item.append(button);
+    assumptionChipList.append(item);
+  }
+}
+
 function showGameWaiting(): void {
   playSequence += 1;
   releaseAllGameControls();
@@ -363,6 +418,9 @@ function showGameWaiting(): void {
   playToolbar.hidden = true;
   interpretationNote.hidden = true;
   interpretationNote.textContent = "";
+  assumptionChipList.hidden = true;
+  assumptionChipList.replaceChildren();
+  document.body.classList.remove("game-unverified");
   gameShell.setAttribute("aria-label", "Game preview");
   gameShell.removeAttribute("aria-labelledby");
   gameShell.setAttribute("aria-describedby", "game-status");
@@ -458,6 +516,7 @@ async function updatePreparedPicture(message: string, focusReview = false): Prom
 }
 
 function forgetPreparedDrawing(message = "Photo removed from this page."): void {
+  pendingCorrections = [];
   preparationSequence += 1;
   preparedDrawing = undefined;
   sourceDrawingFile = undefined;
@@ -468,7 +527,7 @@ function forgetPreparedDrawing(message = "Photo removed from this page."): void 
   makeGame.disabled = true;
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
-  recastPanel.hidden = true;
+  safeOfferPanel.hidden = true;
   pendingPlayableGame = undefined;
   forgetDrawing.hidden = true;
   progressPanel.hidden = true;
@@ -514,6 +573,8 @@ function startFreshDrawingSession(
 
   currentSpec = null;
   pendingPlayableGame = undefined;
+  pendingCorrections = [];
+  lastCertification = "not_applicable";
   activeCounterLabel = null;
   showGameWaiting();
   preparedDrawing = undefined;
@@ -529,7 +590,7 @@ function startFreshDrawingSession(
   makeGame.removeAttribute("aria-busy");
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
-  recastPanel.hidden = true;
+  safeOfferPanel.hidden = true;
   resetAdjustmentControls();
   forgetDrawing.disabled = false;
   forgetDrawing.hidden = true;
@@ -717,7 +778,7 @@ drawingInput.addEventListener("change", async () => {
   forgetDrawing.hidden = true;
   adjustPicture.hidden = true;
   pictureAdjuster.hidden = true;
-  recastPanel.hidden = true;
+  safeOfferPanel.hidden = true;
   pendingPlayableGame = undefined;
   progressPanel.hidden = true;
   renderExperienceState("capture-empty");
@@ -760,20 +821,24 @@ resetPicture.addEventListener("click", () => {
   void updatePreparedPicture("Resetting your preview on this device…");
 });
 
-makeGame.addEventListener("click", async () => {
+async function runGeneration(): Promise<void> {
   if (!preparedDrawing) return;
   activeGeneration?.controller.abort();
   const controller = new AbortController();
   const sequence = ++generationSequence;
   const requestId = newRequestId();
-  recastPanel.hidden = true;
+  safeOfferPanel.hidden = true;
   pendingPlayableGame = undefined;
   activeGeneration = { controller, sequence };
   makeGame.disabled = true;
   makeGame.textContent = "Making game…";
   makeGame.setAttribute("aria-busy", "true");
   forgetDrawing.disabled = true;
-  showCaptureStatus("We’re turning your drawing into a game. Keep this page open.");
+  showCaptureStatus(
+    pendingCorrections.length > 0
+      ? "Got it — trying your drawing again with your fix."
+      : "We’re turning your drawing into a game. Keep this page open.",
+  );
   startGenerationProgress();
   try {
     const response = await fetch("/api/games/drawing", {
@@ -782,6 +847,7 @@ makeGame.addEventListener("click", async () => {
       body: JSON.stringify({
         image: preparedDrawing.dataUrl,
         request_id: requestId,
+        ...(pendingCorrections.length > 0 ? { corrections: pendingCorrections } : {}),
       }),
       signal: controller.signal,
     });
@@ -805,22 +871,28 @@ makeGame.addEventListener("click", async () => {
     }
     if (sequence !== generationSequence) return;
     if (!currentSpec) throw new Error(generationErrorMessage());
-    currentSpec = await certifyGeneratedGame(currentSpec);
+    const certified = await certifyGeneratedGame(currentSpec);
     if (sequence !== generationSequence) return;
+    currentSpec = certified.value;
+    lastCertification = certified.certification;
     const playable = resolvePlayableGame(currentSpec);
     if (playable.readinessOutcome === "needs_recast") {
       pendingPlayableGame = currentSpec;
       progressPanel.hidden = true;
-      recastPanel.hidden = false;
-      renderExperienceState("recast");
-      recastTitle.textContent = "Your world is ready";
-      recastDetail.textContent = "Your art stayed yours. Inkling chose a clear adventure you can finish.";
+      safeOfferPanel.hidden = false;
+      renderExperienceState("safe-offer");
+      safeOfferTitle.textContent = "Your world is ready";
+      safeOfferDetail.textContent = "Your art stayed yours. Inkling chose a clear adventure you can finish.";
       showCaptureStatus("Your playable version is ready.");
       playSafeVersion.focus();
     } else {
       play(currentSpec);
       saveGame.disabled = false;
-      forgetPreparedDrawing("Your drawing is now a playable game.");
+      // The drawing stays on this page (never re-uploaded on its own) so a
+      // chip tap can correct a guess; Forget drawing and Make another still
+      // clear it the moment the child chooses.
+      progressPanel.hidden = true;
+      showCaptureStatus("Your drawing became a game! It stays here in case you want to fix a guess.");
     }
   } catch (error) {
     if (sequence !== generationSequence || controller.signal.aborted) return;
@@ -839,6 +911,11 @@ makeGame.addEventListener("click", async () => {
       forgetDrawing.disabled = false;
     }
   }
+}
+
+makeGame.addEventListener("click", () => {
+  pendingCorrections = [];
+  void runGeneration();
 });
 
 playSafeVersion.addEventListener("click", () => {

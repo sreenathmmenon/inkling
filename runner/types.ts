@@ -39,7 +39,6 @@ export interface PipelineCall {
   loop_until?: string;
   max_iterations?: number;
   fan_out_over?: string;
-  realtime?: boolean;
   then?: string;
   hard_requires?: string[];
   effort_router?: {
@@ -57,7 +56,6 @@ export interface PipelineSpec {
     reasoning_mode_offline: string;
     text_verbosity_json: "low" | "medium" | "high";
     safety_identifier: string;
-    cache_stable_prefixes: boolean;
   };
   models: Record<string, string>;
   calls: PipelineCall[];
@@ -84,6 +82,7 @@ export interface ResponsesClient {
 
 export interface RequestTrace {
   callId: string;
+  callName: string;
   model: string;
   effort: ReasoningEffort;
   attempt: number;
@@ -149,6 +148,31 @@ export interface BehaviorPatch {
   source: string;
 }
 
+/** One model call's routing and latency. Carries no content and no identity. */
+export interface CallMetric {
+  callId: string;
+  callName: string;
+  model: string;
+  effort: ReasoningEffort;
+  attempt: number;
+  durationMs: number;
+}
+
+/**
+ * Anonymous per-generation quality evidence. Deliberately excludes image
+ * data, drawing content, model output, and any user identifier so it can be
+ * aggregated and logged without touching the no-retention posture.
+ */
+export interface GenerationMetrics {
+  totalDurationMs: number;
+  calls: CallMetric[];
+  p8Iterations: number;
+  safetyRecast: boolean;
+  objectiveFallback: boolean;
+  finalGenre: string;
+  degradedCount: number;
+}
+
 export interface ScanResult {
   gameSpec: GameSpec;
   assets: Record<string, unknown>;
@@ -158,4 +182,5 @@ export interface ScanResult {
   solvability: JsonObject;
   calls: RequestTrace[];
   degraded: string[];
+  metrics: GenerationMetrics;
 }

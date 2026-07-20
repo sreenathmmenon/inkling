@@ -2,49 +2,91 @@
   {
     "role": "user",
     "content": [
-      { "type": "input_text", "text": "EXAMPLE — classic first scan. Drawing: a smiley stick hero on the left, three floating horizontal platforms, a red spiky patch under the middle gap, a star top-right, and the handwritten words \"3 LIVES\"." }
+      {
+        "type": "input_text",
+        "text": "EXAMPLE — classic first scan. Drawing: a smiley stick hero standing on a short pencil ledge at the lower-left, three floating horizontal platforms leading right, a red spiky patch under the middle gap, a small key resting on the middle platform, a door drawn in front of a flag on the far-right platform, and the handwritten words \"3 LIVES\"."
+      }
     ]
   },
   {
     "role": "assistant",
     "content": [
-      { "type": "output_text", "text": "{\"primary_genre\":\"platformer\",\"genre_confidence\":0.93,\"mood\":\"cheerful\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Smiley\",\"bbox\":[0.05,0.55,0.15,0.75],\"style_ref\":\"blue-crayon-stick\"},\"entities\":[{\"id\":\"plat_1\",\"role\":\"platform\",\"bbox\":[0.2,0.7,0.4,0.74],\"behavior\":\"static\",\"style_ref\":\"pencil-line\"},{\"id\":\"plat_2\",\"role\":\"platform\",\"bbox\":[0.5,0.55,0.7,0.59],\"behavior\":\"static\",\"style_ref\":\"pencil-line\"},{\"id\":\"plat_3\",\"role\":\"platform\",\"bbox\":[0.78,0.45,0.95,0.49],\"behavior\":\"static\",\"style_ref\":\"pencil-line\"},{\"id\":\"haz_1\",\"role\":\"hazard\",\"bbox\":[0.42,0.85,0.5,0.92],\"behavior\":\"static\",\"style_ref\":\"red-spikes\"},{\"id\":\"goal_1\",\"role\":\"goal\",\"bbox\":[0.86,0.3,0.94,0.4],\"behavior\":\"static\",\"style_ref\":\"yellow-star\"}],\"goal\":{\"kind\":\"reach_goal\",\"target_id\":\"goal_1\"},\"rules\":{\"lives\":3,\"difficulty_hint\":\"normal\",\"modifiers\":[]},\"palette\":[\"#3b6fb5\",\"#000000\",\"#e23b2e\",\"#f5c518\"],\"assumptions\":[\"The red spiky patch is a hazard that costs a life.\"],\"flags\":[]}" }
+      {
+        "type": "output_text",
+        "text": "{\"primary_genre\":\"platformer\",\"genre_confidence\":0.93,\"mood\":\"cheerful\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Smiley\",\"bbox\":[0.05,0.58,0.15,0.78],\"style_ref\":\"blue-crayon-stick\"},\"entities\":[{\"id\":\"plat_0\",\"role\":\"platform\",\"bbox\":[0.02,0.78,0.18,0.82],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"pencil-line\"},{\"id\":\"plat_1\",\"role\":\"platform\",\"bbox\":[0.2,0.7,0.4,0.74],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"pencil-line\"},{\"id\":\"plat_2\",\"role\":\"platform\",\"bbox\":[0.5,0.55,0.7,0.59],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"pencil-line\"},{\"id\":\"plat_3\",\"role\":\"platform\",\"bbox\":[0.78,0.55,0.98,0.59],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"pencil-line\"},{\"id\":\"haz_1\",\"role\":\"hazard\",\"bbox\":[0.42,0.85,0.5,0.92],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"red-spikes\"},{\"id\":\"key_1\",\"role\":\"key\",\"bbox\":[0.56,0.48,0.62,0.55],\"behavior\":\"static\",\"linked_to\":\"door_1\",\"style_ref\":\"pencil-key\"},{\"id\":\"door_1\",\"role\":\"door\",\"bbox\":[0.86,0.41,0.9,0.55],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"brown-door\"},{\"id\":\"goal_1\",\"role\":\"goal\",\"bbox\":[0.92,0.41,0.97,0.55],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"triangle-flag\"}],\"goal\":{\"kind\":\"reach_goal\",\"target_id\":\"goal_1\"},\"rules\":{\"lives\":3,\"difficulty_hint\":\"normal\",\"modifiers\":[]},\"palette\":[\"#3b6fb5\",\"#000000\",\"#e23b2e\",\"#8a5a2b\"],\"assumptions\":[\"The drawn key opens the drawn door because they belong together.\",\"The red spiky patch is a hazard that costs a life.\"],\"flags\":[]}"
+      }
     ]
   },
   {
     "role": "user",
     "content": [
-      { "type": "input_text", "text": "EXAMPLE — placemat maze. Drawing: a rectangle filled with corridor walls, a small mouse doodle at the top-left opening, a wedge of cheese at the bottom-right." }
+      {
+        "type": "input_text",
+        "text": "EXAMPLE — placemat maze. Drawing: a top-down maze of three thick corridor walls, a small mouse doodle at the top-left opening, a wedge of cheese at the bottom-right."
+      }
     ]
   },
   {
     "role": "assistant",
     "content": [
-      { "type": "output_text", "text": "{\"primary_genre\":\"maze\",\"genre_confidence\":0.9,\"mood\":\"cheerful\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Mouse\",\"bbox\":[0.08,0.1,0.16,0.2],\"style_ref\":\"grey-doodle\"},\"entities\":[{\"id\":\"wall_group\",\"role\":\"platform\",\"bbox\":[0.05,0.05,0.95,0.95],\"behavior\":\"static\",\"style_ref\":\"corridor-walls\"},{\"id\":\"goal_1\",\"role\":\"goal\",\"bbox\":[0.82,0.82,0.92,0.92],\"behavior\":\"static\",\"style_ref\":\"cheese-wedge\"}],\"goal\":{\"kind\":\"reach_goal\",\"target_id\":\"goal_1\"},\"rules\":{\"lives\":3,\"difficulty_hint\":\"normal\",\"modifiers\":[]},\"palette\":[\"#888888\",\"#f5c518\"],\"assumptions\":[\"The maze is top-down; the mouse reaches the cheese to win.\"],\"flags\":[]}" }
+      {
+        "type": "output_text",
+        "text": "{\"primary_genre\":\"maze\",\"genre_confidence\":0.9,\"mood\":\"cheerful\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Mouse\",\"bbox\":[0.06,0.08,0.14,0.18],\"style_ref\":\"grey-doodle\"},\"entities\":[{\"id\":\"wall_1\",\"role\":\"platform\",\"bbox\":[0.22,0.05,0.28,0.66],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"corridor-wall\"},{\"id\":\"wall_2\",\"role\":\"platform\",\"bbox\":[0.46,0.34,0.52,0.95],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"corridor-wall\"},{\"id\":\"wall_3\",\"role\":\"platform\",\"bbox\":[0.7,0.05,0.76,0.6],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"corridor-wall\"},{\"id\":\"goal_1\",\"role\":\"goal\",\"bbox\":[0.84,0.82,0.94,0.92],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"cheese-wedge\"}],\"goal\":{\"kind\":\"reach_goal\",\"target_id\":\"goal_1\"},\"rules\":{\"lives\":3,\"difficulty_hint\":\"normal\",\"modifiers\":[]},\"palette\":[\"#888888\",\"#f5c518\"],\"assumptions\":[\"The maze is top-down; each drawn wall blocks movement and the mouse reaches the cheese to win.\"],\"flags\":[]}"
+      }
     ]
   },
   {
     "role": "user",
     "content": [
-      { "type": "input_text", "text": "EXAMPLE — semantic physics, no color legend. Drawing: a hero, a blue pool labelled \"water\", an orange pool labelled \"lava\", a small spring, and a flag at the end." }
+      {
+        "type": "input_text",
+        "text": "EXAMPLE — semantic physics, no color legend. Drawing: a hero on a ground ledge, a blue pool labelled \"water\", an orange pool labelled \"lava\" further right, a small spring between the pools, and a flag on the far-right ledge."
+      }
     ]
   },
   {
     "role": "assistant",
     "content": [
-      { "type": "output_text", "text": "{\"primary_genre\":\"platformer\",\"genre_confidence\":0.88,\"mood\":\"adventurous\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Hero\",\"bbox\":[0.03,0.6,0.13,0.8],\"style_ref\":\"marker-figure\"},\"entities\":[{\"id\":\"water_1\",\"role\":\"water\",\"bbox\":[0.25,0.8,0.45,0.95],\"behavior\":\"static\",\"style_ref\":\"blue-pool\"},{\"id\":\"lava_1\",\"role\":\"hazard\",\"bbox\":[0.55,0.8,0.75,0.95],\"behavior\":\"static\",\"style_ref\":\"orange-pool\"},{\"id\":\"spring_1\",\"role\":\"launchpad\",\"bbox\":[0.48,0.7,0.54,0.78],\"behavior\":\"static\",\"style_ref\":\"coil-spring\"},{\"id\":\"goal_1\",\"role\":\"goal\",\"bbox\":[0.9,0.55,0.97,0.7],\"behavior\":\"static\",\"style_ref\":\"flag\"}],\"goal\":{\"kind\":\"reach_goal\",\"target_id\":\"goal_1\"},\"rules\":{\"lives\":3,\"difficulty_hint\":\"normal\",\"modifiers\":[]},\"palette\":[\"#2b6fb5\",\"#e8791f\",\"#000000\"],\"assumptions\":[\"Water is a swim volume; lava is a hazard; the spring launches the hero. Roles come from what each thing is, not its color.\"],\"flags\":[]}" }
+      {
+        "type": "output_text",
+        "text": "{\"primary_genre\":\"platformer\",\"genre_confidence\":0.88,\"mood\":\"adventurous\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Hero\",\"bbox\":[0.03,0.6,0.13,0.8],\"style_ref\":\"marker-figure\"},\"entities\":[{\"id\":\"ground_1\",\"role\":\"platform\",\"bbox\":[0,0.8,0.25,0.86],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"pencil-ground\"},{\"id\":\"water_1\",\"role\":\"water\",\"bbox\":[0.25,0.8,0.45,0.95],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"blue-pool\"},{\"id\":\"ground_2\",\"role\":\"platform\",\"bbox\":[0.45,0.8,0.55,0.86],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"pencil-ground\"},{\"id\":\"spring_1\",\"role\":\"launchpad\",\"bbox\":[0.47,0.72,0.53,0.8],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"coil-spring\"},{\"id\":\"lava_1\",\"role\":\"hazard\",\"bbox\":[0.55,0.8,0.75,0.95],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"orange-pool\"},{\"id\":\"ground_3\",\"role\":\"platform\",\"bbox\":[0.75,0.8,1,0.86],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"pencil-ground\"},{\"id\":\"goal_1\",\"role\":\"goal\",\"bbox\":[0.9,0.62,0.97,0.78],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"flag\"}],\"goal\":{\"kind\":\"reach_goal\",\"target_id\":\"goal_1\"},\"rules\":{\"lives\":3,\"difficulty_hint\":\"normal\",\"modifiers\":[]},\"palette\":[\"#2b6fb5\",\"#e8791f\",\"#000000\"],\"assumptions\":[\"Water is a swim volume; lava is a hazard; the spring launches the hero. Roles come from what each thing is, not its color.\"],\"flags\":[]}"
+      }
     ]
   },
   {
     "role": "user",
     "content": [
-      { "type": "input_text", "text": "EXAMPLE — the absurd input (robustness). Drawing: a banana with legs and an angry face standing on a rainbow arc." }
+      {
+        "type": "input_text",
+        "text": "EXAMPLE — handwriting as rules. Drawing: a knight doodle with \"Sir Pen\" written above it standing on a long ground line, a large scribbly dragon on the right with the word \"BOSS\" over it, an arrow near the knight labelled \"FAST\", and the handwritten words \"5 LIVES\"."
+      }
     ]
   },
   {
     "role": "assistant",
     "content": [
-      { "type": "output_text", "text": "{\"primary_genre\":\"runner\",\"genre_confidence\":0.6,\"mood\":\"silly\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Angry Banana\",\"bbox\":[0.4,0.3,0.6,0.6],\"style_ref\":\"yellow-banana-legs\"},\"entities\":[{\"id\":\"track_1\",\"role\":\"platform\",\"bbox\":[0.05,0.6,0.95,0.75],\"behavior\":\"static\",\"style_ref\":\"rainbow-arc\"}],\"goal\":{\"kind\":\"reach_goal\",\"target_id\":\"track_1\"},\"rules\":{\"lives\":3,\"difficulty_hint\":\"chill\",\"modifiers\":[]},\"palette\":[\"#f5d000\",\"#ff5aa8\",\"#5ac8f5\"],\"assumptions\":[\"The banana is the hero; the rainbow is a slide-path to run along. The angry face is just its expression.\"],\"flags\":[\"genre_uncertain\"]}" }
+      {
+        "type": "output_text",
+        "text": "{\"primary_genre\":\"platformer\",\"genre_confidence\":0.86,\"mood\":\"heroic\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Sir Pen\",\"bbox\":[0.06,0.62,0.16,0.8],\"style_ref\":\"pen-knight\"},\"entities\":[{\"id\":\"ground_1\",\"role\":\"platform\",\"bbox\":[0,0.8,1,0.88],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"long-ground-line\"},{\"id\":\"dragon_1\",\"role\":\"boss\",\"bbox\":[0.68,0.5,0.9,0.8],\"behavior\":\"shooter\",\"linked_to\":null,\"style_ref\":\"scribble-dragon\"}],\"goal\":{\"kind\":\"defeat_boss\",\"target_id\":\"dragon_1\"},\"rules\":{\"lives\":5,\"difficulty_hint\":\"spicy\",\"modifiers\":[\"speed:hero_1:0.05\"]},\"palette\":[\"#444444\",\"#2f9e44\",\"#c92a2a\"],\"assumptions\":[\"The word BOSS marks the dragon as the boss to defeat.\",\"The word FAST speeds up the tagged knight.\",\"The written name Sir Pen is the hero's display name.\"],\"flags\":[]}"
+      }
+    ]
+  },
+  {
+    "role": "user",
+    "content": [
+      {
+        "type": "input_text",
+        "text": "EXAMPLE — the absurd input (robustness). Drawing: a banana with legs and an angry face standing on a rainbow arc. Nothing else."
+      }
+    ]
+  },
+  {
+    "role": "assistant",
+    "content": [
+      {
+        "type": "output_text",
+        "text": "{\"primary_genre\":\"runner\",\"genre_confidence\":0.6,\"mood\":\"silly\",\"hero\":{\"id\":\"hero_1\",\"name\":\"Angry Banana\",\"bbox\":[0.4,0.3,0.6,0.6],\"style_ref\":\"yellow-banana-legs\"},\"entities\":[{\"id\":\"track_1\",\"role\":\"platform\",\"bbox\":[0.05,0.6,0.95,0.75],\"behavior\":\"static\",\"linked_to\":null,\"style_ref\":\"rainbow-arc\"}],\"goal\":{\"kind\":\"survive\",\"target_id\":null},\"rules\":{\"lives\":3,\"difficulty_hint\":\"chill\",\"modifiers\":[]},\"palette\":[\"#f5d000\",\"#ff5aa8\",\"#5ac8f5\"],\"assumptions\":[\"The banana is the hero and the rainbow is its running track. Nothing marks a finish, so staying on the rainbow is the win.\"],\"flags\":[\"genre_uncertain\",\"implicit_survive_goal\"]}"
+      }
     ]
   }
 ]

@@ -3,6 +3,11 @@ import {
   generateDrawingGame,
   type DrawingGenerationOptions,
 } from "./drawing-service.js";
+import {
+  buildFailedQualityRecord,
+  buildPlayableQualityRecord,
+  type GenerationQualityRecord,
+} from "./quality-metrics.js";
 
 export interface DrawingGenerationHttpOptions extends DrawingGenerationOptions {
   /**
@@ -10,6 +15,11 @@ export interface DrawingGenerationHttpOptions extends DrawingGenerationOptions {
    * session. The browser never supplies the safety identifier in JSON.
    */
   resolveSafetyId(request: Request): Promise<string | undefined> | string | undefined;
+  /**
+   * Operator-only observability. The record carries anonymous quality
+   * evidence and is never written into any client-visible response.
+   */
+  onGenerationRecord?(record: GenerationQualityRecord): void;
 }
 
 export interface DrawingGenerationProgressEvent {
@@ -158,6 +168,14 @@ export function createDrawingGenerationStreamHandler(
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(boundEvent)}\n\n`));
         };
         emit({ type: "progress", stage: "checking" });
+        const generationStartedAt = performance.now();
+        const recordQuality = (record: GenerationQualityRecord): void => {
+          try {
+            options.onGenerationRecord?.(record);
+          } catch {
+            // Observability must never break or delay a child's generation.
+          }
+        };
         try {
           const result = await generateDrawingGame(payload, {
             ...options,
@@ -167,8 +185,13 @@ export function createDrawingGenerationStreamHandler(
               emit({ type: "progress", stage: stageForCall(trace.callId) });
             },
           });
+          recordQuality(buildPlayableQualityRecord(result.scan, result.playableGame));
           emit({ type: "complete", playableGame: result.playableGame });
         } catch (error) {
+          recordQuality(buildFailedQualityRecord(
+            publicError(error),
+            performance.now() - generationStartedAt,
+          ));
           if (!streamAbort.signal.aborted) {
             try {
               emit({ type: "error", error: publicError(error) });

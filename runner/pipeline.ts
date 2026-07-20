@@ -18,7 +18,9 @@ import {
 import { validateJsonSchema } from "./schema-validation.js";
 import type {
   BehaviorPatch,
+  CallMetric,
   GameSpec,
+  GenerationMetrics,
   JsonObject,
   PipelineCall,
   PipelineContext,
@@ -41,7 +43,6 @@ interface CallOverride {
   effort?: PipelineCall["effort"];
   input?: Responses.ResponseInput;
   modelAlias?: string;
-  skipSchema?: boolean;
 }
 
 const DYNAMIC_BEHAVIORS = new Set([
@@ -67,22 +68,53 @@ function getPath(source: unknown, path: string): unknown {
   }, source);
 }
 
-function expressionIsTrue(expression: string | undefined, state: ExecutionState): boolean {
+function expressionIsTrue(expression: string | undefined, scope: unknown): boolean {
   if (!expression) return true;
   const includes = expression.match(/^([\w.]+)\s+includes\s+["']([^"']+)["']$/);
   if (includes) {
-    const value = getPath(state, includes[1] ?? "");
+    const value = getPath(scope, includes[1] ?? "");
     return Array.isArray(value) && value.includes(includes[2]);
   }
   if (/^[\w.]+$/.test(expression)) {
-    return Boolean(getPath(state, expression));
+    return Boolean(getPath(scope, expression));
   }
   const equality = expression.match(/^([\w.]+)\s*(==|!=)\s*["']?([^"']+?)["']?$/);
   if (!equality) throw new Error(`Unsupported spec expression: ${expression}`);
-  const value = getPath(state, equality[1] ?? "");
+  const value = getPath(scope, equality[1] ?? "");
   const matches = String(value) === equality[3];
   return equality[2] === "!=" ? !matches : matches;
 }
+
+/**
+ * Evaluates a declared blocks_pipeline_on rule against a gate result. A rule
+ * value of {"not": x} blocks whenever the field differs from x, so unknown
+ * verdict vocabulary fails closed; arrays block on any listed value. A result
+ * that is not an object always blocks.
+ */
+function gateBlocks(rule: Record<string, unknown> | undefined, result: unknown): boolean {
+  if (!rule) return false;
+  if (!isRecord(result)) return true;
+  for (const [field, expected] of Object.entries(rule)) {
+    const value = result[field];
+    if (Array.isArray(expected)) {
+      if (expected.some((candidate) => candidate === value)) return true;
+    } else if (isRecord(expected) && "not" in expected) {
+      if (value !== expected.not) return true;
+    } else if (value === expected) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Behavior validators the spec may name. Only registered validators run; an
+ * unknown or missing declaration refuses the patch session outright, which
+ * degrades the entity to static — never an unvalidated module.
+ */
+const BEHAVIOR_VALIDATORS: Record<string, typeof validateBehaviorOperation> = {
+  headless_sdk_validator: validateBehaviorOperation,
+};
 
 function fallbackGameSpec(): GameSpec {
   return {
@@ -363,6 +395,7 @@ class PipelineRunner {
   readonly callsById = callMap(this.spec);
   readonly traces: RequestTrace[] = [];
   readonly degraded: string[] = [];
+  readonly callMetrics: CallMetric[] = [];
   private client: ResponsesClient | undefined;
   private attempts = new Map<string, number>();
 
@@ -434,7 +467,7 @@ class PipelineRunner {
     state: ExecutionState,
     override: CallOverride = {},
   ): Responses.ResponseCreateParamsNonStreaming {
-    const schema = override.skipSchema ? undefined : loadSchema(this.root, call);
+    const schema = loadSchema(this.root, call);
     const modelAlias = override.modelAlias ?? call.model;
     const model = this.spec.models[modelAlias];
     if (!model) throw new Error(`${call.id} references unknown model alias ${modelAlias}`);
@@ -479,6 +512,7 @@ class PipelineRunner {
     if (!effort) throw new Error(`${call.id} missing reasoning effort`);
     const trace: RequestTrace = {
       callId: call.id,
+      callName: call.name,
       model: String(request.model),
       effort,
       attempt,
@@ -487,19 +521,31 @@ class PipelineRunner {
     this.traces.push(trace);
     this.options.onRequest?.(trace, request);
 
-    if (this.options.dryRun) {
-      return {
-        id: `dry-${call.id}-${attempt}`,
-        output_text: JSON.stringify(dryRunOutput(call.id)),
-        output: [],
-      };
+    const startedAt = performance.now();
+    try {
+      if (this.options.dryRun) {
+        return {
+          id: `dry-${call.id}-${attempt}`,
+          output_text: JSON.stringify(dryRunOutput(call.id)),
+          output: [],
+        };
+      }
+      if (!this.client) this.client = new OpenAI() as unknown as ResponsesClient;
+      this.options.signal?.throwIfAborted();
+      return await this.client.responses.create(
+        request,
+        this.options.signal ? { signal: this.options.signal } : undefined,
+      );
+    } finally {
+      this.callMetrics.push({
+        callId: call.id,
+        callName: call.name,
+        model: String(request.model),
+        effort,
+        attempt,
+        durationMs: performance.now() - startedAt,
+      });
     }
-    if (!this.client) this.client = new OpenAI() as unknown as ResponsesClient;
-    this.options.signal?.throwIfAborted();
-    return this.client.responses.create(
-      request,
-      this.options.signal ? { signal: this.options.signal } : undefined,
-    );
   }
 
   private validateStructuredResult(call: PipelineCall, result: unknown): void {
@@ -541,189 +587,194 @@ class PipelineRunner {
     entity: GameSpec["entities"][number],
     modelAlias = call.model,
   ): Promise<{ patches: BehaviorPatch[]; fallback: boolean }> {
-    const request = this.buildRequest(call, state, {
-      input: this.buildInput(call, state, { item: entity }),
-      modelAlias,
-      skipSchema: call.id === "P7",
-    });
-    let response = await this.send(call, request, modelAlias);
-    if (this.options.dryRun) return { patches: [], fallback: false };
-
-    const patches: BehaviorPatch[] = [];
-    for (let round = 0; round < 6; round += 1) {
-      const patchCalls = response.output.filter(
-        (item): item is Responses.ResponseApplyPatchToolCall =>
-          item.type === "apply_patch_call",
-      );
-      if (patchCalls.length === 0) {
-        return { patches, fallback: patches.length === 0 };
-      }
-      const outputs: Responses.ResponseInput = [];
-      for (const patchCall of patchCalls) {
-        const validation = await validateBehaviorOperation(
-          patchCall.operation,
-          entity.id,
-        );
-        if (validation.valid && validation.patch) patches.push(validation.patch);
-        outputs.push({
-          type: "apply_patch_call_output",
-          call_id: patchCall.call_id,
-          status: validation.valid ? "completed" : "failed",
-          output: validation.valid ? "headless_sdk_validator:passed" : validation.errors.join(","),
-        });
-      }
-      const continuation = this.buildRequest(call, state, {
-        input: [...response.output, ...outputs] as Responses.ResponseInput,
-        modelAlias,
-        skipSchema: call.id === "P7",
-      });
-      response = await this.send(call, continuation, modelAlias);
+    const validatorName = call.validator;
+    if (!validatorName) {
+      throw new Error(`${call.id} produces behavior patches but declares no validator`);
     }
-    return { patches: [], fallback: true };
+    const validate = BEHAVIOR_VALIDATORS[validatorName];
+    if (!validate) {
+      throw new Error(`${call.id} declares unknown validator ${validatorName}`);
+    }
+
+    const attempt = async (
+      effort?: PipelineCall["effort"],
+    ): Promise<{ patches: BehaviorPatch[]; fallback: boolean }> => {
+      const request = this.buildRequest(call, state, {
+        input: this.buildInput(call, state, { item: entity }),
+        modelAlias,
+        ...(effort ? { effort } : {}),
+      });
+      let response = await this.send(call, request, modelAlias);
+      if (this.options.dryRun) return { patches: [], fallback: false };
+
+      const patches: BehaviorPatch[] = [];
+      for (let round = 0; round < 6; round += 1) {
+        const patchCalls = response.output.filter(
+          (item): item is Responses.ResponseApplyPatchToolCall =>
+            item.type === "apply_patch_call",
+        );
+        if (patchCalls.length === 0) {
+          return { patches, fallback: patches.length === 0 };
+        }
+        const outputs: Responses.ResponseInput = [];
+        for (const patchCall of patchCalls) {
+          const validation = await validate(patchCall.operation, entity.id);
+          if (validation.valid && validation.patch) patches.push(validation.patch);
+          outputs.push({
+            type: "apply_patch_call_output",
+            call_id: patchCall.call_id,
+            status: validation.valid ? "completed" : "failed",
+            output: validation.valid ? `${validatorName}:passed` : validation.errors.join(","),
+          });
+        }
+        const continuation = this.buildRequest(call, state, {
+          input: [...response.output, ...outputs] as Responses.ResponseInput,
+          modelAlias,
+          ...(effort ? { effort } : {}),
+        });
+        response = await this.send(call, continuation, modelAlias);
+      }
+      return { patches: [], fallback: true };
+    };
+
+    let outcome = await attempt();
+    if (outcome.fallback && call.escalate_to) {
+      // The declared escalation is the one retry a fruitless behavior session
+      // gets before the entity falls back to static.
+      outcome = await attempt(call.escalate_to);
+    }
+    return outcome;
   }
 
-  async scan(
-    base: PipelineContext,
-    extractionId: "P2" | "P2_photo",
-  ): Promise<ScanResult> {
-    const state: ExecutionState = { ...base, results: {} };
-    const p1 = this.call("P1");
-    const safety = await this.structured(p1, state);
-    state.results.P1 = safety;
-    if (!isRecord(safety) || safety.verdict !== "allow") {
-      throw new PipelineBlocked("P1", safety);
-    }
-
-    const calibration = this.call("P0_calibrate");
-    try {
-      state.results.P0_calibrate = await this.structured(calibration, state);
-    } catch (error) {
-      this.degraded.push(`P0_calibrate:${String(error)}`);
-      state.results.P0_calibrate = null;
-    }
-
-    const extraction = this.call(extractionId);
-    let gameSpec: GameSpec;
-    try {
-      const extracted = await this.structured(extraction, state);
-      if (!isGameSpec(extracted)) throw new ModelOutputError(extraction.id, "invalid GameSpec shape");
-      gameSpec = normalizeNullableGameSpec(clone(extracted));
-    } catch (error) {
-      this.degraded.push(`${extraction.id}:${String(error)}`);
-      gameSpec = fallbackGameSpec();
-    }
-    gameSpec.mood ??= "genre-base";
-    state.results[extraction.id] = gameSpec;
-    state.results.P2 = gameSpec;
-    state.gamespec = gameSpec;
-
-    const assetCalls = ["P3", "P4", "P5"].map((id) => this.call(id));
-    if (!assetCalls.every((call) => call.parallel_group === "assets")) {
-      throw new Error("Only the declared assets parallel_group may fan out here");
-    }
-    const assetResults = await Promise.allSettled(
-      assetCalls.map((call) => this.structured(call, state)),
-    );
-    const assets: Record<string, unknown> = {};
-    for (const [index, settled] of assetResults.entries()) {
-      const call = assetCalls[index];
-      if (!call) continue;
-      if (settled.status === "fulfilled") {
-        assets[call.id] = settled.value;
-        state.results[call.id] = settled.value;
-      } else {
-        assets[call.id] = null;
-        state.results[call.id] = null;
-        this.degraded.push(`${call.id}:${String(settled.reason)}`);
+  private assertDependenciesSatisfied(call: PipelineCall, executed: ReadonlySet<string>): void {
+    for (const dependency of call.depends_on) {
+      if (!executed.has(dependency)) {
+        throw new Error(`${call.id} cannot run before its declared dependency ${dependency}`);
       }
     }
+  }
 
-    const p6 = this.call("P6");
-    if (expressionIsTrue(p6.run_if, state)) {
-      try {
-        const genre = await this.structured(p6, state);
-        state.results.P6 = genre;
-        if (isRecord(genre) && typeof genre.primary_genre === "string") {
-          gameSpec.primary_genre = genre.primary_genre;
-        }
-      } catch (error) {
-        state.results.P6 = null;
-        this.degraded.push(`P6:${String(error)}`);
+  private assertHardRequirements(
+    call: PipelineCall,
+    state: ExecutionState,
+    executed: ReadonlySet<string>,
+  ): void {
+    for (const requirement of call.hard_requires ?? []) {
+      if (!executed.has(requirement) || !isRecord(state.results[requirement])) {
+        throw new PipelineBlocked(call.id, `hard_requires ${requirement} has not passed`);
       }
-    } else {
-      state.results.P6 = null;
     }
+  }
 
-    const p7 = this.call("P7");
-    if (p7.parallel_group !== "behaviors") {
-      throw new Error("P7 must remain in the behaviors parallel_group");
+  private fanOutItems(
+    call: PipelineCall,
+    state: ExecutionState,
+  ): Array<GameSpec["entities"][number]> {
+    const pattern = call.fan_out_over ?? "";
+    const parsed = pattern.match(/^([\w.]+)\[\]\.(\w+)$/);
+    if (!parsed) {
+      throw new Error(`${call.id} fan_out_over is not a collection selector: ${pattern}`);
     }
-    const dynamicEntities = gameSpec.entities.filter((entity) =>
-      DYNAMIC_BEHAVIORS.has(entity.behavior),
-    );
-    const behaviorResults = await Promise.all(
-      dynamicEntities.map(async (entity) => {
-        try {
-          return [entity.id, await this.behavior(p7, state, entity)] as const;
-        } catch (error) {
-          this.degraded.push(`P7:${entity.id}:${String(error)}`);
-          return [entity.id, { patches: [], fallback: true }] as const;
-        }
-      }),
-    );
-    const behaviorPatches: BehaviorPatch[] = [];
-    const behaviorFallbacks: Record<string, "static"> = {};
-    for (const [entityId, result] of behaviorResults) {
-      behaviorPatches.push(...result.patches);
-      if (result.fallback) behaviorFallbacks[entityId] = "static";
+    const collection = getPath(state, parsed[1] ?? "");
+    if (!Array.isArray(collection)) {
+      throw new Error(`${call.id} fan_out_over path ${parsed[1]} did not resolve to an array`);
     }
-    state.results.P7 = { patches: behaviorPatches, fallbacks: behaviorFallbacks };
+    const field = parsed[2] ?? "";
+    // The spec names the collection and discriminator field; which behaviors
+    // are dynamic is the Behavior SDK's contract, not the model's to widen.
+    return collection.filter((item): item is GameSpec["entities"][number] =>
+      isRecord(item) &&
+      typeof item[field] === "string" &&
+      DYNAMIC_BEHAVIORS.has(item[field] as string),
+    );
+  }
 
-    const p8 = this.call("P8");
+  /**
+   * A genre decision merges into the working GameSpec. Detection is by the
+   * call's declared schema, not its id, so pipeline.json stays the authority
+   * over which call carries that meaning.
+   */
+  private applyStructuredResult(call: PipelineCall, result: unknown, state: ExecutionState): void {
+    if (
+      call.schema?.endsWith("genre_decision.json") &&
+      isRecord(result) &&
+      typeof result.primary_genre === "string" &&
+      isGameSpec(state.gamespec)
+    ) {
+      state.gamespec.primary_genre = result.primary_genre;
+    }
+  }
+
+  private async certifySolvability(
+    call: PipelineCall,
+    state: ExecutionState,
+    context: {
+      gameSpec: GameSpec;
+      extractionResultId: string;
+      behaviorPatches: BehaviorPatch[];
+      behaviorFallbacks: Record<string, "static">;
+    },
+  ): Promise<{
+    gameSpec: GameSpec;
+    solvability: JsonObject;
+    playtestReport: PlaytestReport;
+    iterationsUsed: number;
+    safetyRecast: boolean;
+    objectiveFallback: boolean;
+  }> {
+    let { gameSpec } = context;
     let solvability: JsonObject | undefined;
     let playtestReport = runPlaytest(gameSpec);
-    const iterations = p8.max_iterations ?? 1;
+    const iterations = call.max_iterations ?? 1;
+    let iterationsUsed = 0;
     let objectiveFallbackApplied = false;
     let safetyRecastApplied = false;
     let solvabilityPassed = false;
     for (let iteration = 0; iteration < iterations; iteration += 1) {
+      iterationsUsed = iteration + 1;
       playtestReport = runPlaytest(gameSpec);
       state.playtest_report = playtestReport;
-      const verdict = await this.structured(p8, state);
-      if (!isRecord(verdict)) throw new ModelOutputError("P8", "invalid verdict shape");
+      const verdict = await this.structured(call, state);
+      if (!isRecord(verdict)) throw new ModelOutputError(call.id, "invalid verdict shape");
       solvability = verdict;
-      state.results.P8 = verdict;
-      if (verdict.verdict === "ready") {
+      state.results[call.id] = verdict;
+      // The declared loop_until expression is the model's exit condition. The
+      // deterministic playtest is ANDed on top and can never be overruled:
+      // treat false-ready as a repair outcome and spend the remaining
+      // declared iterations on a safe recast.
+      const modelCertified = expressionIsTrue(call.loop_until, verdict);
+      if (modelCertified) {
         if (playtestReport.reached_goal) {
           solvabilityPassed = true;
           break;
         }
-        // P8 remains a hard gate: a model verdict can never overrule the
-        // deterministic playtest. Treat false-ready as a repair outcome and
-        // spend the remaining declared iterations on a safe recast.
-        this.degraded.push(`P8:false_ready:${playtestReport.first_blocker ?? "unknown"}`);
+        this.degraded.push(`${call.id}:false_ready:${playtestReport.first_blocker ?? "unknown"}`);
       }
 
-      const effectiveVerdict = verdict.verdict === "ready" ? "repair" : verdict.verdict;
+      const effectiveVerdict = modelCertified ? "repair" : verdict.verdict;
       const reserveFinalCertification = iteration >= iterations - 2;
       if (!safetyRecastApplied && (
-        verdict.verdict === "ready" || objectiveFallbackApplied || reserveFinalCertification
+        modelCertified || objectiveFallbackApplied || reserveFinalCertification
       )) {
         gameSpec = createDeterministicSafetyRecast(gameSpec);
         state.gamespec = gameSpec;
-        state.results[extraction.id] = gameSpec;
+        state.results[context.extractionResultId] = gameSpec;
         state.results.P2 = gameSpec;
-        behaviorPatches.length = 0;
-        for (const entityId of Object.keys(behaviorFallbacks)) delete behaviorFallbacks[entityId];
-        state.results.P7 = { patches: [], fallbacks: {} };
+        context.behaviorPatches.length = 0;
+        for (const entityId of Object.keys(context.behaviorFallbacks)) {
+          delete context.behaviorFallbacks[entityId];
+        }
+        for (const fanned of this.spec.calls) {
+          if (fanned.fan_out_over) state.results[fanned.id] = { patches: [], fallbacks: {} };
+        }
         safetyRecastApplied = true;
-        this.degraded.push("P8:deterministic_safety_recast");
+        this.degraded.push(`${call.id}:deterministic_safety_recast`);
         continue;
       }
       if (safetyRecastApplied) {
         // The recast is the final deterministic mutation. Every remaining
-        // declared attempt is reserved for P8 to certify that exact world;
-        // non-ready verdicts cannot trigger another fallback or abort early.
+        // declared attempt is reserved for the gate to certify that exact
+        // world; non-ready verdicts cannot trigger another fallback or abort.
         continue;
       }
       if (effectiveVerdict === "repair") {
@@ -731,15 +782,15 @@ class PipelineRunner {
         if (repairResult.applied > 0) {
           continue;
         }
-        this.degraded.push(`P8:no_applicable_repair:${repairResult.rejected.join(",")}`);
+        this.degraded.push(`${call.id}:no_applicable_repair:${repairResult.rejected.join(",")}`);
       }
       if (!objectiveFallbackApplied && (
         effectiveVerdict === "unsolvable_by_design" || effectiveVerdict === "repair"
       )) {
         // A child can draw a world without declaring an explicit finish line.
         // Use the GameSpec's own semantic inventory before falling back to a
-        // timer: found collectibles become the objective. P8 still reruns and
-        // must approve; this never skips or reorders the gate.
+        // timer: found collectibles become the objective. The gate still
+        // reruns and must approve; this never skips or reorders it.
         const hasCollectibles = gameSpec.entities.some((entity) => entity.role === "collectible");
         gameSpec.goal = hasCollectibles
           ? { kind: "collect_all", target_id: null }
@@ -750,17 +801,168 @@ class PipelineRunner {
         continue;
       }
       throw new SolvabilityError(
-        `P8 did not approve the game: ${String(effectiveVerdict)}; ` +
+        `${call.id} did not approve the game: ${String(effectiveVerdict)}; ` +
         `headless blocker: ${playtestReport.first_blocker ?? "none"}`,
       );
     }
-    if (!solvabilityPassed || !solvability || solvability.verdict !== "ready" || !playtestReport.reached_goal) {
+    if (
+      !solvabilityPassed ||
+      !solvability ||
+      !expressionIsTrue(call.loop_until, solvability) ||
+      !playtestReport.reached_goal
+    ) {
       throw new SolvabilityError(
-        `P8 exhausted its repair loop before ready; ` +
+        `${call.id} exhausted its repair loop before ready; ` +
         `headless blocker: ${playtestReport?.first_blocker ?? "none"}`,
       );
     }
+    return {
+      gameSpec,
+      solvability,
+      playtestReport,
+      iterationsUsed,
+      safetyRecast: safetyRecastApplied,
+      objectiveFallback: objectiveFallbackApplied,
+    };
+  }
 
+  async scan(
+    base: PipelineContext,
+    extractionId: "P2" | "P2_photo",
+  ): Promise<ScanResult> {
+    const scanStartedAt = performance.now();
+    const state: ExecutionState = { ...base, results: {} };
+    const executed = new Set<string>();
+    let gameSpec: GameSpec | undefined;
+    const assets: Record<string, unknown> = {};
+    const behaviorPatches: BehaviorPatch[] = [];
+    const behaviorFallbacks: Record<string, "static"> = {};
+    let solvability: JsonObject | undefined;
+    let playtestReport: PlaytestReport | undefined;
+    let p8Iterations = 0;
+    let safetyRecast = false;
+    let objectiveFallback = false;
+
+    for (const step of this.spec.execution_graph.scan_path) {
+      if (typeof step === "string") {
+        // The graph names the drawing extractor; the declared photo alternate
+        // substitutes at the same graph position when the entry selects it.
+        const id = step === "P2" ? extractionId : step;
+        const call = this.call(id);
+        this.assertDependenciesSatisfied(call, executed);
+        this.assertHardRequirements(call, state, executed);
+
+        if (call.loop_until) {
+          if (!gameSpec) throw new Error(`${call.id} loop requires an extracted GameSpec`);
+          const certified = await this.certifySolvability(call, state, {
+            gameSpec,
+            extractionResultId: extractionId,
+            behaviorPatches,
+            behaviorFallbacks,
+          });
+          gameSpec = certified.gameSpec;
+          solvability = certified.solvability;
+          playtestReport = certified.playtestReport;
+          p8Iterations = certified.iterationsUsed;
+          safetyRecast = certified.safetyRecast;
+          objectiveFallback = certified.objectiveFallback;
+        } else if (id === extractionId) {
+          try {
+            const extracted = await this.structured(call, state);
+            if (!isGameSpec(extracted)) throw new ModelOutputError(call.id, "invalid GameSpec shape");
+            gameSpec = normalizeNullableGameSpec(clone(extracted));
+          } catch (error) {
+            this.degraded.push(`${call.id}:${String(error)}`);
+            gameSpec = fallbackGameSpec();
+          }
+          gameSpec.mood ??= "genre-base";
+          state.results[call.id] = gameSpec;
+          state.results.P2 = gameSpec;
+          state.gamespec = gameSpec;
+        } else if (call.optional) {
+          try {
+            const result = await this.structured(call, state);
+            state.results[id] = result;
+            this.applyStructuredResult(call, result, state);
+          } catch (error) {
+            this.degraded.push(`${id}:${String(error)}`);
+            state.results[id] = null;
+          }
+        } else {
+          const result = await this.structured(call, state);
+          state.results[id] = result;
+          if (call.blocks_pipeline_on && gateBlocks(call.blocks_pipeline_on, result)) {
+            throw new PipelineBlocked(id, result);
+          }
+          this.applyStructuredResult(call, result, state);
+        }
+        executed.add(id);
+        executed.add(step);
+        continue;
+      }
+
+      const members = this.spec.calls.filter(
+        (candidate) => candidate.parallel_group === step.parallel,
+      );
+      if (members.length === 0) {
+        throw new Error(`Parallel group ${step.parallel} has no declared calls`);
+      }
+      for (const member of members) {
+        this.assertDependenciesSatisfied(member, executed);
+        this.assertHardRequirements(member, state, executed);
+      }
+      const plain = members.filter((member) => !member.fan_out_over);
+      const fanned = members.filter((member) => member.fan_out_over);
+      const settled = await Promise.allSettled(
+        plain.map((member) => this.structured(member, state)),
+      );
+      for (const [index, outcome] of settled.entries()) {
+        const member = plain[index];
+        if (!member) continue;
+        if (outcome.status === "fulfilled") {
+          assets[member.id] = outcome.value;
+          state.results[member.id] = outcome.value;
+        } else if (member.optional) {
+          assets[member.id] = null;
+          state.results[member.id] = null;
+          this.degraded.push(`${member.id}:${String(outcome.reason)}`);
+        } else {
+          throw outcome.reason;
+        }
+      }
+      for (const member of fanned) {
+        const items = this.fanOutItems(member, state);
+        const results = await Promise.all(
+          items.map(async (entity) => {
+            try {
+              return [entity.id, await this.behavior(member, state, entity)] as const;
+            } catch (error) {
+              this.degraded.push(`${member.id}:${entity.id}:${String(error)}`);
+              return [entity.id, { patches: [], fallback: true }] as const;
+            }
+          }),
+        );
+        for (const [entityId, result] of results) {
+          behaviorPatches.push(...result.patches);
+          if (result.fallback) behaviorFallbacks[entityId] = "static";
+        }
+        state.results[member.id] = { patches: behaviorPatches, fallbacks: behaviorFallbacks };
+      }
+      for (const member of members) executed.add(member.id);
+    }
+
+    if (!gameSpec || !playtestReport || !solvability) {
+      throw new Error("execution_graph.scan_path did not certify a playable game");
+    }
+    const metrics: GenerationMetrics = {
+      totalDurationMs: performance.now() - scanStartedAt,
+      calls: [...this.callMetrics],
+      p8Iterations,
+      safetyRecast,
+      objectiveFallback,
+      finalGenre: gameSpec.primary_genre,
+      degradedCount: this.degraded.length,
+    };
     return {
       gameSpec,
       assets,
@@ -770,6 +972,7 @@ class PipelineRunner {
       solvability,
       calls: [...this.traces],
       degraded: [...this.degraded],
+      metrics,
     };
   }
 
@@ -842,8 +1045,11 @@ export async function runShareModeration(
     throw new SolvabilityError("P11 cannot run before a passing P8 playtest gate");
   }
   const runner = new PipelineRunner(options);
+  const call = runner.call("P11");
   const result = await runner.single("P11", { ...input, on_share: true });
-  if (!isRecord(result) || result.publishable !== true) {
+  // The loader guarantees every gate lane declares its blocking rule, so this
+  // cannot silently weaken if pipeline.json drops the declaration.
+  if (gateBlocks(call.blocks_pipeline_on, result)) {
     throw new PipelineBlocked("P11", result);
   }
   return result;

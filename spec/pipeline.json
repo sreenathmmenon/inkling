@@ -6,8 +6,7 @@
     "reasoning_mode_live": "standard",
     "reasoning_mode_offline": "pro",
     "text_verbosity_json": "low",
-    "safety_identifier": "REQUIRED_PER_USER_HASH",
-    "cache_stable_prefixes": true
+    "safety_identifier": "REQUIRED_PER_USER_HASH"
   },
   "models": {
     "sol": "gpt-5.6-sol",
@@ -22,7 +21,7 @@
       "lane": "gate", "input": ["image"],
       "prompt": "prompts/P1_safety_precheck.txt",
       "schema": "spec/schemas/safety_verdict.json",
-      "depends_on": [], "blocks_pipeline_on": {"verdict": "block"},
+      "depends_on": [], "blocks_pipeline_on": {"verdict": {"not": "allow"}},
       "parallel_group": null
     },
     {
@@ -49,7 +48,7 @@
       "lane": "A_to_B", "input": ["image", "gamespec.hero"],
       "prompt": "prompts/P3_character_rig.txt",
       "schema": "spec/schemas/rig_plan.json",
-      "depends_on": ["P2"], "parallel_group": "assets"
+      "depends_on": ["P2"], "optional": true, "parallel_group": "assets"
     },
     {
       "id": "P4", "name": "background_plate",
@@ -57,7 +56,7 @@
       "lane": "A", "input": ["image", "gamespec.palette"],
       "prompt": "prompts/P4_background.txt",
       "schema": "spec/schemas/backdrop_plan.json",
-      "depends_on": ["P2"], "parallel_group": "assets"
+      "depends_on": ["P2"], "optional": true, "parallel_group": "assets"
     },
     {
       "id": "P5", "name": "sound_mood",
@@ -65,7 +64,7 @@
       "lane": "A", "input": ["gamespec.primary_genre", "gamespec.mood"],
       "prompt": "prompts/P5_sound.txt",
       "schema": "spec/schemas/sound_pack.json",
-      "depends_on": ["P2"], "parallel_group": "assets"
+      "depends_on": ["P2"], "optional": true, "parallel_group": "assets"
     },
     {
       "id": "P6", "name": "genre_inference_hard",
@@ -74,7 +73,7 @@
       "prompt": "prompts/P6_genre_inference.txt",
       "schema": "spec/schemas/genre_decision.json",
       "depends_on": ["P2"], "run_if": "gamespec.flags includes 'genre_uncertain'",
-      "parallel_group": null
+      "optional": true, "parallel_group": null
     },
     {
       "id": "P7", "name": "bespoke_behavior_code",
@@ -102,7 +101,8 @@
       "prompt": "prompts/P9_voice_edit.txt",
       "schema": "spec/schemas/edit_diff.json",
       "tools": ["apply_patch"],
-      "depends_on": [], "realtime": true, "parallel_group": null
+      "validator": "headless_sdk_validator",
+      "depends_on": [], "parallel_group": null
     },
     {
       "id": "P10", "name": "multipage_stitch",
@@ -118,7 +118,8 @@
       "lane": "gate", "input": ["rendered_game", "title"],
       "prompt": "prompts/P11_share_moderation.txt",
       "schema": "spec/schemas/publish_verdict.json",
-      "depends_on": [], "run_if": "on_share", "parallel_group": null
+      "depends_on": [], "run_if": "on_share",
+      "blocks_pipeline_on": {"publishable": {"not": true}}, "parallel_group": null
     },
     {
       "id": "P2_photo", "name": "gamespec_from_photo",
@@ -127,7 +128,7 @@
       "prompt": "prompts/P2_photo_variant.txt",
       "schema": "spec/schemas/gamespec.json",
       "depends_on": ["P1"], "run_if": "input_mode == 'photo'",
-      "hard_requires": ["P1 face/plate scrub passed"], "parallel_group": null
+      "hard_requires": ["P1"], "parallel_group": null
     }
   ],
   "execution_graph": {

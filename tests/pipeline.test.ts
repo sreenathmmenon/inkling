@@ -31,6 +31,7 @@ import {
   loadJson,
   loadPipelineSpec,
   resolveProjectFile,
+  validatePipelineSpec,
 } from "../runner/spec.js";
 import type {
   PipelineCall,
@@ -334,6 +335,21 @@ test("drawing dry-run follows gates and declared model/effort routing", async ()
     requests.map(({ callId }) => callId),
     ["P1", "P0_calibrate", "P2", "P3", "P4", "P5", "P6", "P7", "P8"],
   );
+  assert.deepEqual(
+    result.metrics.calls.map((call) => call.callId).sort(),
+    requests.map(({ callId }) => callId).sort(),
+    "every executed call must be measured",
+  );
+  assert.ok(result.metrics.calls.every((call) => call.durationMs >= 0 && call.callName.length > 0));
+  assert.ok(result.metrics.totalDurationMs >= 0);
+  assert.equal(result.metrics.p8Iterations, 1);
+  assert.equal(result.metrics.safetyRecast, false);
+  assert.equal(result.metrics.finalGenre, result.gameSpec.primary_genre);
+  assert.equal(
+    JSON.stringify(result.metrics).includes("data:image"),
+    false,
+    "metrics must never carry drawing content",
+  );
   const expected = new Map(
     spec.calls.map((call) => [call.id, { model: spec.models[call.model], effort: call.effort }]),
   );
@@ -593,10 +609,14 @@ test("HTTP generation derives safety identity on the server and returns no-store
 });
 
 test("streaming generation exposes only coarse pipeline stages before its playable result", async () => {
+  const qualityRecords: unknown[] = [];
   const handler = createDrawingGenerationStreamHandler({
     dryRun: true,
     resolveSafetyId() {
       return SERVICE_SAFETY_ID;
+    },
+    onGenerationRecord(record) {
+      qualityRecords.push(record);
     },
   });
   const response = await handler(new Request("https://inkling.test/api/games/drawing", {
@@ -623,6 +643,173 @@ test("streaming generation exposes only coarse pipeline stages before its playab
   )));
   assert.equal(events.at(-1)?.type, "complete");
   assert.equal(events.at(-1)?.playableGame?.format, "inkling-playable-game-v1");
+
+  assert.equal(qualityRecords.length, 1, "one operator quality record per generation");
+  const record = qualityRecords[0] as Record<string, unknown>;
+  assert.equal(record.outcome, "playable");
+  assert.equal(record.certification, "not_measured");
+  assert.equal(typeof record.playContractOutcome, "string");
+  const serialized = JSON.stringify(record);
+  assert.equal(serialized.includes("data:image"), false, "no drawing content in operator records");
+  assert.equal(serialized.includes(SERVICE_SAFETY_ID), false, "no identity in operator records");
+});
+
+test("every few-shot example satisfies the strict contract it teaches", () => {
+  const gameSpecSchema = loadJson<SchemaDocument>(root, "spec/schemas/gamespec.json");
+  const fewshot = loadJson<Array<{ role: string; content: Array<{ type: string; text: string }> }>>(
+    root,
+    "spec/fewshot/gamespec_fewshot.json",
+  );
+  const userTexts = fewshot
+    .filter((message) => message.role === "user")
+    .map((message) => message.content[0]?.text ?? "");
+  for (const lesson of ["classic first scan", "maze", "semantic physics", "handwriting", "absurd"]) {
+    assert.ok(
+      userTexts.some((text) => text.toLowerCase().includes(lesson)),
+      `a "${lesson}" lesson must exist`,
+    );
+  }
+
+  const assistants = fewshot.filter((message) => message.role === "assistant");
+  assert.equal(assistants.length, userTexts.length, "every lesson needs a taught answer");
+  for (const [index, message] of assistants.entries()) {
+    const spec = JSON.parse(message.content[0]?.text ?? "") as GameSpec;
+    const issues = validateJsonSchema(spec, gameSpecSchema.schema);
+    assert.deepEqual(issues, [], `example ${index + 1} must validate against the strict GameSpec schema`);
+
+    const ids = [spec.hero.id, ...spec.entities.map((entity) => entity.id)];
+    assert.equal(new Set(ids).size, ids.length, `example ${index + 1} ids must be unique`);
+    for (const entity of spec.entities) {
+      if (entity.linked_to) {
+        assert.ok(
+          spec.entities.some((other) => other.id === entity.linked_to),
+          `example ${index + 1} linked_to must reference a declared entity`,
+        );
+      }
+    }
+    if (spec.goal.kind === "reach_goal" || spec.goal.kind === "defeat_boss") {
+      const target = spec.entities.find((entity) => entity.id === spec.goal.target_id);
+      assert.ok(target, `example ${index + 1} goal target must be a declared entity`);
+      const finishRoles = spec.goal.kind === "reach_goal" ? ["goal"] : ["boss"];
+      assert.ok(
+        finishRoles.includes(target.role),
+        `example ${index + 1} goal target role ${target.role} cannot finish ${spec.goal.kind}`,
+      );
+    } else {
+      assert.equal(spec.goal.target_id, null, `example ${index + 1} ${spec.goal.kind} takes no target`);
+    }
+    assert.equal(
+      runPlaytest(spec).reached_goal,
+      true,
+      `example ${index + 1} must teach a finishable world`,
+    );
+  }
+});
+
+test("pipeline.json cannot declare a field the runner does not consume", () => {
+  const raw = loadJson<JsonObject>(root, "spec/pipeline.json");
+  validatePipelineSpec(structuredClone(raw));
+
+  const cases: Array<[(doc: JsonObject) => void, string]> = [
+    [(doc) => { doc["mystery_field"] = true; }, "top-level"],
+    [(doc) => { (doc["globals"] as JsonObject)["cache_stable_prefixes"] = true; }, "globals"],
+    [(doc) => { ((doc["calls"] as JsonObject[])[0] as JsonObject)["realtime"] = true; }, "call"],
+    [(doc) => { (doc["execution_graph"] as JsonObject)["retry_path"] = []; }, "execution_graph"],
+  ];
+  for (const [mutate, location] of cases) {
+    const mutated = structuredClone(raw);
+    mutate(mutated);
+    assert.throws(
+      () => validatePipelineSpec(mutated),
+      /not consumed by the runner/,
+      `an unconsumed ${location} field must be rejected`,
+    );
+  }
+});
+
+test("the loader refuses spec changes that would weaken gates, loops, or ordering", () => {
+  const raw = loadJson<JsonObject>(root, "spec/pipeline.json");
+  const callIn = (doc: JsonObject, id: string): JsonObject =>
+    (doc["calls"] as JsonObject[]).find((call) => call["id"] === id) as JsonObject;
+
+  const gateless = structuredClone(raw);
+  delete callIn(gateless, "P1")["blocks_pipeline_on"];
+  assert.throws(() => validatePipelineSpec(gateless), /gate/);
+
+  const shareGateless = structuredClone(raw);
+  delete callIn(shareGateless, "P11")["blocks_pipeline_on"];
+  assert.throws(() => validatePipelineSpec(shareGateless), /gate/);
+
+  const unbounded = structuredClone(raw);
+  delete callIn(unbounded, "P8")["max_iterations"];
+  assert.throws(() => validatePipelineSpec(unbounded), /max_iterations/);
+
+  const badFanOut = structuredClone(raw);
+  callIn(badFanOut, "P7")["fan_out_over"] = "gamespec.entities";
+  assert.throws(() => validatePipelineSpec(badFanOut), /fan_out_over/);
+
+  const misordered = structuredClone(raw);
+  const path = (misordered["execution_graph"] as JsonObject)["scan_path"] as unknown[];
+  [path[0], path[1]] = [path[1], path[0]];
+  assert.throws(() => validatePipelineSpec(misordered), /before its dependency/);
+
+  const weakenedIdentity = structuredClone(raw);
+  (weakenedIdentity["globals"] as JsonObject)["safety_identifier"] = "optional";
+  assert.throws(() => validatePipelineSpec(weakenedIdentity), /safety_identifier/);
+
+  const laneEscape = structuredClone(raw);
+  callIn(laneEscape, "P10")["validator"] = "headless_sdk_validator";
+  assert.throws(() => validatePipelineSpec(laneEscape), /lane B/);
+});
+
+test("P7 escalates to its declared effort once before an entity falls back to static", async () => {
+  const dynamicSpec = structuredClone(SHAREABLE_GAME_SPEC);
+  dynamicSpec.entities.push({
+    id: "walker",
+    role: "enemy",
+    bbox: [0.05, 0.05, 0.12, 0.12],
+    behavior: "patrol",
+    linked_to: null,
+    style_ref: "source",
+  });
+  let activeCallId = "";
+  const p7Efforts: unknown[] = [];
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        if (activeCallId === "P7") {
+          return { id: "mock-P7", output: [] };
+        }
+        const value = activeCallId === "P1" ? { verdict: "allow", reason_code: "none" }
+          : activeCallId === "P0_calibrate" ? { complexity: "simple" }
+          : activeCallId === "P2" ? dynamicSpec
+          : activeCallId === "P3" ? { topology: "blob", tier: "squash_stretch_puppet", joints: [], animations: ["idle"], style_ref: null }
+          : activeCallId === "P4" ? { layers: [{ source: "source-page", parallax: 0.5 }] }
+          : activeCallId === "P5" ? { music_pack_id: "base", sfx_pack_id: "base" }
+          : activeCallId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" }
+          : {};
+        return { id: `mock-${activeCallId}`, output_text: JSON.stringify(value), output: [] };
+      },
+    },
+  };
+  const result = await runPipeline(
+    { image: "data:image/png;base64,ZXNjYWxhdGU=" },
+    {
+      safetyId: "p7-escalation-user",
+      client,
+      onRequest(trace, request) {
+        activeCallId = trace.callId;
+        if (trace.callId === "P7") p7Efforts.push(request.reasoning?.effort);
+      },
+    },
+  );
+  assert.deepEqual(
+    p7Efforts,
+    ["medium", "high"],
+    "a fruitless behavior session retries once at the declared escalation effort",
+  );
+  assert.equal(result.behaviorFallbacks["walker"], "static");
+  assert.deepEqual(result.behaviorPatches, []);
 });
 
 test("share moderation cannot be reached without passing P8 evidence", async () => {

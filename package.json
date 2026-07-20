@@ -25,6 +25,7 @@
     "play": "npm run build && node dist/scripts/play.js",
     "scan": "npm run build && node --env-file=.env dist/scripts/scan.js",
     "validate:drawing-set": "npm run build && node --env-file=.env dist/scripts/validate-drawing-set.js",
+    "report:drawing-set": "npm run build && node dist/scripts/quality-report.js",
     "solvability": "npm run build && node --test dist/tests/solvability.test.js"
   },
   "repository": {

@@ -159,6 +159,19 @@ const generationHandler = createDrawingGenerationStreamHandler({
   resolveSafetyId(request) {
     return sessionKey(request);
   },
+  onGenerationRecord(record) {
+    // Operator-only stderr line: anonymous quality counters with no image
+    // data, no drawing content, no model output, and no session identity.
+    // Per-call latencies are summarized rather than dumped to keep one line.
+    const { calls, ...rest } = record;
+    process.stderr.write(`${JSON.stringify({
+      type: "inkling_generation_quality",
+      ...rest,
+      callDurationsMs: Object.fromEntries(
+        (calls ?? []).map((call) => [`${call.callId}#${call.attempt}`, Math.round(call.durationMs)]),
+      ),
+    })}\n`);
+  },
 });
 
 function contentType(path: string): string {

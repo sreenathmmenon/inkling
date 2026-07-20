@@ -69,8 +69,23 @@ time-to-first-playable. Decisions are being made without measurement.
 - Operator-only exposure — never to the client.
 - A local report command summarizing a `validate:drawing-set` run across these dimensions.
 
+Also make the batch evaluator practical to run repeatedly. Today it scans sequentially, does
+not recurse into subdirectories, and re-runs everything from scratch — so a full corpus pass
+is slow enough that it gets skipped, which defeats the purpose of having evidence.
+
+- Recurse into subdirectories so a corpus organized into rounds or batches works directly.
+  The current "No supported images found" error must also say when images exist deeper.
+- Add `--concurrency N` for parallel scans (default a safe small number). Each generation is
+  already request-isolated; the aggregation must stay correct regardless of concurrency.
+- Add `--sample N` for a deterministic seeded subset, so a fast smoke pass is one flag rather
+  than a separately maintained folder.
+- Skip images already recorded as passing for the current revision, so a re-run after a small
+  fix is incremental rather than a full repeat.
+- De-duplicate by content hash so repeated copies of the same drawing are not counted twice.
+
 **Done:** a drawing-set run produces a quality report with recast rate, contract outcome
-distribution, certification failure rate, and latency percentiles.
+distribution, certification failure rate, and latency percentiles — and the run is fast
+enough to actually be repeated, with recursion, concurrency, sampling, and resume working.
 
 ---
 
@@ -289,6 +304,14 @@ Fix each, with a test where behavior is observable:
   Make the code match the promise.
 - **`package.json` still describes this repo as PDF pipeline automation.** Make the metadata
   describe the actual product.
+- **A module is bundled twice.** The client build emits two chunks of byte-identical size
+  (`platformer-*.js`, ~35 kB each), which indicates the same module entering the graph through
+  two different import paths — likely related to the client importing from `services/solve/`
+  and `runner/types` for in-browser certification. Find the duplicate path and remove it.
+- **The heaviest chunk is attributed to one of the lightest modules.** Phaser lands inside a
+  chunk named for `presentation-contract`, which is a small module. Fix the chunk boundary so
+  the heavy dependency is split where it is actually used, making the >500 kB warning
+  actionable rather than structural.
 
 ### F2 · Reduce brittleness so the product can keep improving
 
@@ -349,5 +372,28 @@ Defined in `AGENTS.md` §5. Summary:
 | When | What | How often |
 |---|---|---|
 | After each task | fast check — typecheck + affected tests | 14x |
-| After each group | group checkpoint — full verify + real drawings + quality report | 6x |
+| After each group | group checkpoint — full verify + drawing corpus + quality report | 6x |
 | Before a release claim | customer-grade gate — 10+ live browser journeys | rare |
+
+### Which drawing corpus at which checkpoint
+
+A full corpus pass is a live API run of many complete pipelines, so it is expensive. Only
+run the full set where a change can actually alter *what game a child gets*. Everywhere else,
+a small smoke set is enough to catch gross regressions.
+
+Keep a **smoke set** of roughly six drawings covering the distinct paths: one platformer, one
+maze, one runner, one water/semantic-physics, one colored or textured paper, one deliberately
+messy. Once A3 lands, `--sample` produces this deterministically instead of a hand-maintained
+folder.
+
+| Group | What it changes | Corpus |
+|---|---|---|
+| A | routing, few-shot, instrumentation | smoke (run the full set once after A2, since it changes extraction) |
+| **B** | **the recast ladder — directly changes the resulting world** | **full** |
+| **C** | **behaviors execute — changes solvability of dynamic levels** | **full** |
+| D | new genre templates | subset targeting the affected genres |
+| E | experience and UI layer | smoke |
+| F | hardening, no gameplay behavior change | smoke |
+
+Compare like with like: smoke results only against a smoke baseline, full against full. A
+corpus change read as a regression is worse than no measurement.

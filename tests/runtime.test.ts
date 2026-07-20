@@ -43,8 +43,35 @@ import {
   softlyRemoveKnownBackdrop,
   softenWorldColor,
 } from "../packages/runtime/src/artwork-rendering.js";
+import {
+  artworkHaloForWorldColor,
+  boundedCueAnchor,
+  friendlyObjectiveLabel,
+  INKLING_CUE,
+  INKLING_FONT_FAMILY,
+} from "../packages/runtime/src/presentation-contract.js";
 
 const liveSpec = loadJson<unknown>(findProjectRoot(), "examples/live-scan-gamespec.json");
+
+test("Lane A presentation cues are deterministic, bounded, and separate from source art", () => {
+  assert.match(INKLING_FONT_FAMILY, /Nunito/);
+  assert.notEqual(INKLING_CUE.violet, INKLING_CUE.coral);
+  assert.deepEqual(
+    boundedCueAnchor(2, 3, 28, WORLD_WIDTH, WORLD_HEIGHT),
+    { x: 56, y: 38, originY: 0 },
+  );
+  assert.deepEqual(
+    boundedCueAnchor(WORLD_WIDTH - 2, 500, 538, WORLD_WIDTH, WORLD_HEIGHT),
+    { x: WORLD_WIDTH - 56, y: 490, originY: 1 },
+  );
+  const darkHalo = artworkHaloForWorldColor(0x111526);
+  const lightHalo = artworkHaloForWorldColor(0xfffbf4);
+  assert.equal(darkHalo.color, INKLING_CUE.paper);
+  assert.equal(lightHalo.color, INKLING_CUE.violetDeep);
+  assert.ok(darkHalo.alpha <= 0.15 && lightHalo.alpha <= 0.15, "legibility backplates stay subtle");
+  assert.equal(friendlyObjectiveLabel("FINISH"), "Goal");
+  assert.equal(friendlyObjectiveLabel("STAY SAFE"), "Stay safe");
+});
 
 test("Lane A maps the live scan deterministically into a playable physics plan", () => {
   const first = createPlatformerPlan(liveSpec);

@@ -49,6 +49,13 @@ import {
   softlyRemoveKnownBackdrop,
   type BackdropIsolationResult,
 } from "./artwork-rendering.js";
+import {
+  artworkHaloForWorldColor,
+  boundedCueAnchor,
+  friendlyObjectiveLabel,
+  INKLING_CUE,
+  INKLING_FONT_FAMILY,
+} from "./presentation-contract.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
 
@@ -241,10 +248,10 @@ class PlatformerScene extends Phaser.Scene {
     // Palette entries carry no role semantics. Original crops supply the
     // child's colors; missing or unusable crops use stable, accessible Lane A
     // tokens rather than guessing that palette position means hero/platform.
-    const heroColor = 0xffca58;
-    const platformColor = 0x65a45b;
-    const dangerColor = 0xd84343;
-    const collectibleColor = 0x4c9bd6;
+    const heroColor = INKLING_CUE.sun;
+    const platformColor = INKLING_CUE.violet;
+    const dangerColor = INKLING_CUE.coral;
+    const collectibleColor = INKLING_CUE.sky;
 
     this.cameras.main.setBackgroundColor(worldColor);
     this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
@@ -255,11 +262,11 @@ class PlatformerScene extends Phaser.Scene {
     if (this.presentation === "standalone") {
       this.add
         .text(24, 18, this.plan.title, {
-          color: "#211c38",
-          fontFamily: "system-ui, sans-serif",
+          color: "#292343",
+          fontFamily: INKLING_FONT_FAMILY,
           fontSize: "22px",
           fontStyle: "bold",
-          backgroundColor: "rgba(255,255,255,0.82)",
+          backgroundColor: "rgba(255,251,244,0.86)",
           padding: { x: 8, y: 4 },
         })
         .setScrollFactor(0)
@@ -268,7 +275,7 @@ class PlatformerScene extends Phaser.Scene {
         this.add
           .text(this.scale.width - 24, 22, this.plan.contract.instruction, {
             color: `#${ink.toString(16).padStart(6, "0")}`,
-            fontFamily: "system-ui, sans-serif",
+            fontFamily: INKLING_FONT_FAMILY,
             fontSize: "16px",
             fontStyle: "bold",
           })
@@ -345,7 +352,7 @@ class PlatformerScene extends Phaser.Scene {
 
     this.doors = this.physics.add.staticGroup();
     for (const door of this.plan.doors) {
-      const shape = this.rectangle(door, 0x8f6bd7, ink, 0.92);
+      const shape = this.rectangle(door, INKLING_CUE.violetDeep, ink, 0.88);
       this.physics.add.existing(shape, true);
       this.doors.add(shape);
       this.doorObjects.set(door.id, shape);
@@ -394,38 +401,46 @@ class PlatformerScene extends Phaser.Scene {
     // FINISH marker when collecting the final required item ends the game.
     const hasVisibleGoal = createObjectiveContract(this.plan).finishRequired;
     if (hasVisibleGoal) {
-      this.rectangle(this.plan.goal, dangerColor, ink, 0.85);
+      this.rectangle(this.plan.goal, INKLING_CUE.violet, ink, 0.72);
       this.addArtwork(this.plan.goal, 4, 1);
-      this.add
-        .rectangle(
+      const goalCue = this.add
+        .ellipse(
           this.plan.goal.x,
           this.plan.goal.y,
-          this.plan.goal.width + 18,
-          this.plan.goal.height + 18,
-          0xffffff,
-          0,
+          this.plan.goal.width + 22,
+          this.plan.goal.height + 22,
+          INKLING_CUE.violet,
+          0.065,
         )
-        .setStrokeStyle(5, 0xffb629, 0.96)
-        .setDepth(8);
-      this.add
-        .text(this.plan.goal.x, Math.max(18, this.plan.goal.y - this.plan.goal.height / 2 - 18), "FINISH", {
-          color: "#211c38",
-          fontFamily: "system-ui, sans-serif",
-          fontSize: "14px",
-          fontStyle: "bold",
-          backgroundColor: "rgba(255,255,255,0.9)",
-          padding: { x: 6, y: 3 },
-        })
-        .setOrigin(0.5)
-        .setDepth(9);
+        .setStrokeStyle(3, INKLING_CUE.violet, 0.52)
+        .setDepth(8)
+        .setData("inklingPresentation", "mechanic-cue");
+      if (!this.reducedMotion) {
+        this.tweens.add({ targets: goalCue, alpha: 0.5, duration: 900, yoyo: true, repeat: -1 });
+      }
+      const goalLabel = boundedCueAnchor(
+        this.plan.goal.x,
+        this.plan.goal.y - this.plan.goal.height / 2,
+        this.plan.goal.y + this.plan.goal.height / 2,
+        WORLD_WIDTH,
+        WORLD_HEIGHT,
+      );
+      this.addCuePill(
+        goalLabel.x,
+        goalLabel.y + (goalLabel.originY === 1 ? -13 : 13),
+        "Goal",
+        INKLING_CUE.violetDeep,
+        INKLING_CUE.paper,
+        9,
+      );
       if (this.scale.width < WORLD_WIDTH) {
         this.goalGuide = this.add
-          .text(this.scale.width - 24, 66, "FINISH →", {
-            color: "#211c38",
-            fontFamily: "system-ui, sans-serif",
+          .text(this.scale.width - 24, 66, "Goal  →", {
+            color: "#292343",
+            fontFamily: INKLING_FONT_FAMILY,
             fontSize: "16px",
             fontStyle: "bold",
-            backgroundColor: "rgba(255,213,86,0.94)",
+            backgroundColor: "rgba(255,251,244,0.92)",
             padding: { x: 8, y: 5 },
           })
           .setOrigin(1, 0)
@@ -476,21 +491,21 @@ class PlatformerScene extends Phaser.Scene {
     }
 
     this.hud = this.add.text(24, 62, "", {
-      color: "#ffffff",
-      fontFamily: "Nunito Variable, system-ui, sans-serif",
+      color: "#fffbf4",
+      fontFamily: INKLING_FONT_FAMILY,
       fontSize: "17px",
       fontStyle: "bold",
-      backgroundColor: "rgba(32,25,54,0.78)",
+      backgroundColor: "rgba(41,35,67,0.82)",
       padding: { x: 10, y: 6 },
     }).setScrollFactor(0).setDepth(120).setVisible(this.presentation === "standalone");
     this.message = this.add
       .text(this.scale.width / 2, this.scale.height / 2, "", {
         align: "center",
         color: "#ffffff",
-        fontFamily: "Nunito Variable, system-ui, sans-serif",
+        fontFamily: INKLING_FONT_FAMILY,
         fontSize: "32px",
         fontStyle: "bold",
-        backgroundColor: "rgba(75,47,212,0.9)",
+        backgroundColor: "rgba(79,63,194,0.92)",
         padding: { x: 22, y: 14 },
       })
       .setOrigin(0.5)
@@ -557,7 +572,7 @@ class PlatformerScene extends Phaser.Scene {
       const visible = this.plan.goal.x >= view.left + 24 && this.plan.goal.x <= view.right - 24;
       this.goalGuide
         .setVisible(!visible)
-        .setText(this.plan.goal.x < this.hero.x ? "← FINISH" : "FINISH →");
+        .setText(this.plan.goal.x < this.hero.x ? "←  Goal" : "Goal  →");
     }
     if (this.elapsedMs >= this.invulnerableUntil) this.hero.setAlpha(1);
 
@@ -729,11 +744,11 @@ class PlatformerScene extends Phaser.Scene {
       const deltaY = cueTarget.y - this.hero.y;
       this.recoveryGuide = this.add
         .text(this.scale.width / 2, 112, createRecoveryCue(this.plan.contract.touchControls, deltaX, deltaY), {
-          color: "#211c38",
-          fontFamily: "system-ui, sans-serif",
+          color: "#292343",
+          fontFamily: INKLING_FONT_FAMILY,
           fontSize: "17px",
           fontStyle: "bold",
-          backgroundColor: "rgba(255,213,86,0.96)",
+          backgroundColor: "rgba(255,251,244,0.94)",
           padding: { x: 10, y: 6 },
         })
         .setOrigin(0.5)
@@ -788,10 +803,11 @@ class PlatformerScene extends Phaser.Scene {
         target.y,
         target.width + PLATFORMER_PHYSICS.assistPickupReach,
         target.height + PLATFORMER_PHYSICS.assistPickupReach,
-        0xffd556,
-        0.13,
+        INKLING_CUE.sky,
+        0.1,
       )
-      .setStrokeStyle(7, 0xffb629, 0.98)
+      .setStrokeStyle(4, INKLING_CUE.violet, 0.78)
+      .setData("inklingPresentation", "mechanic-cue")
       .setDepth(148);
   }
 
@@ -887,13 +903,14 @@ class PlatformerScene extends Phaser.Scene {
       return;
     }
     if (!cue.label || kind === "lose") return;
+    const cueAnchor = boundedCueAnchor(x, y - 36, y + 36, WORLD_WIDTH, WORLD_HEIGHT, 58);
     const label = this.add
-      .text(x, y - 18, cue.label, {
+      .text(cueAnchor.x, cueAnchor.y + (cueAnchor.originY === 1 ? -8 : 8), cue.label, {
         color: `#${cue.color.toString(16).padStart(6, "0")}`,
-        fontFamily: "system-ui, sans-serif",
+        fontFamily: INKLING_FONT_FAMILY,
         fontSize: "19px",
         fontStyle: "bold",
-        backgroundColor: "rgba(33,28,56,0.9)",
+        backgroundColor: "rgba(41,35,67,0.9)",
         padding: { x: 9, y: 5 },
       })
       .setOrigin(0.5)
@@ -965,23 +982,13 @@ class PlatformerScene extends Phaser.Scene {
         this.plan.hero.y,
         this.plan.hero.width + 22,
         this.plan.hero.height + 22,
-        0xffffff,
-        0,
+        INKLING_CUE.violet,
+        0.045,
       )
-      .setStrokeStyle(5, 0x684fe8, 0.96)
+      .setStrokeStyle(3, INKLING_CUE.violet, 0.62)
+      .setData("inklingPresentation", "mechanic-cue")
       .setDepth(132);
-    const heroLabel = this.add
-      .text(this.plan.hero.x, Math.max(18, this.plan.hero.y - this.plan.hero.height / 2 - 22), "YOU", {
-        color: "#ffffff",
-        fontFamily: "system-ui, sans-serif",
-        fontSize: "14px",
-        fontStyle: "bold",
-        backgroundColor: "rgba(104,79,232,0.96)",
-        padding: { x: 7, y: 3 },
-      })
-      .setOrigin(0.5)
-      .setDepth(133);
-    this.coachingObjects.push(heroRing, heroLabel);
+    this.coachingObjects.push(heroRing);
     const target = this.coaching.objectiveTarget;
     // Reach-goal scenes already draw a permanent FINISH marker. Onboarding
     // should not stack a second ring and label over it; collect/boss targets
@@ -993,19 +1000,24 @@ class PlatformerScene extends Phaser.Scene {
     ) {
       const targetRing = this.add
         .ellipse(target.x, target.y, target.width + 24, target.height + 24, 0xffffff, 0)
-        .setStrokeStyle(4, 0xffb629, 0.94)
+        .setStrokeStyle(3, INKLING_CUE.sky, 0.7)
+        .setData("inklingPresentation", "mechanic-cue")
         .setDepth(131);
-      const targetLabel = this.add
-        .text(target.x, Math.max(18, target.y - target.height / 2 - 20), this.coaching.objectiveLabel, {
-          color: "#211c38",
-          fontFamily: "system-ui, sans-serif",
-          fontSize: "13px",
-          fontStyle: "bold",
-          backgroundColor: "rgba(255,213,86,0.96)",
-          padding: { x: 7, y: 3 },
-        })
-        .setOrigin(0.5)
-        .setDepth(133);
+      const targetAnchor = boundedCueAnchor(
+        target.x,
+        target.y - target.height / 2,
+        target.y + target.height / 2,
+        WORLD_WIDTH,
+        WORLD_HEIGHT,
+      );
+      const targetLabel = this.addCuePill(
+        targetAnchor.x,
+        targetAnchor.y + (targetAnchor.originY === 1 ? -13 : 13),
+        friendlyObjectiveLabel(this.coaching.objectiveLabel),
+        INKLING_CUE.paper,
+        INKLING_CUE.ink,
+        133,
+      );
       this.coachingObjects.push(targetRing, targetLabel);
     }
     if (!this.reducedMotion) {
@@ -1024,6 +1036,32 @@ class PlatformerScene extends Phaser.Scene {
   private clearCoachingObjects(objects: Phaser.GameObjects.GameObject[]): void {
     for (const object of objects) object.destroy();
     objects.length = 0;
+  }
+
+  /** Rounded, product-owned mechanic chrome; never presented as source art. */
+  private addCuePill(
+    x: number,
+    y: number,
+    label: string,
+    fill: number,
+    textColor: number,
+    depth: number,
+  ): Phaser.GameObjects.Container {
+    const text = this.add.text(0, 0, label, {
+      color: `#${textColor.toString(16).padStart(6, "0")}`,
+      fontFamily: INKLING_FONT_FAMILY,
+      fontSize: "14px",
+      fontStyle: "bold",
+    }).setOrigin(0.5);
+    const width = Math.max(52, text.width + 22);
+    const height = 30;
+    const chrome = this.add.graphics();
+    chrome.fillStyle(INKLING_CUE.ink, 0.12).fillRoundedRect(-width / 2 + 1, -height / 2 + 2, width, height, 15);
+    chrome.fillStyle(fill, 0.94).fillRoundedRect(-width / 2, -height / 2, width, height, 15);
+    chrome.lineStyle(2, INKLING_CUE.paper, 0.6).strokeRoundedRect(-width / 2, -height / 2, width, height, 15);
+    return this.add.container(x, y, [chrome, text])
+      .setDepth(depth)
+      .setData("inklingPresentation", "mechanic-cue");
   }
 
   private rectangle(
@@ -1116,6 +1154,21 @@ class PlatformerScene extends Phaser.Scene {
 
     const hasCropTexture = this.textures.exists(cropTextureKey);
     const fitted = fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height);
+    if (!ENVIRONMENTAL_SURFACE_ROLES.has(entity.role)) {
+      const halo = artworkHaloForWorldColor(this.sceneWorldColor);
+      this.add
+        .ellipse(
+          entity.x,
+          entity.y,
+          Math.min(entity.width + 18, fitted.width + 24),
+          Math.min(entity.height + 18, fitted.height + 24),
+          halo.color,
+          halo.alpha,
+        )
+        .setStrokeStyle(2, halo.color, halo.alpha * 1.35)
+        .setDepth(depth - 0.1)
+        .setData("inklingPresentation", "artwork-legibility-halo");
+    }
     const image = hasCropTexture
       ? this.add.image(entity.x, entity.y, cropTextureKey).setDisplaySize(fitted.width, fitted.height)
       : this.add
@@ -1125,8 +1178,8 @@ class PlatformerScene extends Phaser.Scene {
     const baseScaleX = image.scaleX;
     const baseScaleY = image.scaleY;
     image
-      .setAlpha(isolatedArtwork ? alpha : alpha * 0.9)
-      .setBlendMode(isolatedArtwork ? Phaser.BlendModes.NORMAL : Phaser.BlendModes.MULTIPLY)
+      .setAlpha(isolatedArtwork ? alpha : alpha * 0.96)
+      .setBlendMode(Phaser.BlendModes.NORMAL)
       .setDepth(depth)
       .setData("entityId", entity.id)
       .setData("style_ref", entity.styleRef)
@@ -1371,7 +1424,7 @@ class PlatformerScene extends Phaser.Scene {
       const size = layout.size;
       const button = this.add.container(x, layout.y).setDepth(100).setScrollFactor(0);
       const chrome = this.add.graphics();
-      chrome.fillStyle(0x151329, 0.2);
+      chrome.fillStyle(INKLING_CUE.ink, 0.18);
       chrome.fillRoundedRect(
         -size / 2 + 2,
         -size / 2 + 3,
@@ -1379,7 +1432,7 @@ class PlatformerScene extends Phaser.Scene {
         size,
         layout.cornerRadius,
       );
-      chrome.fillStyle(0x24203f, 0.76);
+      chrome.fillStyle(INKLING_CUE.violetDeep, 0.76);
       chrome.fillRoundedRect(
         -size / 2,
         -size / 2,
@@ -1387,7 +1440,7 @@ class PlatformerScene extends Phaser.Scene {
         size,
         layout.cornerRadius,
       );
-      chrome.lineStyle(Math.max(2, size * 0.035), 0xffffff, 0.34);
+      chrome.lineStyle(Math.max(2, size * 0.035), INKLING_CUE.paper, 0.7);
       chrome.strokeRoundedRect(
         -size / 2,
         -size / 2,
@@ -1397,11 +1450,11 @@ class PlatformerScene extends Phaser.Scene {
       );
 
       const icon = this.add.graphics();
-      icon.lineStyle(Math.max(4, size * 0.075), 0xffffff, 0.96);
+      icon.lineStyle(Math.max(4, size * 0.075), INKLING_CUE.paper, 0.98);
       const reach = size * 0.16;
       if (direction === "action") {
         icon.strokeCircle(0, 0, size * 0.15);
-        icon.fillStyle(0xffffff, 0.96);
+        icon.fillStyle(INKLING_CUE.paper, 0.98);
         icon.fillCircle(0, 0, size * 0.065);
       } else {
         icon.beginPath();
@@ -1425,6 +1478,7 @@ class PlatformerScene extends Phaser.Scene {
         icon.strokePath();
       }
       button.add([chrome, icon]);
+      button.setData("inklingPresentation", "touch-control");
       button
         .setSize(size, size)
         .setInteractive(
@@ -1467,23 +1521,12 @@ class PlatformerScene extends Phaser.Scene {
       : layout.right[2];
     if (x === undefined) return;
     const ring = this.add
-      .circle(x, layout.y, layout.size * 0.58, 0xffffff, 0)
-      .setStrokeStyle(Math.max(4, layout.size * 0.045), 0xffd556, 0.98)
+      .circle(x, layout.y, layout.size * 0.58, INKLING_CUE.sky, 0.055)
+      .setStrokeStyle(Math.max(3, layout.size * 0.035), INKLING_CUE.sun, 0.82)
       .setScrollFactor(0)
+      .setData("inklingPresentation", "mechanic-cue")
       .setDepth(106);
-    const label = this.add
-      .text(x, Math.max(18, layout.y - layout.size * 0.72), "START", {
-        color: "#211c38",
-        fontFamily: "system-ui, sans-serif",
-        fontSize: "13px",
-        fontStyle: "bold",
-        backgroundColor: "rgba(255,213,86,0.96)",
-        padding: { x: 7, y: 3 },
-      })
-      .setOrigin(0.5)
-      .setScrollFactor(0)
-      .setDepth(107);
-    this.controlCoachingObjects.push(ring, label);
+    this.controlCoachingObjects.push(ring);
     if (!this.reducedMotion) {
       this.tweens.add({ targets: ring, scale: 1.1, alpha: 0.55, duration: 620, yoyo: true, repeat: -1 });
     }

@@ -148,10 +148,10 @@ declare global {
 }
 
 const STAGES: Array<{ id: GenerationStage; title: string; detail: string }> = [
-  { id: "checking", title: "Checking your drawing", detail: "Giving your picture a quick, careful check." },
-  { id: "understanding", title: "Finding your hero and goal", detail: "Reading the characters, objects, paths, and rules in your drawing." },
-  { id: "animating", title: "Building your game", detail: "Keeping your strokes and connecting them to real game actions." },
-  { id: "testing", title: "Making sure you can finish", detail: "Playing the exact game and checking that its goal can be reached." },
+  { id: "checking", title: "Picture looks good", detail: "Keeping every original line and color safe." },
+  { id: "understanding", title: "Meeting your world", detail: "Finding the hero, paths, surprises, and goal." },
+  { id: "animating", title: "Adding game magic", detail: "Giving your drawing movement and real game rules." },
+  { id: "testing", title: "Playing it through", detail: "Making sure your adventure can be finished." },
 ];
 
 function loadPlayer(): Promise<typeof import("../../../packages/runtime/src/platformer.js")> {
@@ -426,7 +426,7 @@ async function updatePreparedPicture(message: string, focusReview = false): Prom
     returnGame.hidden = true;
     renderExperienceState("capture-ready");
     showCaptureStatus(captureReviewMessage(result.quality.warnings));
-    if (focusReview) {
+    if (focusReview && (window.innerWidth <= 760 || window.innerHeight <= 600)) {
       window.requestAnimationFrame(() => previewStage.scrollIntoView({
         behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
         block: "start",
@@ -462,8 +462,8 @@ function resetProgress(): void {
   stopGenerationProgress();
   progressPanel.hidden = true;
   cancelGeneration.hidden = true;
-  progressTitle.textContent = "Getting your game ready";
-  progressDetail.textContent = "We will show each real step as it starts.";
+  progressTitle.textContent = "Waking up your world";
+  progressDetail.textContent = "Your drawing stays right here while every game step is built and tested.";
   progressTime.textContent = "Just started";
   generationStageIndex = -1;
   for (const element of document.querySelectorAll<HTMLElement>(".progress-steps [data-stage]")) {
@@ -554,10 +554,12 @@ function startGenerationProgress(): void {
   cancelGeneration.hidden = false;
   progressTime.textContent = "Just started";
   window.requestAnimationFrame(() => {
-    capturePanel.scrollIntoView({
-      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
-      block: "start",
-    });
+    if (window.innerWidth <= 760 || window.innerHeight <= 600) {
+      capturePanel.scrollIntoView({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth",
+        block: "start",
+      });
+    }
     progressPanel.focus({ preventScroll: true });
   });
   generationProgressTimer = window.setInterval(() => {
@@ -668,7 +670,7 @@ saveGame.addEventListener("click", () => {
     saveGame.textContent = "Download started";
     saveStatus.textContent = "Your game download started.";
     saveFeedbackTimer = window.setTimeout(() => {
-      saveGame.textContent = "Save game";
+      saveGame.textContent = "Save";
       saveStatus.textContent = "";
       saveFeedbackTimer = undefined;
     }, 2_500);
@@ -788,8 +790,8 @@ makeGame.addEventListener("click", async () => {
       progressPanel.hidden = true;
       recastPanel.hidden = false;
       renderExperienceState("recast");
-      recastTitle.textContent = "Your game is ready to play";
-      recastDetail.textContent = "Inkling kept your art and chose a clear game path you can finish.";
+      recastTitle.textContent = "Your world is ready";
+      recastDetail.textContent = "Your art stayed yours. Inkling chose a clear adventure you can finish.";
       showCaptureStatus("Your playable version is ready.");
       playSafeVersion.focus();
     } else {
@@ -876,7 +878,7 @@ fullscreenGame.addEventListener("click", async () => {
 });
 
 document.addEventListener("fullscreenchange", () => {
-  fullscreenGame.textContent = document.fullscreenElement ? "Exit full screen" : "Bigger game";
+  fullscreenGame.textContent = document.fullscreenElement ? "Exit full screen" : "Full screen";
 });
 
 document.body.classList.toggle(

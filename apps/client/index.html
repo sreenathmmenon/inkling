@@ -20,18 +20,13 @@
           </span>
           <span>Inkling</span>
         </div>
-        <label class="quiet-file-action" for="spec-file">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
-          Open a game
-        </label>
-        <input id="spec-file" type="file" accept="application/json,.json" />
       </header>
 
       <section id="capture-panel" aria-labelledby="capture-title">
         <div class="capture-copy">
-          <p class="eyebrow"><span aria-hidden="true">✦</span> Your imagination, playable</p>
-          <h1 id="capture-title">Draw it.<br /><span>Bring it to life.</span></h1>
-          <p class="hero-copy">Turn a hand drawing into a real game you can play—in its own wonderfully wobbly style.</p>
+          <p class="eyebrow"><span aria-hidden="true">✦</span> Your drawing. Your game.</p>
+          <h1 id="capture-title">Draw it.<br /><span>Play it.</span></h1>
+          <p class="hero-copy">One drawing becomes an original game—in your own lines, colors, and wonderfully wobbly style.</p>
           <p id="capture-status" aria-live="polite">Take a clear photo or choose one from this device. No account needed.</p>
 
         </div>
@@ -41,7 +36,7 @@
           <div id="preview-empty">
             <span class="empty-spark" aria-hidden="true">✦</span>
             <strong>Your drawing goes here</strong>
-            <small>Every line, color, and wobble stays yours.</small>
+            <small>Your lines and colors stay exactly yours.</small>
           </div>
           <img id="drawing-preview" alt="Prepared crop of your drawing" hidden />
           <span class="tape tape-one" aria-hidden="true"></span>
@@ -64,9 +59,9 @@
             <button id="return-game" class="subtle-action" type="button" hidden>Back to my game</button>
           </div>
           <ol class="mini-journey" aria-label="How Inkling works">
-            <li><span>1</span><strong>Draw</strong><small>Anything you imagine</small></li>
-            <li><span>2</span><strong>Snap</strong><small>One clear picture</small></li>
-            <li><span>3</span><strong>Play</strong><small>Your art comes alive</small></li>
+            <li><span>1</span><strong>Choose</strong><small>A drawing you love</small></li>
+            <li><span>2</span><strong>Create</strong><small>We build and test it</small></li>
+            <li><span>3</span><strong>Play</strong><small>Your world comes alive</small></li>
           </ol>
         </div>
 
@@ -94,10 +89,10 @@
 
         <section id="progress-panel" tabindex="-1" aria-labelledby="progress-title" hidden>
           <div class="progress-story">
-            <p class="eyebrow">Your drawing is waking up</p>
+            <p class="eyebrow">Watch it come alive</p>
             <div aria-live="polite" aria-atomic="true">
-              <h2 id="progress-title">Getting your game ready</h2>
-              <p id="progress-detail">We will show each real step as it starts.</p>
+              <h2 id="progress-title">Waking up your world</h2>
+              <p id="progress-detail">Your drawing stays right here while every game step is built and tested.</p>
             </div>
             <div class="progress-meta">
               <p id="progress-time">Just started</p>
@@ -105,22 +100,22 @@
             </div>
           </div>
           <ol class="progress-steps">
-            <li data-stage="checking"><span aria-hidden="true">01</span><strong>Picture check</strong><small>Safe and clear</small></li>
-            <li data-stage="understanding"><span aria-hidden="true">02</span><strong>Meet your world</strong><small>Hero, paths, and goal</small></li>
-            <li data-stage="animating"><span aria-hidden="true">03</span><strong>Bring it to life</strong><small>Movement and game rules</small></li>
-            <li data-stage="testing"><span aria-hidden="true">04</span><strong>Test the adventure</strong><small>Make sure you can win</small></li>
+            <li data-stage="checking"><span aria-hidden="true">01</span><strong>Picture looks good</strong><small>Clear and ready</small></li>
+            <li data-stage="understanding"><span aria-hidden="true">02</span><strong>Meeting your world</strong><small>Hero, paths, and goal</small></li>
+            <li data-stage="animating"><span aria-hidden="true">03</span><strong>Adding game magic</strong><small>Movement and rules</small></li>
+            <li data-stage="testing"><span aria-hidden="true">04</span><strong>Playing it through</strong><small>Making sure you can win</small></li>
           </ol>
         </section>
 
         <section id="recast-panel" aria-labelledby="recast-title" hidden>
           <div class="recast-icon" aria-hidden="true">✦</div>
           <div>
-            <p class="eyebrow">A playable path is ready</p>
-            <h2 id="recast-title">Your drawing can play</h2>
-            <p id="recast-detail">This version keeps your art and uses a simpler game action that works.</p>
+            <p class="eyebrow">A great way to play</p>
+            <h2 id="recast-title">Your world is ready</h2>
+            <p id="recast-detail">Your art stayed yours. Inkling chose a clear adventure you can finish.</p>
           </div>
           <div class="recast-actions">
-            <button id="play-safe-version" class="primary-action" type="button">Play this version</button>
+            <button id="play-safe-version" class="primary-action" type="button">Play my game</button>
             <button id="try-new-picture" type="button">Try another picture</button>
           </div>
         </section>
@@ -128,14 +123,13 @@
 
       <section id="play-toolbar" aria-labelledby="objective-title" hidden>
         <div class="objective-copy">
-          <p class="eyebrow">Your world is alive</p>
           <h1 id="objective-title">Game preview</h1>
           <p id="objective-detail">Your game will appear here after you choose a drawing.</p>
           <p id="interpretation-note" role="status" hidden></p>
         </div>
         <button id="make-another" class="new-drawing-action" type="button">
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          New drawing
+          Make another
         </button>
       </section>
 
@@ -161,16 +155,21 @@
           <p id="save-status" role="status" aria-live="polite"></p>
           <div id="post-play-actions" hidden>
             <button id="assist-game" class="assist-action" type="button" hidden>Give me a boost</button>
+            <button id="fullscreen-new-drawing" type="button">Make another drawing</button>
             <button id="restart" type="button" disabled>Play again</button>
-            <button id="save-game" type="button" disabled>Save game</button>
-            <button id="fullscreen-new-drawing" type="button">New drawing</button>
-            <button id="fullscreen-game" type="button">Bigger game</button>
+            <button id="save-game" type="button" disabled>Save</button>
+            <button id="fullscreen-game" type="button">Full screen</button>
           </div>
         </div>
       </div>
 
       <footer>
         <p id="privacy-promise"><span aria-hidden="true">●</span> Private by default. Nothing is posted or shared automatically.</p>
+        <label class="quiet-file-action" for="spec-file">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" /></svg>
+          Open a saved game
+        </label>
+        <input id="spec-file" type="file" accept="application/json,.json" />
         <details class="privacy-details">
           <summary>For grown-ups: photo &amp; privacy details</summary>
           <p>Nothing is uploaded when a photo is chosen. After <strong>Make my game</strong> is tapped, Inkling securely sends the cropped drawing to its game-making service and AI provider to create and safety-check the game. This preview server does not keep the drawing or finished game. Saving downloads a copy—including the drawing—to this device. Please leave out faces, names, and personal details.</p>

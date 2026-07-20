@@ -48,8 +48,8 @@
             <label class="file-label primary-action choose-action" for="drawing-file">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h2l1.2-1.5h4.6L15.5 5h2A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9Z" /><circle cx="12" cy="12" r="3.4" /></svg>
               Take or choose a drawing
+              <input id="drawing-file" type="file" accept="image/gif,image/jpeg,image/png,image/webp" capture="environment" />
             </label>
-            <input id="drawing-file" type="file" accept="image/gif,image/jpeg,image/png,image/webp" capture="environment" />
             <button id="make-game" class="primary-action make-action" type="button" disabled>
               Make my game
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5" /></svg>
@@ -127,10 +127,17 @@
           <p id="objective-detail">Your game will appear here after you choose a drawing.</p>
           <p id="interpretation-note" role="status" hidden></p>
         </div>
-        <button id="make-another" class="new-drawing-action" type="button">
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
-          Make another
-        </button>
+        <div class="play-toolbar-actions">
+          <button id="sound-toggle" class="new-drawing-action" type="button" aria-label="Game sounds" aria-pressed="true">
+            <svg data-sound-on viewBox="0 0 24 24" aria-hidden="true"><path d="M5 10v4h3l4 3V7l-4 3H5Zm10-1.5c1.8 1.8 1.8 5.2 0 7m2.5-9.5c3.2 3.2 3.2 8.8 0 12" /></svg>
+            <svg data-sound-off viewBox="0 0 24 24" aria-hidden="true" hidden><path d="M5 10v4h3l4 3V7l-4 3H5Zm10-2 5 8m0-8-5 8" /></svg>
+            <span data-sound-label>Sound: On</span>
+          </button>
+          <button id="make-another" class="new-drawing-action" type="button">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            Make another
+          </button>
+        </div>
       </section>
 
       <div id="play-stage">
@@ -138,20 +145,21 @@
           <div id="game-empty">
             <div><span aria-hidden="true">✦</span><h2>Your game will appear here</h2><p>Choose a drawing above and Inkling will build a world around your art.</p></div>
           </div>
-          <div id="game" tabindex="0" role="application" aria-label="Playable drawing game" hidden></div>
-          <p id="game-status" data-game-state="waiting" aria-live="polite" tabindex="-1">Ready when your drawing is.</p>
+          <div id="game" tabindex="0" role="application" aria-labelledby="objective-title" aria-describedby="objective-detail game-status controls-hint game-control-help" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown Space A D W S" hidden></div>
+          <p id="game-status" data-game-state="waiting" role="status" aria-live="polite" aria-atomic="true" tabindex="-1">Ready when your drawing is.</p>
           <div id="runtime-replay-host" aria-hidden="true"></div>
         </section>
 
-        <div id="accessible-controls" role="group" aria-label="Game controls" hidden>
-          <button type="button" data-game-control="left" aria-label="Move left"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg></button>
-          <button type="button" data-game-control="right" aria-label="Move right"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>
-          <button class="word-control" type="button" data-game-control="jump" aria-label="Jump or move up"><span>Jump</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 14 7-7 7 7" /></svg></button>
-          <button type="button" data-game-control="down" aria-label="Move down"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 10 7 7 7-7" /></svg></button>
-          <button class="word-control" type="button" data-game-control="action" aria-label="Use game action"><span>Action</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c.8 5 3.8 8 9 9-5.2 1-8.2 4-9 9-.8-5-3.8-8-9-9 5.2-1 8.2-4 9-9Z" /></svg></button>
+        <div id="accessible-controls" role="group" aria-label="Game controls" aria-describedby="game-control-help" aria-controls="game" hidden>
+          <button type="button" data-game-control="left" aria-label="Move left" aria-keyshortcuts="ArrowLeft A"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg></button>
+          <button type="button" data-game-control="right" aria-label="Move right" aria-keyshortcuts="ArrowRight D"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg></button>
+          <button class="word-control" type="button" data-game-control="jump" aria-label="Jump or move up" aria-keyshortcuts="ArrowUp W Space"><span>Jump</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 14 7-7 7 7" /></svg></button>
+          <button type="button" data-game-control="down" aria-label="Move down" aria-keyshortcuts="ArrowDown S"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 10 7 7 7-7" /></svg></button>
+          <button class="word-control" type="button" data-game-control="action" aria-label="Use game action" aria-keyshortcuts="Space"><span>Action</span><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c.8 5 3.8 8 9 9-5.2 1-8.2 4-9 9-.8-5-3.8-8-9-9 5.2-1 8.2-4 9-9Z" /></svg></button>
         </div>
         <div class="play-meta">
           <p id="controls-hint" class="hint" hidden>Move with A/D or arrow keys. Jump with W, ↑, Space, or the touch controls.</p>
+          <p id="game-control-help" class="hint">Keyboard players can focus the game and use its listed keys. With a switch or keyboard, move through the game buttons and activate a move button repeatedly to keep going.</p>
           <p id="save-status" role="status" aria-live="polite"></p>
           <div id="post-play-actions" hidden>
             <button id="assist-game" class="assist-action" type="button" hidden>Give me a boost</button>

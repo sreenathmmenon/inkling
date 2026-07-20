@@ -1,0 +1,100 @@
+
+/* Premium experience system: the drawing is always the dominant object and
+   every state shares one restrained paper/ink/violet visual language. */
+.ambient-shape { opacity: .55; }
+#capture-panel::after { display: none; }
+.preview-stage { overflow: hidden; border: 1px solid rgba(72,53,133,.1); border-radius: 28px; background: linear-gradient(145deg, #fff, #faf8ff); box-shadow: inset 0 1px rgba(255,255,255,.8), 0 20px 48px rgba(50,33,104,.1); }
+.paper-shadow, .preview-stage::before, .preview-stage::after, .tape { display: none; }
+#drawing-preview { width: 100%; max-height: 430px; border-radius: 20px; filter: drop-shadow(0 14px 22px rgba(54,39,100,.13)); transform: none; }
+#preview-empty { transform: none; }
+.empty-spark { width: 68px; height: 68px; border-radius: 22px; background: linear-gradient(145deg, #7355f5, #5634df); }
+
+body.capture-ready #capture-panel { grid-template-columns: minmax(260px,.72fr) minmax(360px,1.28fr); grid-template-areas: "copy preview" "action preview" "adjust adjust" "progress progress" "recast recast"; min-height: 590px; }
+body.capture-ready .capture-copy > :not(#capture-status) { display: none; }
+body.capture-ready .capture-copy { align-self: end; }
+body.capture-ready #capture-status { max-width: 29ch; margin: 0; color: #342a54; font-size: 1.08rem; font-weight: 800; }
+body.capture-ready .capture-action-zone { align-self: start; }
+body.capture-ready .preview-stage { min-height: 480px; margin: 0; }
+body.capture-ready .capture-actions { display: grid; grid-template-columns: 1fr 1fr; max-width: 390px; }
+body.capture-ready .make-action { grid-column: 1 / -1; min-height: 64px; font-size: 1.03rem; }
+
+body.generating #capture-panel { border-color: rgba(255,255,255,.1); color: #fff; background: radial-gradient(circle at 10% 10%, #403176, transparent 34rem), #211a3b; box-shadow: 0 30px 90px rgba(28,20,57,.28); }
+body.generating .preview-stage { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.08); box-shadow: none; }
+body.generating #progress-title { color: #fff; }
+body.generating #progress-detail, body.generating #progress-time { color: #d8d1ed; }
+body.generating #progress-panel .eyebrow { color: #b9a9ff; }
+body.generating .progress-steps li { border-color: rgba(255,255,255,.1); color: #c9c2dc; background: rgba(255,255,255,.06); }
+body.generating .progress-steps li > span { color: #c8bfff; background: rgba(255,255,255,.1); }
+body.generating .progress-steps li.active { border-color: rgba(169,239,215,.7); color: #fff; background: rgba(169,239,215,.13); box-shadow: 0 12px 28px rgba(8,5,21,.2); }
+body.generating .progress-steps li.active > span { color: #211a3b; background: var(--mint); }
+body.generating .progress-steps li.active strong { color: #fff; }
+body.generating .text-action { color: #eeeaff; }
+
+body.recast #recast-panel { border-color: rgba(54,162,123,.3); background: linear-gradient(135deg, #effcf7, #fff9e8); }
+body.recast .recast-icon { color: #174f3c; background: var(--mint); box-shadow: 0 10px 24px rgba(62,174,132,.2); }
+
+body.play-mode { background: radial-gradient(circle at 0 0, rgba(207,197,255,.34), transparent 28rem), radial-gradient(circle at 100% 0, rgba(255,222,145,.3), transparent 29rem), #faf9fc; }
+body.play-mode .ambient-shape, body.play-mode .site-header { display: none; }
+body.play-mode #play-toolbar { border-radius: 18px; box-shadow: 0 9px 28px rgba(48,33,96,.08); }
+body.play-mode #objective-title { font-weight: 950; }
+body.play-mode #interpretation-note { display: none; }
+body.play-mode #game-shell { border-radius: 24px; }
+body.game-won #game-status, body.game-lost #game-status, body.player-error #game-status { top: 14px; width: min(80%, 430px); max-width: none; padding: 10px 14px; font-size: 1rem; }
+body.game-won .play-meta { border-color: rgba(42,174,125,.28); background: linear-gradient(135deg, #f1fff8, #fffefa); box-shadow: 0 14px 36px rgba(42,174,125,.14); }
+body.game-lost .play-meta, body.player-error .play-meta { border-color: rgba(255,113,108,.22); background: linear-gradient(135deg, #fff5f3, #fffefa); }
+body.game-won #fullscreen-new-drawing, body.game-lost #fullscreen-new-drawing, body.player-error #fullscreen-new-drawing { display: inline-flex; }
+body.game-won #make-another, body.game-lost #make-another, body.player-error #make-another { display: none; }
+body.game-won #fullscreen-new-drawing { color: #fff; background: linear-gradient(135deg, #7355f5, #5634df); box-shadow: 0 9px 22px rgba(83,52,220,.25); }
+body.game-won #restart { color: #4f426f; background: #eeeaff; box-shadow: none; }
+body.game-won #fullscreen-game, body.game-lost #fullscreen-game, body.player-error #fullscreen-game { display: none; }
+body.game-won #play-stage:fullscreen #fullscreen-game, body.game-lost #play-stage:fullscreen #fullscreen-game, body.player-error #play-stage:fullscreen #fullscreen-game { display: inline-flex; }
+body.player-error #game-empty { color: #342a54; background: radial-gradient(circle at 50% 35%, #fff, #fff0ec); }
+
+body.play-mode.touch-controls #accessible-controls { border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
+body.play-mode.touch-controls #accessible-controls button { border-color: rgba(255,255,255,.28); background: linear-gradient(145deg, rgba(64,52,92,.91), rgba(37,29,61,.94)); box-shadow: 0 9px 22px rgba(32,25,54,.25), inset 0 1px rgba(255,255,255,.14); backdrop-filter: blur(10px); }
+body.play-mode.touch-controls #accessible-controls button.pressed { background: linear-gradient(145deg, #795df2, #5737d9); }
+body.play-mode.playing.assist-available #play-stage:not(:fullscreen) .play-meta { top: 50%; right: max(10px, env(safe-area-inset-right)); bottom: auto; transform: translateY(-50%); }
+body.play-mode.playing.assist-available .assist-action { color: #153e33; border: 1px solid rgba(26,114,87,.14); border-radius: 999px; background: rgba(190,247,226,.95); box-shadow: 0 9px 24px rgba(41,141,105,.18); backdrop-filter: blur(10px); }
+
+@media (min-width: 761px) {
+  body.play-mode { padding: max(12px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) max(8px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left)); }
+  body.play-mode #game-shell { width: min(100%, calc((100svh - 200px) * 16 / 9), 1180px); }
+  body.play-mode.touch-controls #game-shell { width: min(100%, calc((100svh - 250px) * 16 / 9), 1180px); }
+  body.play-mode.game-won #game-shell, body.play-mode.game-lost #game-shell, body.play-mode.player-error #game-shell { width: min(100%, calc((100svh - 220px) * 16 / 9), 1180px); }
+}
+
+@media (max-width: 760px) {
+  .mini-journey { display: none; }
+  body.capture-ready #capture-panel { grid-template-columns: 1fr; grid-template-areas: "preview" "copy" "action" "adjust" "progress" "recast"; min-height: 0; padding: 15px; }
+  body.capture-ready .preview-stage { min-height: 0; height: min(48svh, 410px); margin: 0; padding: 14px; }
+  body.capture-ready #drawing-preview { max-height: 100%; }
+  body.capture-ready .capture-copy { margin-top: 13px; }
+  body.capture-ready #capture-status { max-width: none; font-size: .96rem; }
+  body.capture-ready .capture-action-zone { margin-top: 13px; }
+  body.capture-ready .capture-actions { max-width: none; }
+  body.capture-ready .make-action { min-height: 58px; }
+  body.play-mode #play-toolbar { padding: 9px 11px; }
+  body.play-mode #objective-title { font-size: 1.05rem; }
+  body.play-mode #objective-detail { font-size: .82rem; }
+  body.game-won .play-meta, body.game-lost .play-meta, body.player-error .play-meta { width: min(100%, 420px); padding: 7px; }
+  body.game-won #post-play-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
+  body.game-won #fullscreen-new-drawing { grid-column: 1 / -1; }
+  body.game-lost #post-play-actions, body.player-error #post-play-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
+  body.game-won #post-play-actions button, body.game-lost #post-play-actions button, body.player-error #post-play-actions button { min-width: 0; min-height: 50px; padding: 7px 6px; font-size: .76rem; }
+}
+
+@media (max-height: 600px) and (orientation: landscape) {
+  body.play-mode #game-shell { width: min(100%, calc((100svh - 58px) * 16 / 9)); }
+  body.play-mode.touch-controls #game-shell { width: min(100%, calc((100svh - 86px) * 16 / 9)); }
+  body.play-mode.game-won #game-shell, body.play-mode.game-lost #game-shell, body.play-mode.player-error #game-shell { width: min(100%, calc((100svh - 164px) * 16 / 9)); }
+  body.play-mode #play-toolbar { width: min(100%, 940px); min-height: 48px; }
+  body.play-mode.touch-controls #accessible-controls[data-layout="side"] { right: max(9px, env(safe-area-inset-right)); left: max(9px, env(safe-area-inset-left)); grid-template-columns: 58px 58px 1fr 108px; width: auto; }
+  body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="jump"] { grid-column: 4; }
+  body.play-mode.touch-controls #accessible-controls[data-layout="four-way"] { right: max(9px, env(safe-area-inset-right)); left: max(9px, env(safe-area-inset-left)); grid-template-columns: 52px 52px 52px 1fr 76px; width: auto; }
+  body.play-mode.touch-controls #accessible-controls[data-layout="four-way"] [data-game-control="action"] { grid-column: 5; }
+  body.play-mode.game-won .play-meta, body.play-mode.game-lost .play-meta, body.play-mode.player-error .play-meta { padding: 6px; }
+}
+
+@media (max-width: 350px) {
+  body.capture-ready .capture-actions { grid-template-columns: 1fr; }
+}

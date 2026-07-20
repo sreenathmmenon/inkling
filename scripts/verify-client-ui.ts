@@ -177,6 +177,130 @@ try {
     style_ref: "source",
   }];
   actionGameSpec.goal = { kind: "defeat_boss", target_id: "action_target" };
+
+  const keyboardAccessibility = await browser.newPage({ viewport: { width: 1024, height: 768 } });
+  await keyboardAccessibility.goto(baseUrl);
+  await keyboardAccessibility.locator("#spec-file").setInputFiles({
+    name: "keyboard-accessibility.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(gameSpec)),
+  });
+  await keyboardAccessibility.locator("canvas").waitFor();
+  await keyboardAccessibility.waitForFunction(() => (document.activeElement as HTMLElement | null)?.id === "game");
+  const application = keyboardAccessibility.getByRole("application");
+  assert.equal(await application.getAttribute("aria-labelledby"), "objective-title", "focused game is not named by its current objective");
+  assert.deepEqual(
+    (await application.getAttribute("aria-describedby"))?.split(/\s+/),
+    ["objective-detail", "game-status", "controls-hint", "game-control-help"],
+    "focused game omits its objective, state, or keyboard/switch instructions",
+  );
+  assert.match(await application.getAttribute("aria-keyshortcuts") ?? "", /ArrowLeft.*ArrowRight.*ArrowUp.*ArrowDown.*Space/, "focused game does not expose its direct keyboard controls");
+  assert.equal(await keyboardAccessibility.locator("#game-status").getAttribute("role"), "status", "game state is not exposed as an assistive status");
+  assert.equal(await keyboardAccessibility.locator("#game-status").getAttribute("aria-atomic"), "true", "game state announcements can be read without their full context");
+  assert.match(await application.ariaSnapshot(), /application "Reach the finish"/, "accessibility tree does not expose the live objective as the game name");
+
+  await keyboardAccessibility.keyboard.press("Tab");
+  assert.equal(await keyboardAccessibility.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.gameControl), "left", "sequential navigation does not enter game controls after the canvas");
+  await keyboardAccessibility.keyboard.press("Tab");
+  const sequentialMove = keyboardAccessibility.locator('[data-game-control="right"]');
+  assert.equal(await keyboardAccessibility.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.gameControl), "right", "sequential navigation skipped Move right");
+  await keyboardAccessibility.keyboard.press("Enter");
+  assert.equal(await sequentialMove.getAttribute("aria-pressed"), "true", "keyboard/switch activation does not create a movement pulse");
+  assert.equal(await keyboardAccessibility.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.gameControl), "right", "movement activation loses switch focus");
+  await keyboardAccessibility.waitForTimeout(350);
+  assert.equal(await sequentialMove.getAttribute("aria-pressed"), "false", "keyboard/switch movement pulse stays pressed");
+  await keyboardAccessibility.keyboard.press("Tab");
+  const sequentialJump = keyboardAccessibility.locator('[data-game-control="jump"]');
+  assert.equal(await keyboardAccessibility.evaluate(() => (document.activeElement as HTMLElement | null)?.dataset.gameControl), "jump", "sequential navigation skipped Jump");
+  await sequentialJump.evaluate((button) => {
+    const auditWindow = window as typeof window & {
+      __inklingJumpObserver?: MutationObserver;
+      __inklingJumpStates?: string[];
+    };
+    auditWindow.__inklingJumpStates = [];
+    auditWindow.__inklingJumpObserver = new MutationObserver(() => {
+      auditWindow.__inklingJumpStates?.push(button.getAttribute("aria-pressed") ?? "missing");
+    });
+    auditWindow.__inklingJumpObserver.observe(button, { attributes: true, attributeFilter: ["aria-pressed"] });
+  });
+  await keyboardAccessibility.keyboard.press("Space");
+  await keyboardAccessibility.waitForTimeout(170);
+  const jumpStates = await keyboardAccessibility.evaluate(() => {
+    const auditWindow = window as typeof window & {
+      __inklingJumpObserver?: MutationObserver;
+      __inklingJumpStates?: string[];
+    };
+    auditWindow.__inklingJumpObserver?.disconnect();
+    return auditWindow.__inklingJumpStates ?? [];
+  });
+  assert.deepEqual(jumpStates, ["true", "false"], `Space/switch activation did not create a bounded jump pulse: ${JSON.stringify(jumpStates)}`);
+  const firstAvailablePostPlayAction = await keyboardAccessibility.locator("#post-play-actions button:visible").first().getAttribute("id");
+  await keyboardAccessibility.keyboard.press("Tab");
+  assert.equal(await keyboardAccessibility.evaluate(() => (document.activeElement as HTMLElement | null)?.id), firstAvailablePostPlayAction, "hidden or unavailable controls interrupt sequential focus order");
+  const soundPreference = keyboardAccessibility.locator("#sound-toggle");
+  assert.equal(await soundPreference.getAttribute("aria-label"), "Game sounds", "sound toggle uses a changing action label instead of a stable preference name");
+  assert.equal(await soundPreference.getAttribute("aria-pressed"), "true", "default sound-on state is not conveyed by the toggle");
+  await soundPreference.press("Enter");
+  assert.equal(await soundPreference.getAttribute("aria-label"), "Game sounds", "sound toggle changes its accessible name with state");
+  assert.equal(await soundPreference.getAttribute("aria-pressed"), "false", "sound-off state is not conveyed by the toggle");
+  await keyboardAccessibility.locator("#make-another").click();
+  await keyboardAccessibility.waitForFunction(() => (document.activeElement as HTMLElement | null)?.id === "drawing-file");
+  const restoredCaptureFocus = await keyboardAccessibility.locator(".choose-action").evaluate((label) => ({
+    activeId: (document.activeElement as HTMLElement | null)?.id,
+    outlineWidth: getComputedStyle(label).outlineWidth,
+    outlineStyle: getComputedStyle(label).outlineStyle,
+  }));
+  assert.deepEqual(restoredCaptureFocus, { activeId: "drawing-file", outlineWidth: "3px", outlineStyle: "solid" }, `new-drawing flow restores invisible keyboard focus: ${JSON.stringify(restoredCaptureFocus)}`);
+  await keyboardAccessibility.close();
+
+  const reducedMotion = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await reducedMotion.emulateMedia({ reducedMotion: "reduce" });
+  await reducedMotion.goto(baseUrl);
+  const reducedMotionStyles = await reducedMotion.evaluate(() => {
+    const step = document.querySelector<HTMLElement>('.progress-steps [data-stage="checking"]')!;
+    step.classList.add("active");
+    const button = document.querySelector<HTMLElement>(".choose-action")!;
+    return {
+      preference: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      transitionDuration: getComputedStyle(button).transitionDuration,
+      animationDuration: getComputedStyle(step, "::after").animationDuration,
+      animationIterationCount: getComputedStyle(step, "::after").animationIterationCount,
+    };
+  });
+  assert.equal(reducedMotionStyles.preference, true, "reduced-motion preference was not applied");
+  const cssSeconds = (duration: string): number => duration.endsWith("ms")
+    ? Number.parseFloat(duration) / 1_000
+    : Number.parseFloat(duration);
+  assert.ok(cssSeconds(reducedMotionStyles.transitionDuration) <= 0.000_01, `reduced motion leaves long transitions: ${JSON.stringify(reducedMotionStyles)}`);
+  assert.ok(cssSeconds(reducedMotionStyles.animationDuration) <= 0.000_01, `reduced motion leaves the progress shimmer active: ${JSON.stringify(reducedMotionStyles)}`);
+  assert.equal(reducedMotionStyles.animationIterationCount, "1", `reduced motion leaves repeating animation: ${JSON.stringify(reducedMotionStyles)}`);
+  await reducedMotion.locator("#spec-file").setInputFiles({
+    name: "reduced-motion-game.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(gameSpec)),
+  });
+  await reducedMotion.locator("canvas").waitFor();
+  assert.equal(await reducedMotion.locator("#game-shell").evaluate((shell) => shell.getAnimations().length), 0, "reduced motion still runs the scripted game reveal");
+  await reducedMotion.close();
+
+  const textZoom = await browser.newPage({ viewport: { width: 320, height: 568 } });
+  await textZoom.goto(baseUrl);
+  const textZoomLayout = await textZoom.evaluate(() => {
+    document.documentElement.style.fontSize = "200%";
+    const action = document.querySelector<HTMLElement>(".choose-action")!;
+    const rect = action.getBoundingClientRect();
+    return {
+      overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      action: { left: rect.left, right: rect.right, width: rect.width, height: rect.height },
+      textClipped: action.scrollWidth > action.clientWidth + 1 || action.scrollHeight > action.clientHeight + 1,
+      viewportWidth: innerWidth,
+    };
+  });
+  assert.ok(textZoomLayout.overflow <= 1, `200% text zoom creates horizontal scrolling: ${JSON.stringify(textZoomLayout)}`);
+  assert.ok(textZoomLayout.action.left >= 0 && textZoomLayout.action.right <= textZoomLayout.viewportWidth && textZoomLayout.action.width >= 48 && textZoomLayout.action.height >= 48, `200% text zoom clips the primary action: ${JSON.stringify(textZoomLayout)}`);
+  assert.equal(textZoomLayout.textClipped, false, `200% text zoom clips primary action text: ${JSON.stringify(textZoomLayout)}`);
+  await textZoom.close();
+
   const controlViewports = [
     { width: 320, height: 568 },
     { width: 360, height: 640 },
@@ -317,7 +441,7 @@ try {
       const rect = button.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
     });
-    const newDrawing = document.querySelector<HTMLElement>(".new-drawing-action")!.getBoundingClientRect();
+    const newDrawing = document.querySelector<HTMLElement>("#make-another")!.getBoundingClientRect();
     return {
       shell: { top: shell.top, bottom: shell.bottom },
       controls: { top: controls.top, bottom: controls.bottom },
@@ -542,7 +666,7 @@ try {
   });
   await play.locator("canvas").waitFor();
   assert.equal(await play.locator("body.play-mode").count(), 1, "saved game did not enter play mode");
-  const standardPhoneNewDrawing = await play.locator(".new-drawing-action").boundingBox();
+  const standardPhoneNewDrawing = await play.locator("#make-another").boundingBox();
   assert.ok(standardPhoneNewDrawing && standardPhoneNewDrawing.width >= 48 && standardPhoneNewDrawing.height >= 48, `standard-phone New drawing target is too small: ${JSON.stringify(standardPhoneNewDrawing)}`);
   const objective = await play.locator("#objective-detail").evaluate((element) => ({
     clientWidth: element.clientWidth,
@@ -767,7 +891,7 @@ try {
   assert.ok(positions.left.x < positions.down.x && positions.down.x < positions.right.x, "four-way controls are not a spatial D-pad");
   await maze.close();
 
-  console.log("Client UI browser contract passed: touch/pointer phone, desktop, tablet, and landscape viewports; review/progress/recovery, replacement recovery, multi-pointer ownership, player-load retry, play/fullscreen/win/replay, and spatial controls.");
+  console.log("Client UI browser contract passed: accessibility tree, sequential keyboard/switch activation, focus restoration, reduced motion, 200% text reflow, touch/pointer phone, desktop, tablet, landscape, recovery, replay, and spatial controls.");
 } finally {
   await browser.close();
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));

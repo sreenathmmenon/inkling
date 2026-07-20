@@ -24,7 +24,9 @@ import {
   generationErrorMessage,
   visibleGenerationFailure,
 } from "./generation-copy.js";
+import { attachMotionDelight } from "./motion-delight.js";
 import { freshPlayerState, shouldShowAssist } from "./player-status.js";
+import { attachSoundFeedback } from "./sound-feedback.js";
 
 declare const __INKLING_GAMESPEC__: unknown;
 
@@ -85,6 +87,15 @@ const playStage = requireElement<HTMLElement>("#play-stage");
 const returnGame = requireElement<HTMLButtonElement>("#return-game");
 const saveStatus = requireElement<HTMLElement>("#save-status");
 const previewStage = requireElement<HTMLElement>(".preview-stage");
+const soundToggle = requireElement<HTMLButtonElement>("#sound-toggle");
+
+const motionDelight = attachMotionDelight({
+  shell: gameShell,
+  status,
+  controls: accessibleControls,
+  actions: postPlayActions,
+});
+const soundFeedback = attachSoundFeedback({ button: soundToggle });
 
 // The standalone player may replace this at build time; the local capture
 // server intentionally does not need Vite's websocket client to do so.
@@ -211,6 +222,7 @@ async function certifyGeneratedGame(value: unknown): Promise<unknown> {
 function showState(state: PlatformerState): void {
   const assistVisible = shouldShowAssist(state);
   assistGame.hidden = !assistVisible;
+  soundToggle.hidden = state.status !== "playing";
   document.body.classList.toggle("assist-available", assistVisible);
   status.dataset.gameState = state.status;
   status.classList.remove("error");
@@ -219,6 +231,7 @@ function showState(state: PlatformerState): void {
     restart.hidden = false;
     saveGame.hidden = false;
     status.textContent = "You brought it to life! What will you make next?";
+    motionDelight.stateChanged(state.status);
     restart.focus({ preventScroll: true });
     return;
   }
@@ -226,6 +239,7 @@ function showState(state: PlatformerState): void {
     renderExperienceState("lost");
     restart.hidden = false;
     status.textContent = "No lives left. Tap Play again to try again.";
+    motionDelight.stateChanged(state.status);
     restart.focus({ preventScroll: true });
     return;
   }
@@ -262,7 +276,7 @@ async function play(spec: unknown): Promise<void> {
   parent.hidden = false;
   gameShell.removeAttribute("aria-label");
   gameShell.setAttribute("aria-labelledby", "objective-title");
-  gameShell.setAttribute("aria-describedby", "objective-detail game-status controls-hint");
+  gameShell.setAttribute("aria-describedby", "objective-detail game-status controls-hint game-control-help");
   restart.disabled = false;
   restart.hidden = true;
   saveGame.hidden = true;
@@ -310,6 +324,7 @@ async function play(spec: unknown): Promise<void> {
     status.dataset.gameState = "error";
     status.classList.add("error");
     status.textContent = "The player did not finish opening. Tap Play again.";
+    soundToggle.hidden = true;
     restart.hidden = false;
     restart.disabled = false;
     enterPlayMode("player-error", restart);
@@ -323,9 +338,12 @@ async function play(spec: unknown): Promise<void> {
     presentation: "embedded",
     onStateChange: showState,
     onRuntimeEvent(event: RuntimeEvent) {
+      motionDelight.handleRuntimeEvent(event);
+      soundFeedback.handleRuntimeEvent(event);
       window.dispatchEvent(new CustomEvent<RuntimeEvent>("inkling:runtime-event", { detail: event }));
     },
   });
+  motionDelight.gameRevealed();
   enterPlayMode();
 }
 
@@ -533,13 +551,18 @@ function showGenerationStage(stage: GenerationStage): void {
   progressPanel.hidden = false;
   progressTitle.textContent = current.title;
   progressDetail.textContent = current.detail;
+  let activeStep: HTMLElement | undefined;
   for (const element of document.querySelectorAll<HTMLElement>(".progress-steps [data-stage]")) {
     const stepIndex = STAGES.findIndex((item) => item.id === element.dataset.stage);
     element.classList.toggle("done", stepIndex >= 0 && stepIndex < index);
     element.classList.toggle("active", stepIndex === index);
-    if (stepIndex === index) element.setAttribute("aria-current", "step");
+    if (stepIndex === index) {
+      element.setAttribute("aria-current", "step");
+      activeStep = element;
+    }
     else element.removeAttribute("aria-current");
   }
+  if (activeStep) motionDelight.generationStageChanged(activeStep);
 }
 
 function startGenerationProgress(): void {
@@ -911,6 +934,25 @@ for (const button of accessibleControls.querySelectorAll<HTMLButtonElement>("[da
     activePointers.clear();
     sync();
   };
+  const activateKeyboard = (): void => {
+    window.clearTimeout(keyboardTimer);
+    keyboardActive = true;
+    sync();
+    keyboardTimer = window.setTimeout(() => {
+      keyboardActive = false;
+      keyboardTimer = undefined;
+      sync();
+    }, control === "jump" || control === "action" ? 120 : 300);
+  };
+  const activateFocusedSpace = (event: KeyboardEvent): void => {
+    if (event.key !== " " || event.repeat || document.activeElement !== button) return;
+    // Phaser captures Space above the button target. Handle it first at the
+    // window boundary so a focused switch/keyboard control remains operable.
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    activateKeyboard();
+  };
+  window.addEventListener("keydown", activateFocusedSpace, { capture: true });
   button.setAttribute("aria-pressed", "false");
   button.addEventListener("pointerdown", (event) => {
     if (event.pointerType === "mouse" && event.button !== 0) return;
@@ -929,14 +971,7 @@ for (const button of accessibleControls.querySelectorAll<HTMLButtonElement>("[da
     // a click after pointerup; replaying it would keep moving after release.
     // A detail of zero identifies keyboard/assistive activation.
     if (event.detail !== 0) return;
-    window.clearTimeout(keyboardTimer);
-    keyboardActive = true;
-    sync();
-    keyboardTimer = window.setTimeout(() => {
-      keyboardActive = false;
-      keyboardTimer = undefined;
-      sync();
-    }, control === "jump" || control === "action" ? 120 : 300);
+    activateKeyboard();
   });
   gameControlReleases.push(releaseAll);
 }

@@ -8,6 +8,29 @@ export interface CoachingContract {
 }
 
 /**
+ * Produces a recovery instruction using only controls the active game
+ * contract actually exposes. Side-view games deliberately never suggest a
+ * down control, while free-movement games can use all four directions.
+ */
+export function createRecoveryCue(
+  touchControls: PlatformerPlan["contract"]["touchControls"],
+  deltaX: number,
+  deltaY: number,
+): string {
+  if (touchControls === "four_way") {
+    const arrow = Math.abs(deltaX) >= Math.abs(deltaY)
+      ? deltaX < 0 ? "←" : "→"
+      : deltaY < 0 ? "↑" : "↓";
+    return `Try ${arrow} toward the glow`;
+  }
+  if (Math.abs(deltaX) > 12) {
+    return `Try ${deltaX < 0 ? "←" : "→"} and jump toward the glow`;
+  }
+  if (deltaY < 0) return "Try jump ↑ toward the glow";
+  return "Try moving, then jump toward the glow";
+}
+
+/**
  * Selects the first safe, understandable action from GameSpec-derived engine
  * contracts. It contains no object recognition and cannot specialize for a
  * rocket, animal, vehicle, filename, or any other drawing noun.

@@ -24,7 +24,7 @@ import {
   feedbackCueFor,
   type GameplayFeedbackEvent,
 } from "../packages/runtime/src/feedback-contract.js";
-import { createCoachingContract } from "../packages/runtime/src/coaching-contract.js";
+import { createCoachingContract, createRecoveryCue } from "../packages/runtime/src/coaching-contract.js";
 import { createPlayContract } from "../packages/runtime/src/play-contract.js";
 import {
   surfaceJumpVelocity,
@@ -444,6 +444,15 @@ test("first-use coaching derives only from engine contracts and objective geomet
   shooter.primary_genre = "shooter";
   shooter.goal = { kind: "defeat_boss", target_id: "target" };
   assert.equal(createCoachingContract(createPlatformerPlan(shooter)).firstControl, "action");
+});
+
+test("recovery coaching never suggests a control the active game does not expose", () => {
+  assert.equal(createRecoveryCue("four_way", 0, 100), "Try ↓ toward the glow");
+  assert.equal(createRecoveryCue("four_way", 0, -100), "Try ↑ toward the glow");
+  assert.equal(createRecoveryCue("side", 0, 100), "Try moving, then jump toward the glow");
+  assert.equal(createRecoveryCue("side", 0, -100), "Try jump ↑ toward the glow");
+  assert.equal(createRecoveryCue("side", -100, 0), "Try ← and jump toward the glow");
+  assert.doesNotMatch(createRecoveryCue("side", 0, 100), /↓/);
 });
 
 test("all drawn platform shapes use the same one-way landing contract", () => {

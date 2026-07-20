@@ -261,15 +261,15 @@ body.play-mode.touch-controls #accessible-controls[data-layout="four-way"] [data
 body.play-mode.touch-controls #accessible-controls[data-layout="four-way"] [data-game-control="right"] { grid-column: 3; grid-row: 2; }
 body.play-mode.touch-controls #accessible-controls[data-layout="four-way"] [data-game-control="action"] { grid-column: 5; grid-row: 2; }
 /* Recovery is a primary game action, not metadata. Keep it in the same
-   reachable place for every touch layout, including landscape where normal
-   play metadata is intentionally hidden. */
-body.play-mode.touch-controls.playing.assist-available #play-stage:not(:fullscreen) .play-meta { position: fixed; z-index: 350; top: 50%; right: max(8px, env(safe-area-inset-right)); display: block; width: auto; margin: 0; padding: 0; transform: translateY(-50%); }
-body.play-mode.touch-controls.playing.assist-available #play-stage:not(:fullscreen) .play-meta .hint,
-body.play-mode.touch-controls.playing.assist-available #play-stage:not(:fullscreen) #save-status,
-body.play-mode.touch-controls.playing.assist-available #play-stage:not(:fullscreen) #fullscreen-game { display: none; }
-body.play-mode.touch-controls.playing.assist-available #play-stage:not(:fullscreen) #post-play-actions { margin: 0; }
-body.play-mode.touch-controls.playing.assist-available .assist-action { min-width: 48px; min-height: 48px; }
-body.play-mode.touch-controls.playing.assist-available #play-stage:fullscreen #post-play-actions > #assist-game { display: inline-flex; }
+   reachable place for every input mode and viewport, including responsive
+   browser windows that expose the DOM controls without reporting touch. */
+body.play-mode.playing.assist-available #play-stage:not(:fullscreen) .play-meta { position: fixed; z-index: 350; top: 50%; right: max(8px, env(safe-area-inset-right)); display: block; width: auto; margin: 0; padding: 0; transform: translateY(-50%); }
+body.play-mode.playing.assist-available #play-stage:not(:fullscreen) .play-meta .hint,
+body.play-mode.playing.assist-available #play-stage:not(:fullscreen) #save-status,
+body.play-mode.playing.assist-available #play-stage:not(:fullscreen) #fullscreen-game { display: none; }
+body.play-mode.playing.assist-available #play-stage:not(:fullscreen) #post-play-actions { margin: 0; }
+body.play-mode.playing.assist-available .assist-action { min-width: 48px; min-height: 48px; }
+body.play-mode.playing.assist-available #play-stage:fullscreen #post-play-actions > #assist-game { display: inline-flex; }
 body.play-mode.touch-controls.game-won #accessible-controls,
 body.play-mode.touch-controls.game-lost #accessible-controls,
 body.play-mode.touch-controls.player-error #accessible-controls { display: none; }

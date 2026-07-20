@@ -232,64 +232,70 @@ try {
     }
   }
 
-  const assistMatrix: Array<{
-    page: Page;
-    id: string;
-    viewport: { width: number; height: number };
-  }> = [];
-  for (const viewport of controlViewports) {
-    for (const contract of [
-      { id: "side", spec: gameSpec },
-      { id: "four-way-action", spec: actionGameSpec },
-    ]) {
-      const page = await browser.newPage({ viewport, hasTouch: true });
-      await page.goto(baseUrl);
-      await page.locator("#spec-file").setInputFiles({
-        name: `assist-${contract.id}-${viewport.width}x${viewport.height}.json`,
-        mimeType: "application/json",
-        buffer: Buffer.from(JSON.stringify(contract.spec)),
-      });
-      await page.locator("canvas").waitFor();
-      if (contract.id === "four-way-action" && viewport.width === 390 && viewport.height === 844) {
-        await page.locator("#fullscreen-game").click();
-        await page.waitForFunction(() => document.fullscreenElement?.id === "play-stage");
+  for (const inputMode of [
+    { id: "touch", hasTouch: true },
+    { id: "pointer", hasTouch: false },
+  ]) {
+    const assistMatrix: Array<{
+      page: Page;
+      id: string;
+      viewport: { width: number; height: number };
+    }> = [];
+    for (const viewport of controlViewports) {
+      for (const contract of [
+        { id: "side", spec: gameSpec },
+        { id: "four-way-action", spec: actionGameSpec },
+      ]) {
+        const page = await browser.newPage({ viewport, hasTouch: inputMode.hasTouch });
+        await page.goto(baseUrl);
+        await page.locator("#spec-file").setInputFiles({
+          name: `assist-${inputMode.id}-${contract.id}-${viewport.width}x${viewport.height}.json`,
+          mimeType: "application/json",
+          buffer: Buffer.from(JSON.stringify(contract.spec)),
+        });
+        await page.locator("canvas").waitFor();
+        if (contract.id === "four-way-action" && viewport.width === 390 && viewport.height === 844) {
+          await page.locator("#fullscreen-game").click();
+          await page.waitForFunction(() => document.fullscreenElement?.id === "play-stage");
+        }
+        await page.locator('[data-game-control="left"]').dispatchEvent("pointerdown", {
+          pointerId: 70 + assistMatrix.length,
+          pointerType: inputMode.hasTouch ? "touch" : "mouse",
+        });
+        assistMatrix.push({ page, id: `${inputMode.id}-${contract.id}`, viewport });
       }
-      await page.locator('[data-game-control="left"]').dispatchEvent("pointerdown", {
-        pointerId: 70 + assistMatrix.length,
-        pointerType: "touch",
-      });
-      assistMatrix.push({ page, id: contract.id, viewport });
     }
-  }
-  await Promise.all(assistMatrix.map(({ page }) => page.waitForTimeout(10_500)));
-  for (const [index, entry] of assistMatrix.entries()) {
-    await entry.page.locator('[data-game-control="left"]').dispatchEvent("pointerup", {
-      pointerId: 70 + index,
-      pointerType: "touch",
-    });
-    const assist = entry.page.getByRole("button", { name: "Give me a boost" });
-    await assist.waitFor({ state: "visible" });
-    const measurement = await entry.page.evaluate(() => {
-      const assistRect = document.querySelector<HTMLElement>("#assist-game")!.getBoundingClientRect();
-      const controlsRect = document.querySelector<HTMLElement>("#accessible-controls")!.getBoundingClientRect();
-      const overlap = !(
-        assistRect.right <= controlsRect.left ||
-        assistRect.left >= controlsRect.right ||
-        assistRect.bottom <= controlsRect.top ||
-        assistRect.top >= controlsRect.bottom
-      );
-      return {
-        assist: { top: assistRect.top, bottom: assistRect.bottom, left: assistRect.left, right: assistRect.right, width: assistRect.width, height: assistRect.height },
-        controls: { top: controlsRect.top, bottom: controlsRect.bottom, left: controlsRect.left, right: controlsRect.right },
-        viewport: { width: innerWidth, height: innerHeight },
-        overlap,
-      };
-    });
-    assert.ok(measurement.assist.width >= 48 && measurement.assist.height >= 48 && measurement.assist.top >= 0 && measurement.assist.bottom <= entry.viewport.height && measurement.assist.left >= 0 && measurement.assist.right <= entry.viewport.width, `assist matrix is unreachable for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}: ${JSON.stringify(measurement)}`);
-    assert.equal(measurement.overlap, false, `assist overlaps controls for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}: ${JSON.stringify(measurement)}`);
-    await assist.click();
-    assert.match(await entry.page.locator("#game-status").textContent() ?? "", /Help boost on/, `assist did not activate for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}`);
-    await entry.page.close();
+    await Promise.all(assistMatrix.map(({ page }) => page.waitForTimeout(10_500)));
+    for (const [index, entry] of assistMatrix.entries()) {
+      await entry.page.locator('[data-game-control="left"]').dispatchEvent("pointerup", {
+        pointerId: 70 + index,
+        pointerType: inputMode.hasTouch ? "touch" : "mouse",
+      });
+      const assist = entry.page.getByRole("button", { name: "Give me a boost" });
+      await assist.waitFor({ state: "visible" });
+      const measurement = await entry.page.evaluate(() => {
+        const assistRect = document.querySelector<HTMLElement>("#assist-game")!.getBoundingClientRect();
+        const controlsRect = document.querySelector<HTMLElement>("#accessible-controls")!.getBoundingClientRect();
+        const controlsVisible = controlsRect.width > 0 && controlsRect.height > 0 && controlsRect.right > 0 && controlsRect.left < innerWidth;
+        const overlap = controlsVisible && !(
+          assistRect.right <= controlsRect.left ||
+          assistRect.left >= controlsRect.right ||
+          assistRect.bottom <= controlsRect.top ||
+          assistRect.top >= controlsRect.bottom
+        );
+        return {
+          assist: { top: assistRect.top, bottom: assistRect.bottom, left: assistRect.left, right: assistRect.right, width: assistRect.width, height: assistRect.height },
+          controls: { top: controlsRect.top, bottom: controlsRect.bottom, left: controlsRect.left, right: controlsRect.right },
+          viewport: { width: innerWidth, height: innerHeight },
+          overlap,
+        };
+      });
+      assert.ok(measurement.assist.width >= 48 && measurement.assist.height >= 48 && measurement.assist.top >= 0 && measurement.assist.bottom <= entry.viewport.height && measurement.assist.left >= 0 && measurement.assist.right <= entry.viewport.width, `assist matrix is unreachable for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}: ${JSON.stringify(measurement)}`);
+      assert.equal(measurement.overlap, false, `assist overlaps controls for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}: ${JSON.stringify(measurement)}`);
+      await assist.click();
+      assert.match(await entry.page.locator("#game-status").textContent() ?? "", /Help boost on/, `assist did not activate for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}`);
+      await entry.page.close();
+    }
   }
 
   const shortPhone = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true });
@@ -355,7 +361,7 @@ try {
   assert.equal(shortPhoneTerminal.activeId, "restart", `short-phone terminal focus is not on Play again: ${JSON.stringify(shortPhoneTerminal)}`);
   await shortPhone.close();
 
-  const shortFourWay = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true });
+  const shortFourWay = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: false });
   await shortFourWay.goto(baseUrl);
   await shortFourWay.locator("#spec-file").setInputFiles({
     name: "short-phone-four-way.json",
@@ -669,7 +675,7 @@ try {
   assert.ok(positions.left.x < positions.down.x && positions.down.x < positions.right.x, "four-way controls are not a spatial D-pad");
   await maze.close();
 
-  console.log("Client UI browser contract passed: phone/desktop/tablet/landscape-touch viewports, review/progress/recovery, play/fullscreen/win/replay, and spatial controls.");
+  console.log("Client UI browser contract passed: touch/pointer phone, desktop, tablet, and landscape viewports; review/progress/recovery, play/fullscreen/win/replay, and spatial controls.");
 } finally {
   await browser.close();
   await new Promise<void>((resolveClose) => server.close(() => resolveClose()));

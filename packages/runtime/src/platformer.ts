@@ -33,6 +33,7 @@ import {
 } from "./feedback-contract.js";
 import {
   createCoachingContract,
+  createRecoveryCue,
   type CoachingContract,
 } from "./coaching-contract.js";
 import type { RuntimeEvent, RuntimeEventKind } from "./runtime-events.js";
@@ -726,9 +727,8 @@ class PlatformerScene extends Phaser.Scene {
       this.showAssistTarget(target);
       const deltaX = cueTarget.x - this.hero.x;
       const deltaY = cueTarget.y - this.hero.y;
-      const arrow = Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX < 0 ? "←" : "→" : deltaY < 0 ? "↑" : "↓";
       this.recoveryGuide = this.add
-        .text(this.scale.width / 2, 112, `Try ${arrow} toward the glow`, {
+        .text(this.scale.width / 2, 112, createRecoveryCue(this.plan.contract.touchControls, deltaX, deltaY), {
           color: "#211c38",
           fontFamily: "system-ui, sans-serif",
           fontSize: "17px",

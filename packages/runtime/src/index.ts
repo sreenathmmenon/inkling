@@ -75,6 +75,7 @@ export {
 } from "./feedback-contract.js";
 export {
   createCoachingContract,
+  createRecoveryCue,
   type CoachingContract,
 } from "./coaching-contract.js";
 export {

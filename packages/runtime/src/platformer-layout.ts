@@ -392,9 +392,16 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       maxWidth: 260,
       maxHeight: 220,
     }, entity.artworkSource));
-  const requiredCollectibleIds = spec.goal.kind === "collect_all"
+  // A collect-all game with no collectible entities has no possible progress
+  // event in either Phaser or P8. Keep the same generated world and fall back
+  // to its deterministic finish marker rather than creating a dead end.
+  const goalKind = spec.goal.kind === "collect_all" && collectibles.length === 0
+    ? "reach_goal"
+    : spec.goal.kind || "reach_goal";
+  const relationshipKeyIds = relationships.map((relationship) => relationship.keyId);
+  const requiredCollectibleIds = goalKind === "collect_all" || goalKind === "reach_goal"
     ? collectibles.map((collectible) => collectible.id)
-    : relationships.map((relationship) => relationship.keyId);
+    : relationshipKeyIds;
 
   const goalTrigger: PlannedEntity = usesFreeMovement
     ? {
@@ -414,12 +421,6 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
       height: Math.max(64, goal.height + 20),
     };
 
-  // A collect-all game with no collectible entities has no possible progress
-  // event in either Phaser or P8. Keep the same generated world and fall back
-  // to its deterministic finish marker rather than creating a dead end.
-  const goalKind = spec.goal.kind === "collect_all" && collectibles.length === 0
-    ? "reach_goal"
-    : spec.goal.kind || "reach_goal";
   const drawnMazeWalls = platforms.filter((platform) => platform.id !== safetyFloor.id);
   const mazeTopologyFallback = contract.id === "maze" && !mazeTopologyIsFinishable({
     hero,

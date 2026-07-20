@@ -36,6 +36,13 @@ collectGameSpec.entities.splice(1, 0,
 );
 collectGameSpec.goal = { kind: "collect_all", target_id: null };
 
+const reachInteractionGameSpec = structuredClone(baseGameSpec);
+reachInteractionGameSpec.entities.splice(1, 0,
+  { id: "interaction_ledge", role: "platform", bbox: [0.2, 0.5, 0.38, 0.56], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "interaction_detour", role: "collectible", bbox: [0.27, 0.42, 0.32, 0.5], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "interaction_route", role: "collectible", bbox: [0.5, 0.62, 0.55, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+);
+
 const hazardGameSpec = structuredClone(baseGameSpec);
 hazardGameSpec.entities.splice(1, 0, {
   id: "hazard", role: "hazard", bbox: [0.45, 0.66, 0.52, 0.74], behavior: "static", linked_to: null, style_ref: "source",
@@ -174,6 +181,7 @@ function assistFrames(control: "left" | "right" | "jump"): Array<{
 
 const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "reach", gameSpec: baseGameSpec },
+  { id: "reach-interactions", gameSpec: reachInteractionGameSpec },
   { id: "collect", gameSpec: collectGameSpec },
   { id: "hazard", gameSpec: hazardGameSpec },
   { id: "vertical", gameSpec: verticalGameSpec },
@@ -340,6 +348,33 @@ try {
       const assistedReport = validateRuntimeTrace(assistedEvents, playContract);
       assert.equal(assistedReport.valid, true, `reach/assist: ${assistedReport.blockers.join(", ")}`);
       summaries.push(`reach/assist@${assistedReport.finalFrame}`);
+    }
+    if (gameCase.id === "reach-interactions") {
+      const directFrames = Array.from({ length: 420 }, (_, index) => ({
+        format: "inkling-input-frame-v1" as const,
+        frame: index + 1,
+        left: false,
+        right: true,
+        jump: false,
+        down: false,
+        action: false,
+        assist: false,
+      }));
+      const bypassEvents = await page.evaluate(async (input) => {
+        const api = window.__INKLING_REPLAY__;
+        if (!api) throw new Error("Inkling runtime replay API is unavailable");
+        return api.run(input.gameSpec, input.inputFrames);
+      }, { gameSpec: gameCase.gameSpec, inputFrames: directFrames }) as RuntimeEvent[];
+      assert.equal(
+        bypassEvents.at(-1)?.state.status,
+        "playing",
+        "reach-goal allowed a straight-line win that bypassed a required drawn interaction",
+      );
+      assert.ok(
+        bypassEvents.some((event) => event.kind === "goal_blocked"),
+        "reach-goal did not explain why its finish was still locked",
+      );
+      summaries.push("reach-interactions/bypass-blocked");
     }
     if (gameCase.id === "maze") {
       const directFrames = Array.from({ length: 300 }, (_, index) => ({

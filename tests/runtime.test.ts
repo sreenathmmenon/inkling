@@ -131,6 +131,7 @@ test("Lane A preserves lives and categorizes platformer interactions", () => {
   assert.equal(plan.lives, 7);
   assert.deepEqual(plan.hazards.map((entity) => entity.id), ["spike"]);
   assert.deepEqual(plan.collectibles.map((entity) => entity.id), ["star"]);
+  assert.deepEqual(plan.requiredCollectibleIds, ["star"]);
   assert.equal(plan.goal.id, "flag");
   assert.equal(plan.goal.styleRef, "flag-strokes");
 });
@@ -450,7 +451,7 @@ test("first-use coaching derives only from engine contracts and objective geomet
   };
   const ground = createCoachingContract(createPlatformerPlan(base));
   assert.equal(ground.firstControl, "right");
-  assert.equal(ground.objectiveLabel, "FINISH");
+  assert.equal(ground.objectiveLabel, "FIND");
 
   const collectAll = structuredClone(base);
   collectAll.goal = { kind: "collect_all", target_id: null };
@@ -460,6 +461,7 @@ test("first-use coaching derives only from engine contracts and objective geomet
 
   const free = structuredClone(base);
   free.primary_genre = "maze";
+  free.entities[0]!.bbox = [0.12, 0.05, 0.2, 0.15];
   free.entities[1]!.bbox = [0.12, 0.05, 0.2, 0.15];
   const upward = createCoachingContract(createPlatformerPlan(free));
   assert.equal(upward.firstControl, "jump");
@@ -512,11 +514,11 @@ test("objective copy and counters stay truthful without guessing drawing nouns",
     palette: ["#ffffff"], assumptions: [], flags: [],
   });
   assert.deepEqual(createObjectiveContract(reachPlan), {
-    headline: "Reach the finish",
-    instruction: "Reach the marked finish. Drawn items are a bonus.",
-    counterLabel: "Bonus",
-    requiredTotal: 0,
-    optionalTotal: 1,
+    headline: "Find the drawn items",
+    instruction: "Find the drawn item, then reach the finish.",
+    counterLabel: "Found",
+    requiredTotal: 1,
+    optionalTotal: 0,
     finishRequired: true,
   });
 
@@ -527,6 +529,38 @@ test("objective copy and counters stay truthful without guessing drawing nouns",
   assert.equal(collectObjective.requiredTotal, 1);
   assert.equal(collectObjective.finishRequired, false);
   assert.doesNotMatch(JSON.stringify(collectObjective), /star|carrot|rocket|collectible/i);
+});
+
+test("reach-goal interaction contract requires every semantic item without inspecting nouns", () => {
+  const spec: GameSpec = {
+    primary_genre: "roller", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.05, 0.45, 0.15, 0.6], style_ref: "source" },
+    entities: [
+      { id: "near_route_1", role: "collectible", bbox: [0.25, 0.48, 0.3, 0.55], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "large_detour", role: "collectible", bbox: [0.42, 0.05, 0.47, 0.12], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "near_route_2", role: "collectible", bbox: [0.55, 0.5, 0.6, 0.57], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "near_route_3", role: "collectible", bbox: [0.7, 0.47, 0.75, 0.54], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "detour_2", role: "key", bbox: [0.72, 0.15, 0.77, 0.22], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "detour_3", role: "collectible", bbox: [0.2, 0.82, 0.25, 0.89], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.86, 0.46, 0.94, 0.6], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+
+  const first = createPlatformerPlan(spec);
+  const second = createPlatformerPlan(spec);
+  assert.deepEqual(first.requiredCollectibleIds, second.requiredCollectibleIds);
+  assert.deepEqual(first.requiredCollectibleIds, [
+    "near_route_1",
+    "large_detour",
+    "near_route_2",
+    "near_route_3",
+    "detour_2",
+    "detour_3",
+  ]);
+  assert.equal(createObjectiveContract(first).requiredTotal, 6);
 });
 
 test("an empty collect-all contract falls back to a reachable finish instead of a dead end", () => {

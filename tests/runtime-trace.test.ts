@@ -65,3 +65,25 @@ test("real-runtime trace evidence accepts a legal input-backed win", () => {
   assert.equal(report.inputAccepted, true);
   assert.equal(report.finalStatus, "won");
 });
+
+test("real-runtime trace evidence rejects a finish that bypasses required drawn interactions", () => {
+  const withDrawnItem: GameSpec = structuredClone(gameSpec);
+  withDrawnItem.entities.splice(1, 0, {
+    id: "drawn_item",
+    role: "collectible",
+    bbox: [0.42, 0.6, 0.47, 0.68],
+    behavior: "static",
+    linked_to: null,
+    style_ref: "source",
+  });
+  const report = validateRuntimeTrace([
+    event(0, 0, "state_changed", "playing"),
+    event(1, 3, "input_accepted", "playing"),
+    { ...event(2, 4, "surface_landed", "playing"), entityId: "floor", required: true },
+    event(3, 180, "win", "won"),
+    event(4, 180, "state_changed", "won"),
+  ], createPlayContract(withDrawnItem));
+
+  assert.equal(report.valid, false);
+  assert.ok(report.blockers.includes("required_interaction_missing:drawn_item"));
+});

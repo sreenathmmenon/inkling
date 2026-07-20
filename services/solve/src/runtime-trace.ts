@@ -69,6 +69,15 @@ export function validateRuntimeTrace(
   ) {
     blockers.push("key_door_goal_completed_without_unlock_event");
   }
+  const winIndex = events.findIndex((event) => event.kind === "win");
+  const eventsBeforeWin = winIndex >= 0 ? events.slice(0, winIndex) : events;
+  for (const entityId of playContract.requiredInteractionEntityIds ?? []) {
+    if (!eventsBeforeWin.some((event) => (
+      event.kind === "pickup" && event.required && event.entityId === entityId
+    ))) {
+      blockers.push(`required_interaction_missing:${entityId}`);
+    }
+  }
   if (
     (playContract.effectiveMovement === "ground" || playContract.effectiveMovement === "auto_ground") &&
     terminalSeen &&

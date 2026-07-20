@@ -162,6 +162,21 @@ test("ground-mode P8 routes through required collectibles before finishing", () 
   assert.ok(report.visited.includes("item_2"));
 });
 
+test("reach-goal P8 cannot bypass every semantic collectible", () => {
+  const game = fixture();
+  game.entities = [
+    { id: "floor", role: "platform", bbox: [0, 0.78, 1, 0.86], behavior: "static", linked_to: null, style_ref: "source" },
+    { id: "drawn_item", role: "collectible", bbox: [0.4, 0.66, 0.46, 0.75], behavior: "static", linked_to: null, style_ref: "source" },
+    { id: "finish", role: "goal", bbox: [0.84, 0.62, 0.92, 0.78], behavior: "static", linked_to: null, style_ref: "source" },
+  ];
+  game.goal = { kind: "reach_goal", target_id: "finish" };
+
+  const report = runPlaytest(game, 42);
+  assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
+  assert.ok(report.visited.includes("drawn_item"));
+  assert.ok(report.visited.indexOf("drawn_item") < report.visited.indexOf("finish"));
+});
+
 test("P8 collects an explicit key before crossing its linked door", () => {
   const game = fixture();
   game.entities = [

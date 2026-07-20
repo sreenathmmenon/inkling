@@ -11,8 +11,8 @@ export interface ObjectiveContract {
 
 /**
  * One source of truth for what the player is asked to do and what the
- * deterministic runtime accepts as a win. Wording comes only from the
- * GameSpec goal contract; it never guesses names from a drawing or filename.
+ * deterministic runtime accepts as a win. Wording comes only from GameSpec
+ * goal and role contracts; it never guesses names from a drawing or filename.
  */
 export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract {
   const total = plan.collectibles.length;
@@ -28,6 +28,20 @@ export function createObjectiveContract(plan: PlatformerPlan): ObjectiveContract
   }
   if (plan.requiredCollectibleIds.length > 0) {
     const required = plan.requiredCollectibleIds.length;
+    const relationshipKeyIds = new Set(plan.relationships.map((relationship) => relationship.keyId));
+    const onlyUnlockItems = plan.requiredCollectibleIds.every((id) => relationshipKeyIds.has(id));
+    if (!onlyUnlockItems) {
+      return {
+        headline: "Find the drawn items",
+        instruction: required === 1
+          ? "Find the drawn item, then reach the finish."
+          : `Find all ${required} drawn items, then reach the finish.`,
+        counterLabel: "Found",
+        requiredTotal: required,
+        optionalTotal: Math.max(0, total - required),
+        finishRequired: true,
+      };
+    }
     return {
       headline: "Unlock the way",
       instruction: required === 1

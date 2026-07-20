@@ -80,6 +80,24 @@ function scenario(index: number): GameSpec {
     });
   } else {
     entities.push({
+      id: `interaction_${index}_a`,
+      role: "collectible",
+      bbox: groundMovement ? [0.3, 0.62, 0.35, 0.72] : [0.24, 0.14, 0.3, 0.23],
+      behavior: "static",
+      linked_to: null,
+      style_ref: "source",
+    });
+    if (index % 4 === 0) {
+      entities.push({
+        id: `interaction_${index}_b`,
+        role: "collectible",
+        bbox: groundMovement ? [0.62, 0.62, 0.67, 0.72] : [0.68, 0.64, 0.74, 0.73],
+        behavior: "static",
+        linked_to: null,
+        style_ref: "source",
+      });
+    }
+    entities.push({
       id: `goal_${index}`,
       role: "goal",
       bbox: goalBox,
@@ -120,6 +138,16 @@ test("120 schema-driven customer worlds stay deterministic, bounded, and finisha
     const firstPlan = createPlatformerPlan(gameSpec);
     const secondPlan = createPlatformerPlan(gameSpec);
     assert.deepEqual(firstPlan, secondPlan, `scenario ${index}: plan changed with no input change`);
+    if (gameSpec.goal.kind === "reach_goal") {
+      const declaredInteractions = gameSpec.entities.filter((entity) => (
+        entity.role === "collectible" || entity.role === "key"
+      ));
+      assert.deepEqual(
+        firstPlan.requiredCollectibleIds,
+        declaredInteractions.map((entity) => entity.id),
+        `scenario ${index}: reach-goal omitted a semantic interaction`,
+      );
+    }
 
     for (const entity of [
       firstPlan.hero,
@@ -144,6 +172,12 @@ test("120 schema-driven customer worlds stay deterministic, bounded, and finisha
       true,
       `scenario ${index}/${gameSpec.primary_genre}: ${firstReport.first_blocker}`,
     );
+    for (const entityId of firstPlan.requiredCollectibleIds) {
+      assert.ok(
+        firstReport.visited.includes(entityId),
+        `scenario ${index}/${gameSpec.primary_genre}: P8 bypassed ${entityId}`,
+      );
+    }
 
     const contract = createPlayContract(gameSpec);
     if (contract.outcome === "faithful_ready") {

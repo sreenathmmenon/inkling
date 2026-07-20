@@ -54,6 +54,7 @@ export interface PlayContract {
   declaredGenre: string;
   effectiveMovement: PlatformerPlan["contract"]["movement"];
   goalKind: string;
+  requiredInteractionEntityIds: string[];
   requiredCapabilities: RuntimeCapability[];
   supportedCapabilities: RuntimeCapability[];
   unsupportedCapabilities: RuntimeCapability[];
@@ -315,6 +316,7 @@ export function createPlayContract(gameSpec: GameSpec): PlayContract {
     declaredGenre: gameSpec.primary_genre,
     effectiveMovement: plan.contract.movement,
     goalKind: gameSpec.goal.kind,
+    requiredInteractionEntityIds: [...plan.requiredCollectibleIds],
     requiredCapabilities: required,
     supportedCapabilities,
     unsupportedCapabilities,

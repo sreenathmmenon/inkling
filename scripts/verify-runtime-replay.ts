@@ -83,6 +83,29 @@ runnerGameSpec.entities.splice(1, 0, {
   id: "runner_hazard", role: "hazard", bbox: [0.44, 0.66, 0.5, 0.74], behavior: "static", linked_to: null, style_ref: "source",
 });
 
+// A large free-movement hero and clustered edge-adjacent targets exercise the
+// same precision/recovery class as arbitrary child drawings with coarse touch
+// input. Runtime behavior remains entirely geometry-driven.
+const freePrecisionGameSpec = structuredClone(baseGameSpec);
+freePrecisionGameSpec.primary_genre = "platformer";
+freePrecisionGameSpec.hero.bbox = [0.02, 0.31, 0.39, 0.59];
+freePrecisionGameSpec.entities = [
+  [0.06, 0.06, 0.19, 0.14],
+  [0.25, 0.05, 0.41, 0.16],
+  [0.1, 0.18, 0.2, 0.25],
+  [0.3, 0.2, 0.41, 0.28],
+  [0.06, 0.26, 0.13, 0.31],
+  [0.37, 0.31, 0.44, 0.35],
+].map((bbox, index) => ({
+  id: `precision_item_${index + 1}`,
+  role: "collectible",
+  bbox: bbox as [number, number, number, number],
+  behavior: "static",
+  linked_to: null,
+  style_ref: "source",
+}));
+freePrecisionGameSpec.goal = { kind: "collect_all", target_id: null };
+
 const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "reach", gameSpec: baseGameSpec },
   { id: "collect", gameSpec: collectGameSpec },
@@ -140,12 +163,25 @@ const address = server.address();
 assert.ok(address && typeof address === "object");
 let browser: Browser | undefined;
 try {
-  browser = await launchBrowser();
-  const page = await browser.newPage({ viewport: { width: 960, height: 700 } });
-  await page.goto(`http://127.0.0.1:${address.port}/?runtime-replay=1`, { waitUntil: "networkidle" });
+  const activeBrowser = await launchBrowser();
+  browser = activeBrowser;
+  const createReplayPage = async () => {
+    const replayPage = await activeBrowser.newPage({ viewport: { width: 960, height: 700 } });
+    await replayPage.goto(`http://127.0.0.1:${address.port}/?runtime-replay=1`, { waitUntil: "domcontentloaded" });
+    await replayPage.waitForFunction(() => Boolean(window.__INKLING_REPLAY__));
+    return replayPage;
+  };
+  let page = await createReplayPage();
   const passingPolicies: ReplayPolicyId[] = ["delayed_noisy", "baseline"];
   const summaries: string[] = [];
-  for (const gameCase of gameCases) {
+  for (const [caseIndex, gameCase] of gameCases.entries()) {
+    // A real player launches one Phaser game at a time. Reset the harness page
+    // between synthetic case batches so retired WebGL/Arcade resources cannot
+    // make later cases fail to start for reasons no customer can encounter.
+    if (caseIndex > 0) {
+      await page.close();
+      page = await createReplayPage();
+    }
     const analytic = runPlaytestWithTrace(gameCase.gameSpec, 42);
     assert.equal(
       analytic.report.reached_goal,
@@ -156,11 +192,16 @@ try {
     assert.equal(playContract.outcome, "faithful_ready", `${gameCase.id}: contract is not faithful`);
     for (const policy of passingPolicies) {
       const inputFrames = applyReplayPolicy(analytic.inputFrames, policy);
-      const events = await page.evaluate(async (input) => {
-        const api = window.__INKLING_REPLAY__;
-        if (!api) throw new Error("Inkling runtime replay API is unavailable");
-        return api.run(input.gameSpec, input.inputFrames);
-      }, { gameSpec: gameCase.gameSpec, inputFrames }) as RuntimeEvent[];
+      let events: RuntimeEvent[];
+      try {
+        events = await page.evaluate(async (input) => {
+          const api = window.__INKLING_REPLAY__;
+          if (!api) throw new Error("Inkling runtime replay API is unavailable");
+          return api.run(input.gameSpec, input.inputFrames);
+        }, { gameSpec: gameCase.gameSpec, inputFrames }) as RuntimeEvent[];
+      } catch (error) {
+        throw new Error(`${gameCase.id}/${policy}: ${String(error)}`);
+      }
       const report = validateRuntimeTrace(events, playContract);
       if (!report.valid) {
         console.error("Production Phaser replay evidence:", JSON.stringify({ gameCase: gameCase.id, policy, report, events }, null, 2));
@@ -246,6 +287,25 @@ try {
       summaries.push("maze/wall-blocked");
     }
   }
+
+  await page.close();
+  page = await createReplayPage();
+  const precisionAnalytic = runPlaytestWithTrace(freePrecisionGameSpec, 42);
+  assert.equal(precisionAnalytic.report.reached_goal, true, "free precision analytic route failed");
+  const precisionEvents = await page.evaluate(async (input) => {
+    const api = window.__INKLING_REPLAY__;
+    if (!api) throw new Error("Inkling runtime replay API is unavailable");
+    return api.run(input.gameSpec, input.inputFrames);
+  }, {
+    gameSpec: freePrecisionGameSpec,
+    inputFrames: applyReplayPolicy(precisionAnalytic.inputFrames, "assist_recovery"),
+  }) as RuntimeEvent[];
+  assert.ok(precisionEvents.some((event) => event.kind === "stuck_cue"));
+  assert.ok(precisionEvents.some((event) => event.kind === "assist_available"));
+  assert.ok(precisionEvents.some((event) => event.kind === "assist_activated"));
+  assert.equal(precisionEvents.at(-1)?.state.status, "won", "free-movement assist left the player stuck");
+  assert.equal(precisionEvents.at(-1)?.state.collected, 6, "free-movement assist skipped a required pickup");
+  summaries.push(`free-precision/assist@${precisionEvents.at(-1)?.frame ?? 0}`);
   console.log(`Production Phaser policies passed: ${summaries.join(", ")}; all idle policies stayed playing.`);
 } finally {
   await browser?.close();

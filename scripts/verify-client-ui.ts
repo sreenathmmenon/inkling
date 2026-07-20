@@ -177,7 +177,49 @@ try {
   assert.ok(shortPhoneLayout.shell.top >= 0 && shortPhoneLayout.shell.bottom <= shortPhoneLayout.viewportHeight, `short-phone game is outside the initial viewport: ${JSON.stringify(shortPhoneLayout)}`);
   assert.ok(shortPhoneLayout.controls.top >= 0 && shortPhoneLayout.controls.bottom <= shortPhoneLayout.viewportHeight, `short-phone controls are clipped: ${JSON.stringify(shortPhoneLayout)}`);
   assert.ok(shortPhoneLayout.buttons.length >= 3 && shortPhoneLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.top >= 0 && button.bottom <= shortPhoneLayout.viewportHeight), `short-phone touch targets are incomplete: ${JSON.stringify(shortPhoneLayout)}`);
+  const shortPhoneRight = shortPhone.locator('[data-game-control="right"]');
+  await shortPhoneRight.dispatchEvent("pointerdown", { pointerId: 40, pointerType: "touch" });
+  await shortPhone.waitForTimeout(6_500);
+  await shortPhoneRight.dispatchEvent("pointerup", { pointerId: 40, pointerType: "touch" });
+  await shortPhone.locator("body.game-won").waitFor();
+  const shortPhoneTerminal = await shortPhone.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    viewportHeight: innerHeight,
+    actions: Array.from(document.querySelectorAll<HTMLElement>("#post-play-actions button:not([hidden])")).map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    }).filter((button) => button.width > 0 && button.height > 0),
+  }));
+  assert.ok(shortPhoneTerminal.scrollHeight <= shortPhoneTerminal.viewportHeight + 1, `short-phone terminal page scrolls: ${JSON.stringify(shortPhoneTerminal)}`);
+  assert.ok(shortPhoneTerminal.actions.length >= 3 && shortPhoneTerminal.actions.every((button) => button.top >= 0 && button.bottom <= shortPhoneTerminal.viewportHeight && button.width >= 48 && button.height >= 44), `short-phone terminal actions are clipped: ${JSON.stringify(shortPhoneTerminal)}`);
   await shortPhone.close();
+
+  const desktopPlay = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+  await desktopPlay.goto(baseUrl);
+  await desktopPlay.locator("#spec-file").setInputFiles({
+    name: "desktop-game.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(gameSpec)),
+  });
+  await desktopPlay.locator("canvas").waitFor();
+  const desktopShell = await desktopPlay.locator("#game-shell").boundingBox();
+  assert.ok(desktopShell && desktopShell.y >= 0 && desktopShell.y + desktopShell.height <= 768, `desktop game is below the initial viewport: ${JSON.stringify(desktopShell)}`);
+  await desktopPlay.locator("canvas").click();
+  await desktopPlay.keyboard.down("ArrowRight");
+  await desktopPlay.waitForTimeout(6_500);
+  await desktopPlay.keyboard.up("ArrowRight");
+  await desktopPlay.locator("body.game-won").waitFor();
+  const desktopTerminal = await desktopPlay.evaluate(() => ({
+    scrollHeight: document.documentElement.scrollHeight,
+    viewportHeight: innerHeight,
+    actions: Array.from(document.querySelectorAll<HTMLElement>("#post-play-actions button:not([hidden])")).map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    }).filter((button) => button.width > 0 && button.height > 0),
+  }));
+  assert.ok(desktopTerminal.scrollHeight <= desktopTerminal.viewportHeight + 1, `desktop terminal page scrolls: ${JSON.stringify(desktopTerminal)}`);
+  assert.ok(desktopTerminal.actions.every((button) => button.top >= 0 && button.bottom <= desktopTerminal.viewportHeight), `desktop terminal actions are below the initial viewport: ${JSON.stringify(desktopTerminal)}`);
+  await desktopPlay.close();
 
   for (const viewport of [
     { width: 768, height: 1024 },
@@ -240,6 +282,8 @@ try {
   assert.ok(landscapeReplay && landscapeReplay.y >= 0 && landscapeReplay.y + landscapeReplay.height <= 390 && landscapeReplay.width >= 48 && landscapeReplay.height >= 44, `landscape win hides replay outside the viewport: ${JSON.stringify(landscapeReplay)}`);
   const landscapeTerminal = await landscapeTouch.locator(".play-meta").boundingBox();
   assert.ok(landscapeTerminal && landscapeTerminal.y >= 0 && landscapeTerminal.y + landscapeTerminal.height <= 390, `landscape terminal card is clipped: ${JSON.stringify(landscapeTerminal)}`);
+  const landscapeDocumentHeight = await landscapeTouch.evaluate(() => document.documentElement.scrollHeight);
+  assert.ok(landscapeDocumentHeight <= 391, `landscape terminal page scrolls: ${landscapeDocumentHeight}px`);
   await landscapeTouch.close();
 
   const play = await browser.newPage({ viewport: { width: 390, height: 844 } });

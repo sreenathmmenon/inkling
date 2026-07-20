@@ -265,7 +265,9 @@ body.play-mode.touch-controls.game-lost #accessible-controls,
 body.play-mode.touch-controls.player-error #accessible-controls { display: none; }
 
 @media (min-width: 681px) and (min-height: 601px) {
-  body.play-mode #game-shell { width: min(100%, calc((100svh - 170px) * 16 / 9)); }
+  body.play-mode #game-shell { width: min(100%, calc((100svh - 182px) * 16 / 9)); }
+  body.play-mode.game-won #game-shell,
+  body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 356px) * 16 / 9)); }
 }
 
 @media (max-width: 760px) {
@@ -375,6 +377,12 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode .new-drawing-action { min-width: 44px; min-height: 44px; }
   body.play-mode #game-shell { width: min(100%, calc((100svh - 184px) * 4 / 5)); margin-inline: auto; }
   body.play-mode #accessible-controls { margin: 7px auto 0; }
+  body.play-mode.game-won #game-shell,
+  body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 248px) * 4 / 5)); }
+  body.play-mode.game-won .play-meta,
+  body.play-mode.game-lost .play-meta { margin-top: 5px; padding: 8px 10px; }
+  body.play-mode.game-won #post-play-actions,
+  body.play-mode.game-lost #post-play-actions { margin-top: 4px; }
 }
 
 @media (max-height: 600px) and (orientation: landscape) {
@@ -405,7 +413,7 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode.touch-controls #accessible-controls[data-layout="side"] [data-game-control="jump"] { grid-column: 3; }
   body.play-mode.playing .play-meta { display: none; }
   body.play-mode.game-won #game-shell,
-  body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 170px) * 16 / 9)); }
+  body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 176px) * 16 / 9)); }
   body.play-mode.game-won .play-meta,
   body.play-mode.game-lost .play-meta { display: block; width: min(100%, 540px); margin: 6px auto 0; padding: 6px 8px; }
   body.play-mode.game-won #post-play-actions,

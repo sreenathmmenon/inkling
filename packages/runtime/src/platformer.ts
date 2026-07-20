@@ -145,6 +145,9 @@ class PlatformerScene extends Phaser.Scene {
   private stuckCueShown = false;
   private assistAvailable = false;
   private assistActiveUntil = -Infinity;
+  private checkpointX = 0;
+  private checkpointY = 0;
+  private assistTargetGuide: Phaser.GameObjects.Ellipse | undefined;
   private status: PlatformerStatus = "playing";
   private frame = 0;
   private runtimeSequence = 0;
@@ -165,6 +168,17 @@ class PlatformerScene extends Phaser.Scene {
     if (this.status !== "playing" || !this.assistAvailable) return;
     this.assistAvailable = false;
     this.assistActiveUntil = this.elapsedMs + PLATFORMER_PHYSICS.assistDurationMs;
+    const target = this.recoveryTarget();
+    if (target) {
+      const currentDistance = Math.hypot(target.x - this.hero.x, target.y - this.hero.y);
+      const checkpointDistance = Math.hypot(target.x - this.checkpointX, target.y - this.checkpointY);
+      if (checkpointDistance + PLATFORMER_PHYSICS.progressDistance < currentDistance) {
+        const body = this.hero.body as Phaser.Physics.Arcade.Body;
+        body.reset(this.checkpointX, this.checkpointY);
+        body.setVelocity(0, 0);
+      }
+      this.showAssistTarget(target);
+    }
     this.recoveryGuide?.destroy();
     this.recoveryGuide = undefined;
     this.emitFeedback("assist_activated", null, false);
@@ -220,6 +234,10 @@ class PlatformerScene extends Phaser.Scene {
     this.stuckCueShown = false;
     this.assistAvailable = false;
     this.assistActiveUntil = -Infinity;
+    this.checkpointX = this.plan.hero.x;
+    this.checkpointY = this.plan.hero.y;
+    this.assistTargetGuide?.destroy();
+    this.assistTargetGuide = undefined;
     this.recoveryGuide?.destroy();
     this.recoveryGuide = undefined;
     this.frame = 0;
@@ -521,6 +539,8 @@ class PlatformerScene extends Phaser.Scene {
       this.input.off(Phaser.Input.Events.GAME_OUT, this.resetTouchControls, this);
       this.touchResizeObserver?.disconnect();
       this.touchResizeObserver = undefined;
+      this.assistTargetGuide?.destroy();
+      this.assistTargetGuide = undefined;
       this.clearCoachingObjects(this.coachingObjects);
       this.clearCoachingObjects(this.controlCoachingObjects);
     });
@@ -557,6 +577,7 @@ class PlatformerScene extends Phaser.Scene {
     this.animateHeroArtwork(body);
     if (this.usesFreeMovement) {
       this.updateFreeMovementControls(body);
+      this.collectAssistedNearbyTarget();
       this.tryProjectileAction();
       if (this.plan.goalKind === "survive") {
         this.surviveRemainingMs -= delta;
@@ -714,6 +735,7 @@ class PlatformerScene extends Phaser.Scene {
     if (!this.stuckCueShown && stuckFor >= PLATFORMER_PHYSICS.stuckCueAfterMs) {
       this.stuckCueShown = true;
       const cueTarget = mazeRoute?.find((point) => Math.hypot(point.x - this.hero.x, point.y - this.hero.y) > 12) ?? target;
+      this.showAssistTarget(target);
       const deltaX = cueTarget.x - this.hero.x;
       const deltaY = cueTarget.y - this.hero.y;
       const arrow = Math.abs(deltaX) >= Math.abs(deltaY) ? deltaX < 0 ? "←" : "→" : deltaY < 0 ? "↑" : "↓";
@@ -768,6 +790,47 @@ class PlatformerScene extends Phaser.Scene {
     const velocity = PLATFORMER_PHYSICS.moveVelocityX;
     body.setVelocityX(left === right ? 0 : left ? -velocity : velocity);
     body.setVelocityY(up === down ? 0 : up ? -velocity : velocity);
+  }
+
+  private showAssistTarget(target: PlannedEntity): void {
+    this.assistTargetGuide?.destroy();
+    this.assistTargetGuide = this.add
+      .ellipse(
+        target.x,
+        target.y,
+        target.width + PLATFORMER_PHYSICS.assistPickupReach,
+        target.height + PLATFORMER_PHYSICS.assistPickupReach,
+        0xffd556,
+        0.13,
+      )
+      .setStrokeStyle(7, 0xffb629, 0.98)
+      .setDepth(148);
+  }
+
+  /**
+   * Help mode forgives near misses around the next required pickup. The
+   * target still comes entirely from the current GameSpec and the child must
+   * steer close to it; this never recognizes or branches on drawing nouns.
+   */
+  private collectAssistedNearbyTarget(): void {
+    if (this.elapsedMs >= this.assistActiveUntil || this.plan.goalKind !== "collect_all") return;
+    const target = this.recoveryTarget();
+    if (!target) return;
+    const colliderWidth = this.plan.hero.width * PLATFORMER_PHYSICS.freeMovementColliderScale;
+    const colliderHeight = this.plan.hero.height * PLATFORMER_PHYSICS.freeMovementColliderScale;
+    const gapX = Math.max(
+      0,
+      Math.abs(target.x - this.hero.x) - (colliderWidth + target.width) / 2,
+    );
+    const gapY = Math.max(
+      0,
+      Math.abs(target.y - this.hero.y) - (colliderHeight + target.height) / 2,
+    );
+    if (Math.hypot(gapX, gapY) > PLATFORMER_PHYSICS.assistPickupReach) return;
+    const gameObject = this.collectibles.getChildren().find((candidate) => (
+      candidate.getData("entityId") === target.id
+    ));
+    if (gameObject) this.collect(gameObject);
   }
 
   /**
@@ -1471,12 +1534,20 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   private markObjectiveProgress(): void {
+    this.checkpointX = this.hero.x;
+    this.checkpointY = this.hero.y;
     this.bestObjectiveDistance = Infinity;
     this.lastProgressAt = this.elapsedMs;
     this.stuckCueShown = false;
     this.assistAvailable = false;
     this.recoveryGuide?.destroy();
     this.recoveryGuide = undefined;
+    this.assistTargetGuide?.destroy();
+    this.assistTargetGuide = undefined;
+    if (this.elapsedMs < this.assistActiveUntil) {
+      const target = this.recoveryTarget();
+      if (target) this.showAssistTarget(target);
+    }
   }
 
   private touchGoal(): void {
@@ -1527,6 +1598,8 @@ class PlatformerScene extends Phaser.Scene {
   private win(): void {
     if (this.status !== "playing") return;
     this.status = "won";
+    this.assistTargetGuide?.destroy();
+    this.assistTargetGuide = undefined;
     this.physics.pause();
     if (this.presentation === "standalone") {
       this.message.setText("You brought it to life!\nTap to play again").setVisible(true);
@@ -1537,6 +1610,8 @@ class PlatformerScene extends Phaser.Scene {
 
   private lose(): void {
     this.status = "lost";
+    this.assistTargetGuide?.destroy();
+    this.assistTargetGuide = undefined;
     this.physics.pause();
     if (this.presentation === "standalone") {
       this.message.setText("Try again\nTap to restart").setVisible(true);

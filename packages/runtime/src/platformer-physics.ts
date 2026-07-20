@@ -32,6 +32,10 @@ export const PLATFORMER_PHYSICS = {
   stuckCueAfterMs: 6_000,
   assistOfferAfterMs: 10_000,
   assistDurationMs: 8_000,
+  // Once a child explicitly asks for help, required pickups get a modest
+  // magnetic reach. This removes edge/precision traps without moving or
+  // reinterpreting any drawn entity.
+  assistPickupReach: 54,
   progressDistance: 24,
   maxPlaytestSeconds: 30,
 } as const;

@@ -212,12 +212,14 @@ function showState(state: PlatformerState): void {
     restart.hidden = false;
     saveGame.hidden = false;
     status.textContent = "You brought it to life! What will you make next?";
+    restart.focus({ preventScroll: true });
     return;
   }
   if (state.status === "lost") {
     renderExperienceState("lost");
     restart.hidden = false;
     status.textContent = "No lives left. Tap Play again to try again.";
+    restart.focus({ preventScroll: true });
     return;
   }
   renderExperienceState("playing");

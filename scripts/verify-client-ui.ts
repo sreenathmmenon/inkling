@@ -167,31 +167,48 @@ try {
       const rect = button.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
     });
+    const newDrawing = document.querySelector<HTMLElement>(".new-drawing-action")!.getBoundingClientRect();
     return {
       shell: { top: shell.top, bottom: shell.bottom },
       controls: { top: controls.top, bottom: controls.bottom },
       viewportHeight: innerHeight,
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      newDrawing: { width: newDrawing.width, height: newDrawing.height },
       buttons,
     };
   });
   assert.ok(shortPhoneLayout.shell.top >= 0 && shortPhoneLayout.shell.bottom <= shortPhoneLayout.viewportHeight, `short-phone game is outside the initial viewport: ${JSON.stringify(shortPhoneLayout)}`);
   assert.ok(shortPhoneLayout.controls.top >= 0 && shortPhoneLayout.controls.bottom <= shortPhoneLayout.viewportHeight, `short-phone controls are clipped: ${JSON.stringify(shortPhoneLayout)}`);
   assert.ok(shortPhoneLayout.buttons.length >= 3 && shortPhoneLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.top >= 0 && button.bottom <= shortPhoneLayout.viewportHeight), `short-phone touch targets are incomplete: ${JSON.stringify(shortPhoneLayout)}`);
+  assert.ok(shortPhoneLayout.newDrawing.width >= 48 && shortPhoneLayout.newDrawing.height >= 48, `short-phone New drawing target is too small: ${JSON.stringify(shortPhoneLayout)}`);
+  assert.ok(shortPhoneLayout.horizontalOverflow <= 1, `short-phone play mode overflows horizontally: ${JSON.stringify(shortPhoneLayout)}`);
   const shortPhoneRight = shortPhone.locator('[data-game-control="right"]');
   await shortPhoneRight.dispatchEvent("pointerdown", { pointerId: 40, pointerType: "touch" });
   await shortPhone.waitForTimeout(6_500);
   await shortPhoneRight.dispatchEvent("pointerup", { pointerId: 40, pointerType: "touch" });
   await shortPhone.locator("body.game-won").waitFor();
-  const shortPhoneTerminal = await shortPhone.evaluate(() => ({
-    scrollHeight: document.documentElement.scrollHeight,
-    viewportHeight: innerHeight,
-    actions: Array.from(document.querySelectorAll<HTMLElement>("#post-play-actions button:not([hidden])")).map((button) => {
+  const shortPhoneTerminal = await shortPhone.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>("#game-shell")!.getBoundingClientRect();
+    const status = document.querySelector<HTMLElement>("#game-status")!.getBoundingClientRect();
+    return {
+      scrollHeight: document.documentElement.scrollHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      viewportHeight: innerHeight,
+      activeId: (document.activeElement as HTMLElement | null)?.id,
+      shell: { top: shell.top, bottom: shell.bottom, left: shell.left, right: shell.right },
+      status: { top: status.top, bottom: status.bottom, left: status.left, right: status.right, width: status.width, height: status.height },
+      actions: Array.from(document.querySelectorAll<HTMLElement>("#post-play-actions button:not([hidden])")).map((button) => {
       const rect = button.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
-    }).filter((button) => button.width > 0 && button.height > 0),
-  }));
+      }).filter((button) => button.width > 0 && button.height > 0),
+    };
+  });
   assert.ok(shortPhoneTerminal.scrollHeight <= shortPhoneTerminal.viewportHeight + 1, `short-phone terminal page scrolls: ${JSON.stringify(shortPhoneTerminal)}`);
-  assert.ok(shortPhoneTerminal.actions.length >= 3 && shortPhoneTerminal.actions.every((button) => button.top >= 0 && button.bottom <= shortPhoneTerminal.viewportHeight && button.width >= 48 && button.height >= 44), `short-phone terminal actions are clipped: ${JSON.stringify(shortPhoneTerminal)}`);
+  assert.ok(shortPhoneTerminal.scrollWidth <= shortPhoneTerminal.clientWidth + 1, `short-phone terminal overflows horizontally: ${JSON.stringify(shortPhoneTerminal)}`);
+  assert.ok(shortPhoneTerminal.actions.length >= 3 && shortPhoneTerminal.actions.every((button) => button.top >= 0 && button.bottom <= shortPhoneTerminal.viewportHeight && button.width >= 48 && button.height >= 48), `short-phone terminal actions are clipped: ${JSON.stringify(shortPhoneTerminal)}`);
+  assert.ok(shortPhoneTerminal.status.width > 0 && shortPhoneTerminal.status.height > 0 && shortPhoneTerminal.status.top >= shortPhoneTerminal.shell.top && shortPhoneTerminal.status.bottom <= shortPhoneTerminal.shell.bottom && shortPhoneTerminal.status.left >= shortPhoneTerminal.shell.left && shortPhoneTerminal.status.right <= shortPhoneTerminal.shell.right, `short-phone terminal message is clipped: ${JSON.stringify(shortPhoneTerminal)}`);
+  assert.equal(shortPhoneTerminal.activeId, "restart", `short-phone terminal focus is not on Play again: ${JSON.stringify(shortPhoneTerminal)}`);
   await shortPhone.close();
 
   const desktopPlay = await browser.newPage({ viewport: { width: 1366, height: 768 } });
@@ -204,21 +221,34 @@ try {
   await desktopPlay.locator("canvas").waitFor();
   const desktopShell = await desktopPlay.locator("#game-shell").boundingBox();
   assert.ok(desktopShell && desktopShell.y >= 0 && desktopShell.y + desktopShell.height <= 768, `desktop game is below the initial viewport: ${JSON.stringify(desktopShell)}`);
+  assert.ok(await desktopPlay.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), "desktop play mode overflows horizontally");
   await desktopPlay.locator("canvas").click();
   await desktopPlay.keyboard.down("ArrowRight");
   await desktopPlay.waitForTimeout(6_500);
   await desktopPlay.keyboard.up("ArrowRight");
   await desktopPlay.locator("body.game-won").waitFor();
-  const desktopTerminal = await desktopPlay.evaluate(() => ({
-    scrollHeight: document.documentElement.scrollHeight,
-    viewportHeight: innerHeight,
-    actions: Array.from(document.querySelectorAll<HTMLElement>("#post-play-actions button:not([hidden])")).map((button) => {
+  const desktopTerminal = await desktopPlay.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>("#game-shell")!.getBoundingClientRect();
+    const status = document.querySelector<HTMLElement>("#game-status")!.getBoundingClientRect();
+    return {
+      scrollHeight: document.documentElement.scrollHeight,
+      scrollWidth: document.documentElement.scrollWidth,
+      clientWidth: document.documentElement.clientWidth,
+      viewportHeight: innerHeight,
+      activeId: (document.activeElement as HTMLElement | null)?.id,
+      shell: { top: shell.top, bottom: shell.bottom, left: shell.left, right: shell.right },
+      status: { top: status.top, bottom: status.bottom, left: status.left, right: status.right, width: status.width, height: status.height },
+      actions: Array.from(document.querySelectorAll<HTMLElement>("#post-play-actions button:not([hidden])")).map((button) => {
       const rect = button.getBoundingClientRect();
       return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
-    }).filter((button) => button.width > 0 && button.height > 0),
-  }));
+      }).filter((button) => button.width > 0 && button.height > 0),
+    };
+  });
   assert.ok(desktopTerminal.scrollHeight <= desktopTerminal.viewportHeight + 1, `desktop terminal page scrolls: ${JSON.stringify(desktopTerminal)}`);
-  assert.ok(desktopTerminal.actions.every((button) => button.top >= 0 && button.bottom <= desktopTerminal.viewportHeight), `desktop terminal actions are below the initial viewport: ${JSON.stringify(desktopTerminal)}`);
+  assert.ok(desktopTerminal.scrollWidth <= desktopTerminal.clientWidth + 1, `desktop terminal overflows horizontally: ${JSON.stringify(desktopTerminal)}`);
+  assert.ok(desktopTerminal.actions.length >= 3 && desktopTerminal.actions.every((button) => button.top >= 0 && button.bottom <= desktopTerminal.viewportHeight && button.width >= 48 && button.height >= 48), `desktop terminal actions are below the initial viewport: ${JSON.stringify(desktopTerminal)}`);
+  assert.ok(desktopTerminal.status.width > 0 && desktopTerminal.status.height > 0 && desktopTerminal.status.top >= desktopTerminal.shell.top && desktopTerminal.status.bottom <= desktopTerminal.shell.bottom && desktopTerminal.status.left >= desktopTerminal.shell.left && desktopTerminal.status.right <= desktopTerminal.shell.right, `desktop terminal message is clipped: ${JSON.stringify(desktopTerminal)}`);
+  assert.equal(desktopTerminal.activeId, "restart", `desktop terminal focus is not on Play again: ${JSON.stringify(desktopTerminal)}`);
   await desktopPlay.close();
 
   for (const viewport of [
@@ -241,12 +271,27 @@ try {
     await tablet.close();
   }
 
+  const landscapeGameSpec = structuredClone(gameSpec);
+  landscapeGameSpec.primary_genre = "maze";
+  landscapeGameSpec.hero = {
+    ...(landscapeGameSpec.hero as Record<string, unknown>),
+    bbox: [0.08, 0.42, 0.18, 0.58],
+  };
+  landscapeGameSpec.entities = [{
+    id: "landscape_goal",
+    role: "goal",
+    bbox: [0.72, 0.42, 0.8, 0.58],
+    behavior: "static",
+    linked_to: null,
+    style_ref: "source",
+  }];
+  landscapeGameSpec.goal = { kind: "reach_goal", target_id: "landscape_goal" };
   const landscapeTouch = await browser.newPage({ viewport: { width: 844, height: 390 }, hasTouch: true });
   await landscapeTouch.goto(baseUrl);
   await landscapeTouch.locator("#spec-file").setInputFiles({
     name: "landscape-touch-game.json",
     mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify(gameSpec)),
+    buffer: Buffer.from(JSON.stringify(landscapeGameSpec)),
   });
   await landscapeTouch.locator("canvas").waitFor();
   const landscapeLayout = await landscapeTouch.evaluate(() => {
@@ -262,15 +307,20 @@ try {
       controls: { left: controlRect.left, top: controlRect.top, right: controlRect.right, bottom: controlRect.bottom },
       shellBottom: shellRect.bottom,
       position: getComputedStyle(controls).position,
+      layout: controls.dataset.layout,
       viewport: { width: innerWidth, height: innerHeight },
       buttons,
     };
   });
   assert.equal(landscapeLayout.position, "fixed", "short-landscape touch controls are not overlaid on the game");
+  assert.equal(landscapeLayout.layout, "four-way", "short-landscape did not exercise four-way controls");
   assert.ok(landscapeLayout.controls.left >= 0 && landscapeLayout.controls.top >= 0, `landscape controls start outside the viewport: ${JSON.stringify(landscapeLayout)}`);
   assert.ok(landscapeLayout.controls.right <= landscapeLayout.viewport.width && landscapeLayout.controls.bottom <= landscapeLayout.viewport.height, `landscape controls fall outside the viewport: ${JSON.stringify(landscapeLayout)}`);
   assert.ok(landscapeLayout.shellBottom <= landscapeLayout.viewport.height + 1, `landscape game falls below the viewport: ${JSON.stringify(landscapeLayout)}`);
-  assert.ok(landscapeLayout.buttons.length >= 3 && landscapeLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.bottom <= landscapeLayout.viewport.height), `landscape touch targets are unavailable: ${JSON.stringify(landscapeLayout)}`);
+  assert.ok(await landscapeTouch.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1), "landscape play mode overflows horizontally");
+  assert.ok(landscapeLayout.buttons.length >= 4 && landscapeLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.bottom <= landscapeLayout.viewport.height), `landscape touch targets are unavailable: ${JSON.stringify(landscapeLayout)}`);
+  const landscapeRows = [...new Set(landscapeLayout.buttons.map((button) => button.top))].sort((left, right) => left - right);
+  assert.ok(landscapeRows.length >= 2 && landscapeRows[1]! - landscapeRows[0]! >= 55, `landscape four-way rows are crowded: ${JSON.stringify(landscapeLayout)}`);
   const landscapeRight = landscapeTouch.locator('[data-game-control="right"]');
   await landscapeRight.focus();
   await landscapeRight.dispatchEvent("pointerdown", { pointerId: 50, pointerType: "touch" });
@@ -279,11 +329,29 @@ try {
   await landscapeTouch.locator("body.game-won").waitFor();
   assert.equal(await landscapeTouch.locator("#accessible-controls").isVisible(), false, "landscape win leaves focused movement controls visible");
   const landscapeReplay = await landscapeTouch.getByRole("button", { name: "Play again" }).boundingBox();
-  assert.ok(landscapeReplay && landscapeReplay.y >= 0 && landscapeReplay.y + landscapeReplay.height <= 390 && landscapeReplay.width >= 48 && landscapeReplay.height >= 44, `landscape win hides replay outside the viewport: ${JSON.stringify(landscapeReplay)}`);
+  assert.ok(landscapeReplay && landscapeReplay.y >= 0 && landscapeReplay.y + landscapeReplay.height <= 390 && landscapeReplay.width >= 48 && landscapeReplay.height >= 48, `landscape win hides replay outside the viewport: ${JSON.stringify(landscapeReplay)}`);
+  const landscapeActions = await landscapeTouch.locator("#post-play-actions button:not([hidden])").evaluateAll((buttons) => buttons
+    .map((button) => button.getBoundingClientRect())
+    .filter((rect) => rect.width > 0 && rect.height > 0)
+    .map((rect) => ({ top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height })));
+  assert.ok(landscapeActions.length >= 3 && landscapeActions.every((button) => button.top >= 0 && button.bottom <= 390 && button.width >= 48 && button.height >= 48), `landscape terminal actions are clipped: ${JSON.stringify(landscapeActions)}`);
   const landscapeTerminal = await landscapeTouch.locator(".play-meta").boundingBox();
   assert.ok(landscapeTerminal && landscapeTerminal.y >= 0 && landscapeTerminal.y + landscapeTerminal.height <= 390, `landscape terminal card is clipped: ${JSON.stringify(landscapeTerminal)}`);
   const landscapeDocumentHeight = await landscapeTouch.evaluate(() => document.documentElement.scrollHeight);
   assert.ok(landscapeDocumentHeight <= 391, `landscape terminal page scrolls: ${landscapeDocumentHeight}px`);
+  const landscapeTerminalState = await landscapeTouch.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>("#game-shell")!.getBoundingClientRect();
+    const status = document.querySelector<HTMLElement>("#game-status")!.getBoundingClientRect();
+    return {
+      activeId: (document.activeElement as HTMLElement | null)?.id,
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      shell: { top: shell.top, bottom: shell.bottom, left: shell.left, right: shell.right },
+      status: { top: status.top, bottom: status.bottom, left: status.left, right: status.right, width: status.width, height: status.height },
+    };
+  });
+  assert.ok(landscapeTerminalState.status.width > 0 && landscapeTerminalState.status.height > 0 && landscapeTerminalState.status.top >= landscapeTerminalState.shell.top && landscapeTerminalState.status.bottom <= landscapeTerminalState.shell.bottom && landscapeTerminalState.status.left >= landscapeTerminalState.shell.left && landscapeTerminalState.status.right <= landscapeTerminalState.shell.right, `landscape terminal message is clipped: ${JSON.stringify(landscapeTerminalState)}`);
+  assert.ok(landscapeTerminalState.horizontalOverflow <= 1, `landscape terminal overflows horizontally: ${JSON.stringify(landscapeTerminalState)}`);
+  assert.equal(landscapeTerminalState.activeId, "restart", `landscape terminal focus is not on Play again: ${JSON.stringify(landscapeTerminalState)}`);
   await landscapeTouch.close();
 
   const play = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -295,6 +363,8 @@ try {
   });
   await play.locator("canvas").waitFor();
   assert.equal(await play.locator("body.play-mode").count(), 1, "saved game did not enter play mode");
+  const standardPhoneNewDrawing = await play.locator(".new-drawing-action").boundingBox();
+  assert.ok(standardPhoneNewDrawing && standardPhoneNewDrawing.width >= 48 && standardPhoneNewDrawing.height >= 48, `standard-phone New drawing target is too small: ${JSON.stringify(standardPhoneNewDrawing)}`);
   const objective = await play.locator("#objective-detail").evaluate((element) => ({
     clientWidth: element.clientWidth,
     scrollWidth: element.scrollWidth,
@@ -404,6 +474,7 @@ try {
   await lossRight.dispatchEvent("pointerup", { pointerId: 4, pointerType: "touch" });
   assert.equal(await loss.locator("#game-status").textContent(), "No lives left. Tap Play again to try again.");
   assert.equal(await loss.locator("#accessible-controls").isVisible(), false, "loss leaves movement controls visible");
+  assert.equal(await loss.evaluate(() => (document.activeElement as HTMLElement | null)?.id), "restart", "loss does not move focus to Play again");
   await loss.getByRole("button", { name: "Play again" }).click();
   await loss.locator("body.playing").waitFor();
   assert.match(await loss.locator("#game-status").textContent() ?? "", /Lives 1/);

@@ -87,7 +87,7 @@ runnerGameSpec.entities.splice(1, 0, {
 // same precision/recovery class as arbitrary child drawings with coarse touch
 // input. Runtime behavior remains entirely geometry-driven.
 const freePrecisionGameSpec = structuredClone(baseGameSpec);
-freePrecisionGameSpec.primary_genre = "platformer";
+freePrecisionGameSpec.primary_genre = "roller";
 freePrecisionGameSpec.hero.bbox = [0.02, 0.31, 0.39, 0.59];
 freePrecisionGameSpec.entities = [
   [0.06, 0.06, 0.19, 0.14],
@@ -105,6 +105,71 @@ freePrecisionGameSpec.entities = [
   style_ref: "source",
 }));
 freePrecisionGameSpec.goal = { kind: "collect_all", target_id: null };
+
+// These fixtures isolate assist behavior itself. The required target starts
+// outside the production collider but inside the declared assist reach, so a
+// pickup immediately after activation cannot be credited to ordinary overlap.
+const freeAssistPickupGameSpec = structuredClone(baseGameSpec);
+freeAssistPickupGameSpec.primary_genre = "roller";
+freeAssistPickupGameSpec.hero.bbox = [0.02, 0.03, 0.12, 0.16];
+freeAssistPickupGameSpec.entities = [{
+  id: "free_assist_target", role: "collectible", bbox: [0.15, 0.07, 0.19, 0.13],
+  behavior: "static", linked_to: null, style_ref: "source",
+}];
+freeAssistPickupGameSpec.goal = { kind: "collect_all", target_id: null };
+
+const groundedKeyAssistGameSpec = structuredClone(baseGameSpec);
+groundedKeyAssistGameSpec.hero.bbox = [0.02, 0.58, 0.12, 0.72];
+groundedKeyAssistGameSpec.entities = [
+  { id: "floor", role: "platform", bbox: [0, 0.74, 1, 0.82], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "assist_key", role: "key", bbox: [0.12, 0.62, 0.155, 0.7], behavior: "static", linked_to: "assist_door", style_ref: "source" },
+  { id: "assist_door", role: "door", bbox: [0.52, 0.44, 0.59, 0.74], behavior: "static", linked_to: "assist_key", style_ref: "source" },
+  { id: "finish", role: "goal", bbox: [0.82, 0.55, 0.9, 0.74], behavior: "static", linked_to: null, style_ref: "source" },
+];
+
+const walledAssistGameSpec = structuredClone(baseGameSpec);
+walledAssistGameSpec.primary_genre = "maze";
+walledAssistGameSpec.hero.bbox = [0.4, 0.3, 0.48, 0.42];
+walledAssistGameSpec.entities = [
+  { id: "wall", role: "platform", bbox: [0.485, 0, 0.495, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "walled_target", role: "collectible", bbox: [0.5, 0.33, 0.54, 0.39], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "finish", role: "goal", bbox: [0.82, 0.32, 0.9, 0.45], behavior: "static", linked_to: null, style_ref: "source" },
+];
+walledAssistGameSpec.goal = { kind: "collect_all", target_id: null };
+
+const lockedDoorAssistGameSpec = structuredClone(baseGameSpec);
+lockedDoorAssistGameSpec.primary_genre = "maze";
+lockedDoorAssistGameSpec.hero.bbox = [0.4, 0.3, 0.48, 0.42];
+lockedDoorAssistGameSpec.entities = [
+  { id: "maze_wall", role: "platform", bbox: [0.7, 0, 0.72, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "locked_door", role: "door", bbox: [0.485, 0.2, 0.495, 0.5], behavior: "static", linked_to: "door_key", style_ref: "source" },
+  { id: "door_key", role: "key", bbox: [0.1, 0.33, 0.14, 0.39], behavior: "static", linked_to: "locked_door", style_ref: "source" },
+  { id: "door_side_target", role: "collectible", bbox: [0.5, 0.33, 0.54, 0.39], behavior: "static", linked_to: null, style_ref: "source" },
+  { id: "finish", role: "goal", bbox: [0.82, 0.32, 0.9, 0.45], behavior: "static", linked_to: null, style_ref: "source" },
+];
+lockedDoorAssistGameSpec.goal = { kind: "collect_all", target_id: null };
+
+function assistFrames(control: "left" | "right" | "jump"): Array<{
+  format: "inkling-input-frame-v1";
+  frame: number;
+  left: boolean;
+  right: boolean;
+  jump: boolean;
+  down: boolean;
+  action: boolean;
+  assist: boolean;
+}> {
+  return Array.from({ length: 721 }, (_, index) => ({
+    format: "inkling-input-frame-v1" as const,
+    frame: index + 1,
+    left: control === "left",
+    right: control === "right",
+    jump: control === "jump",
+    down: false,
+    action: false,
+    assist: index === 719,
+  }));
+}
 
 const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "reach", gameSpec: baseGameSpec },
@@ -166,10 +231,19 @@ try {
   const activeBrowser = await launchBrowser();
   browser = activeBrowser;
   const createReplayPage = async () => {
-    const replayPage = await activeBrowser.newPage({ viewport: { width: 960, height: 700 } });
-    await replayPage.goto(`http://127.0.0.1:${address.port}/?runtime-replay=1`, { waitUntil: "domcontentloaded" });
-    await replayPage.waitForFunction(() => Boolean(window.__INKLING_REPLAY__));
-    return replayPage;
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= 2; attempt += 1) {
+      const replayPage = await activeBrowser.newPage({ viewport: { width: 960, height: 700 } });
+      try {
+        await replayPage.goto(`http://127.0.0.1:${address.port}/?runtime-replay=1`, { waitUntil: "domcontentloaded" });
+        await replayPage.waitForFunction(() => Boolean(window.__INKLING_REPLAY__), undefined, { timeout: 45_000 });
+        return replayPage;
+      } catch (error) {
+        lastError = error;
+        await replayPage.close();
+      }
+    }
+    throw new Error(`Production replay page failed to start twice: ${String(lastError)}`);
   };
   let page = await createReplayPage();
   const passingPolicies: ReplayPolicyId[] = ["delayed_noisy", "baseline"];
@@ -306,6 +380,64 @@ try {
   assert.equal(precisionEvents.at(-1)?.state.status, "won", "free-movement assist left the player stuck");
   assert.equal(precisionEvents.at(-1)?.state.collected, 6, "free-movement assist skipped a required pickup");
   summaries.push(`free-precision/assist@${precisionEvents.at(-1)?.frame ?? 0}`);
+
+  const freeAssistEvents = await page.evaluate(async (input) => {
+    const api = window.__INKLING_REPLAY__;
+    if (!api) throw new Error("Inkling runtime replay API is unavailable");
+    return api.run(input.gameSpec, input.inputFrames);
+  }, { gameSpec: freeAssistPickupGameSpec, inputFrames: assistFrames("jump") }) as RuntimeEvent[];
+  const freeAssistedPickup = freeAssistEvents.find((event) => (
+    event.kind === "pickup" && event.entityId === "free_assist_target"
+  ));
+  assert.ok(freeAssistEvents.some((event) => event.kind === "assist_activated"));
+  assert.ok(freeAssistedPickup && freeAssistedPickup.frame <= 721, "free-movement assist did not forgive a proven near miss");
+  assert.equal(freeAssistEvents.at(-1)?.state.status, "won");
+  summaries.push(`assist/free-pickup@${freeAssistedPickup.frame}`);
+
+  const groundedAssistEvents = await page.evaluate(async (input) => {
+    const api = window.__INKLING_REPLAY__;
+    if (!api) throw new Error("Inkling runtime replay API is unavailable");
+    return api.run(input.gameSpec, input.inputFrames);
+  }, { gameSpec: groundedKeyAssistGameSpec, inputFrames: assistFrames("left") }) as RuntimeEvent[];
+  const groundedAssistedPickup = groundedAssistEvents.find((event) => (
+    event.kind === "pickup" && event.entityId === "assist_key"
+  ));
+  assert.ok(groundedAssistEvents.some((event) => event.kind === "assist_activated"));
+  assert.ok(groundedAssistedPickup && groundedAssistedPickup.frame <= 721, "grounded required-key assist did not forgive a proven near miss");
+  assert.equal(groundedAssistedPickup.state.collected, 1);
+  summaries.push(`assist/ground-key@${groundedAssistedPickup.frame}`);
+
+  const walledAssistEvents = await page.evaluate(async (input) => {
+    const api = window.__INKLING_REPLAY__;
+    if (!api) throw new Error("Inkling runtime replay API is unavailable");
+    return api.run(input.gameSpec, input.inputFrames);
+  }, { gameSpec: walledAssistGameSpec, inputFrames: assistFrames("right") }) as RuntimeEvent[];
+  assert.ok(walledAssistEvents.some((event) => event.kind === "maze_wall_contact"), "walled assist fixture never contacted its wall");
+  assert.ok(walledAssistEvents.some((event) => event.kind === "assist_activated"), "walled assist fixture never activated help");
+  assert.equal(walledAssistEvents.some((event) => event.kind === "pickup" && event.entityId === "walled_target"), false, "assist collected through a maze wall");
+  assert.equal(walledAssistEvents.at(-1)?.state.status, "playing", "walled assist bypassed the maze");
+  summaries.push("assist/wall-blocked");
+
+  const lockedDoorAssistEvents = await page.evaluate(async (input) => {
+    const api = window.__INKLING_REPLAY__;
+    if (!api) throw new Error("Inkling runtime replay API is unavailable");
+    return api.run(input.gameSpec, input.inputFrames);
+  }, { gameSpec: lockedDoorAssistGameSpec, inputFrames: assistFrames("right") }) as RuntimeEvent[];
+  assert.ok(lockedDoorAssistEvents.some((event) => event.kind === "assist_activated"), "locked-door assist fixture never activated help");
+  assert.equal(lockedDoorAssistEvents.some((event) => event.kind === "pickup" && event.entityId === "door_side_target"), false, "assist collected through a locked door");
+  assert.equal(lockedDoorAssistEvents.at(-1)?.state.status, "playing", "locked-door assist bypassed the maze");
+  summaries.push("assist/locked-door-blocked");
+
+  const soakFrames = runPlaytestWithTrace(baseGameSpec, 42).inputFrames;
+  for (let launch = 1; launch <= 12; launch += 1) {
+    const soakEvents = await page.evaluate(async (input) => {
+      const api = window.__INKLING_REPLAY__;
+      if (!api) throw new Error("Inkling runtime replay API is unavailable");
+      return api.run(input.gameSpec, input.inputFrames);
+    }, { gameSpec: baseGameSpec, inputFrames: soakFrames }) as RuntimeEvent[];
+    assert.equal(soakEvents.at(-1)?.state.status, "won", `same-page Phaser launch ${launch} did not finish`);
+  }
+  summaries.push("same-page-soak×12");
   console.log(`Production Phaser policies passed: ${summaries.join(", ")}; all idle policies stayed playing.`);
 } finally {
   await browser?.close();

@@ -17,7 +17,7 @@
     "verify": "npm run test && npm run audit:strict && npm run verify:runtime && npm run verify:client-bundle && npm run verify:ui && python3 runner/extract_from_pdf.py --pdf docs/Inkling-Spec.pdf --spec spec/pipeline.json --verify",
     "verify:runtime": "npm run build && npm run build:client && node dist/scripts/verify-runtime-replay.js",
     "verify:client-bundle": "node dist/scripts/verify-client-bundle.js",
-    "verify:ui": "node dist/scripts/verify-client-ui.js",
+    "verify:ui": "npm run build && npm run build:client && node dist/scripts/verify-client-ui.js",
     "audit:strict": "npm run build && node dist/runner/strict-schema-audit.js",
     "dry-run": "npm run build && node dist/runner/dry-run.js",
     "dev": "npm run build && node --env-file=.env dist/scripts/dev.js",

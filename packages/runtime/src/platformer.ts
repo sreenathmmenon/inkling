@@ -145,8 +145,6 @@ class PlatformerScene extends Phaser.Scene {
   private stuckCueShown = false;
   private assistAvailable = false;
   private assistActiveUntil = -Infinity;
-  private checkpointX = 0;
-  private checkpointY = 0;
   private assistTargetGuide: Phaser.GameObjects.Ellipse | undefined;
   private status: PlatformerStatus = "playing";
   private frame = 0;
@@ -169,16 +167,7 @@ class PlatformerScene extends Phaser.Scene {
     this.assistAvailable = false;
     this.assistActiveUntil = this.elapsedMs + PLATFORMER_PHYSICS.assistDurationMs;
     const target = this.recoveryTarget();
-    if (target) {
-      const currentDistance = Math.hypot(target.x - this.hero.x, target.y - this.hero.y);
-      const checkpointDistance = Math.hypot(target.x - this.checkpointX, target.y - this.checkpointY);
-      if (checkpointDistance + PLATFORMER_PHYSICS.progressDistance < currentDistance) {
-        const body = this.hero.body as Phaser.Physics.Arcade.Body;
-        body.reset(this.checkpointX, this.checkpointY);
-        body.setVelocity(0, 0);
-      }
-      this.showAssistTarget(target);
-    }
+    if (target) this.showAssistTarget(target);
     this.recoveryGuide?.destroy();
     this.recoveryGuide = undefined;
     this.emitFeedback("assist_activated", null, false);
@@ -234,8 +223,6 @@ class PlatformerScene extends Phaser.Scene {
     this.stuckCueShown = false;
     this.assistAvailable = false;
     this.assistActiveUntil = -Infinity;
-    this.checkpointX = this.plan.hero.x;
-    this.checkpointY = this.plan.hero.y;
     this.assistTargetGuide?.destroy();
     this.assistTargetGuide = undefined;
     this.recoveryGuide?.destroy();
@@ -575,9 +562,10 @@ class PlatformerScene extends Phaser.Scene {
 
     const body = this.hero.body as Phaser.Physics.Arcade.Body;
     this.animateHeroArtwork(body);
+    this.collectAssistedNearbyTarget();
+    if (this.status !== "playing") return;
     if (this.usesFreeMovement) {
       this.updateFreeMovementControls(body);
-      this.collectAssistedNearbyTarget();
       this.tryProjectileAction();
       if (this.plan.goalKind === "survive") {
         this.surviveRemainingMs -= delta;
@@ -813,11 +801,12 @@ class PlatformerScene extends Phaser.Scene {
    * steer close to it; this never recognizes or branches on drawing nouns.
    */
   private collectAssistedNearbyTarget(): void {
-    if (this.elapsedMs >= this.assistActiveUntil || this.plan.goalKind !== "collect_all") return;
+    if (this.elapsedMs >= this.assistActiveUntil) return;
     const target = this.recoveryTarget();
-    if (!target) return;
-    const colliderWidth = this.plan.hero.width * PLATFORMER_PHYSICS.freeMovementColliderScale;
-    const colliderHeight = this.plan.hero.height * PLATFORMER_PHYSICS.freeMovementColliderScale;
+    if (!target || !this.plan.collectibles.some((candidate) => candidate.id === target.id)) return;
+    const colliderScale = this.usesFreeMovement ? PLATFORMER_PHYSICS.freeMovementColliderScale : 1;
+    const colliderWidth = this.plan.hero.width * colliderScale;
+    const colliderHeight = this.plan.hero.height * colliderScale;
     const gapX = Math.max(
       0,
       Math.abs(target.x - this.hero.x) - (colliderWidth + target.width) / 2,
@@ -827,6 +816,19 @@ class PlatformerScene extends Phaser.Scene {
       Math.abs(target.y - this.hero.y) - (colliderHeight + target.height) / 2,
     );
     if (Math.hypot(gapX, gapY) > PLATFORMER_PHYSICS.assistPickupReach) return;
+    if (this.plan.contract.id === "maze" && !this.plan.mazeTopologyFallback) {
+      const route = this.mazeRecoveryRoute(target);
+      if (!route) return;
+      const routeDistance = route.reduce((total, point, index) => {
+        const previous = index === 0 ? this.hero : route[index - 1]!;
+        return total + Math.hypot(point.x - previous.x, point.y - previous.y);
+      }, 0);
+      const contactDistance = Math.hypot(
+        (colliderWidth + target.width) / 2,
+        (colliderHeight + target.height) / 2,
+      );
+      if (routeDistance > contactDistance + PLATFORMER_PHYSICS.assistPickupReach) return;
+    }
     const gameObject = this.collectibles.getChildren().find((candidate) => (
       candidate.getData("entityId") === target.id
     ));
@@ -1534,8 +1536,6 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   private markObjectiveProgress(): void {
-    this.checkpointX = this.hero.x;
-    this.checkpointY = this.hero.y;
     this.bestObjectiveDistance = Infinity;
     this.lastProgressAt = this.elapsedMs;
     this.stuckCueShown = false;
@@ -1600,6 +1600,8 @@ class PlatformerScene extends Phaser.Scene {
     this.status = "won";
     this.assistTargetGuide?.destroy();
     this.assistTargetGuide = undefined;
+    this.recoveryGuide?.destroy();
+    this.recoveryGuide = undefined;
     this.physics.pause();
     if (this.presentation === "standalone") {
       this.message.setText("You brought it to life!\nTap to play again").setVisible(true);
@@ -1612,6 +1614,8 @@ class PlatformerScene extends Phaser.Scene {
     this.status = "lost";
     this.assistTargetGuide?.destroy();
     this.assistTargetGuide = undefined;
+    this.recoveryGuide?.destroy();
+    this.recoveryGuide = undefined;
     this.physics.pause();
     if (this.presentation === "standalone") {
       this.message.setText("Try again\nTap to restart").setVisible(true);
@@ -1684,7 +1688,11 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
     window.innerWidth <= 680 && window.innerHeight > window.innerWidth;
   const viewportWidth = narrowPortrait ? 432 : WORLD_WIDTH;
   return new Phaser.Game({
-    type: Phaser.AUTO,
+    // Inkling repeatedly creates and retires small 2D games in one browser
+    // session. Canvas avoids the low WebGL-context ceiling on mobile WebKit
+    // while keeping the Phaser scene, physics, art, and deterministic replay
+    // contracts identical.
+    type: Phaser.CANVAS,
     parent: options.parent,
     width: viewportWidth,
     height: WORLD_HEIGHT,

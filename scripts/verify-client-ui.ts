@@ -147,6 +147,89 @@ try {
   await malformed.close();
 
   const gameSpec = JSON.parse(await readFile(resolve(root, "examples/live-scan-gamespec.json"), "utf8")) as Record<string, unknown>;
+  const fourWayGameSpec = structuredClone(gameSpec);
+  fourWayGameSpec.primary_genre = "maze";
+  fourWayGameSpec.hero = {
+    ...(fourWayGameSpec.hero as Record<string, unknown>),
+    bbox: [0.08, 0.42, 0.18, 0.58],
+  };
+  fourWayGameSpec.entities = [{
+    id: "four_way_goal",
+    role: "goal",
+    bbox: [0.72, 0.42, 0.8, 0.58],
+    behavior: "static",
+    linked_to: null,
+    style_ref: "source",
+  }];
+  fourWayGameSpec.goal = { kind: "reach_goal", target_id: "four_way_goal" };
+  const actionGameSpec = structuredClone(gameSpec);
+  actionGameSpec.primary_genre = "shooter";
+  actionGameSpec.hero = {
+    ...(actionGameSpec.hero as Record<string, unknown>),
+    bbox: [0.08, 0.42, 0.18, 0.58],
+  };
+  actionGameSpec.entities = [{
+    id: "action_target",
+    role: "boss",
+    bbox: [0.72, 0.35, 0.82, 0.58],
+    behavior: "shooter",
+    linked_to: null,
+    style_ref: "source",
+  }];
+  actionGameSpec.goal = { kind: "defeat_boss", target_id: "action_target" };
+
+  // Cross every control contract with every production viewport class. This
+  // prevents a generated genre from exposing a layout combination that only
+  // worked for the sample used by an earlier regression.
+  for (const viewport of [
+    { width: 320, height: 568 },
+    { width: 360, height: 640 },
+    { width: 390, height: 844 },
+    { width: 844, height: 390 },
+    { width: 768, height: 1024 },
+    { width: 1366, height: 768 },
+  ]) {
+    for (const contract of [
+      { id: "side", spec: gameSpec, minimumButtons: 3 },
+      { id: "four-way", spec: fourWayGameSpec, minimumButtons: 4 },
+      { id: "four-way-action", spec: actionGameSpec, minimumButtons: 5 },
+    ]) {
+      const matrixPage = await browser.newPage({ viewport, hasTouch: true });
+      await matrixPage.goto(baseUrl);
+      await matrixPage.locator("#spec-file").setInputFiles({
+        name: `${contract.id}-${viewport.width}x${viewport.height}.json`,
+        mimeType: "application/json",
+        buffer: Buffer.from(JSON.stringify(contract.spec)),
+      });
+      await matrixPage.locator("canvas").waitFor();
+      const measurement = await matrixPage.evaluate(() => {
+        const shell = document.querySelector<HTMLElement>("#game-shell")!.getBoundingClientRect();
+        const controls = document.querySelector<HTMLElement>("#accessible-controls")!;
+        const controlRect = controls.getBoundingClientRect();
+        const buttons = Array.from(controls.querySelectorAll<HTMLElement>("button:not([hidden])")).map((button) => {
+          const rect = button.getBoundingClientRect();
+          return { top: rect.top, bottom: rect.bottom, left: rect.left, right: rect.right, width: rect.width, height: rect.height };
+        }).filter((button) => button.width > 0 && button.height > 0);
+        return {
+          layout: controls.dataset.layout,
+          hasAction: controls.dataset.hasAction,
+          shell: { top: shell.top, bottom: shell.bottom, left: shell.left, right: shell.right },
+          controls: { top: controlRect.top, bottom: controlRect.bottom, left: controlRect.left, right: controlRect.right },
+          buttons,
+          viewport: { width: innerWidth, height: innerHeight },
+          horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        };
+      });
+      assert.ok(measurement.shell.top >= 0 && measurement.shell.bottom <= viewport.height + 1 && measurement.shell.left >= 0 && measurement.shell.right <= viewport.width + 1, `control matrix game is clipped for ${contract.id}@${viewport.width}x${viewport.height}: ${JSON.stringify(measurement)}`);
+      assert.ok(measurement.controls.top >= 0 && measurement.controls.bottom <= viewport.height + 1 && measurement.controls.left >= 0 && measurement.controls.right <= viewport.width + 1, `control matrix is clipped for ${contract.id}@${viewport.width}x${viewport.height}: ${JSON.stringify(measurement)}`);
+      assert.ok(measurement.buttons.length >= contract.minimumButtons && measurement.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.top >= 0 && button.bottom <= viewport.height && button.left >= 0 && button.right <= viewport.width), `control matrix targets are incomplete for ${contract.id}@${viewport.width}x${viewport.height}: ${JSON.stringify(measurement)}`);
+      assert.ok(measurement.horizontalOverflow <= 1, `control matrix overflows horizontally for ${contract.id}@${viewport.width}x${viewport.height}: ${JSON.stringify(measurement)}`);
+      if (contract.id === "side") assert.equal(measurement.layout, "side");
+      else assert.equal(measurement.layout, "four-way");
+      if (contract.id === "four-way-action") assert.equal(measurement.hasAction, "true");
+      await matrixPage.close();
+    }
+  }
 
   const shortPhone = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true });
   await shortPhone.goto(baseUrl);
@@ -211,6 +294,46 @@ try {
   assert.equal(shortPhoneTerminal.activeId, "restart", `short-phone terminal focus is not on Play again: ${JSON.stringify(shortPhoneTerminal)}`);
   await shortPhone.close();
 
+  const shortFourWay = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true });
+  await shortFourWay.goto(baseUrl);
+  await shortFourWay.locator("#spec-file").setInputFiles({
+    name: "short-phone-four-way.json",
+    mimeType: "application/json",
+    buffer: Buffer.from(JSON.stringify(fourWayGameSpec)),
+  });
+  await shortFourWay.locator("canvas").waitFor();
+  const shortFourWayLayout = await shortFourWay.evaluate(() => {
+    const shell = document.querySelector<HTMLElement>("#game-shell")!.getBoundingClientRect();
+    const controls = document.querySelector<HTMLElement>("#accessible-controls")!;
+    const controlRect = controls.getBoundingClientRect();
+    const buttons = Array.from(controls.querySelectorAll<HTMLElement>("button:not([hidden])")).map((button) => {
+      const rect = button.getBoundingClientRect();
+      return { top: rect.top, bottom: rect.bottom, width: rect.width, height: rect.height };
+    });
+    return {
+      layout: controls.dataset.layout,
+      shell: { top: shell.top, bottom: shell.bottom },
+      controls: { top: controlRect.top, bottom: controlRect.bottom },
+      viewportHeight: innerHeight,
+      horizontalOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      buttons,
+    };
+  });
+  assert.equal(shortFourWayLayout.layout, "four-way", "short-phone four-way contract was not exercised");
+  assert.ok(shortFourWayLayout.shell.top >= 0 && shortFourWayLayout.shell.bottom <= shortFourWayLayout.viewportHeight, `short-phone four-way game is clipped: ${JSON.stringify(shortFourWayLayout)}`);
+  assert.ok(shortFourWayLayout.controls.top >= 0 && shortFourWayLayout.controls.bottom <= shortFourWayLayout.viewportHeight, `short-phone four-way controls are clipped: ${JSON.stringify(shortFourWayLayout)}`);
+  assert.ok(shortFourWayLayout.buttons.length >= 4 && shortFourWayLayout.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.bottom <= shortFourWayLayout.viewportHeight), `short-phone four-way targets are incomplete: ${JSON.stringify(shortFourWayLayout)}`);
+  assert.ok(shortFourWayLayout.horizontalOverflow <= 1, `short-phone four-way play overflows horizontally: ${JSON.stringify(shortFourWayLayout)}`);
+  const shortFourWayLeft = shortFourWay.locator('[data-game-control="left"]');
+  await shortFourWayLeft.dispatchEvent("pointerdown", { pointerId: 41, pointerType: "touch" });
+  await shortFourWay.waitForTimeout(10_500);
+  await shortFourWayLeft.dispatchEvent("pointerup", { pointerId: 41, pointerType: "touch" });
+  const shortFourWayAssist = await shortFourWay.getByRole("button", { name: "Give me a boost" }).boundingBox();
+  assert.ok(shortFourWayAssist && shortFourWayAssist.width >= 48 && shortFourWayAssist.height >= 48 && shortFourWayAssist.y >= 0 && shortFourWayAssist.y + shortFourWayAssist.height <= 568, `short-phone four-way help is unreachable: ${JSON.stringify(shortFourWayAssist)}`);
+  await shortFourWay.getByRole("button", { name: "Give me a boost" }).click();
+  assert.match(await shortFourWay.locator("#game-status").textContent() ?? "", /Help boost on/);
+  await shortFourWay.close();
+
   const desktopPlay = await browser.newPage({ viewport: { width: 1366, height: 768 } });
   await desktopPlay.goto(baseUrl);
   await desktopPlay.locator("#spec-file").setInputFiles({
@@ -271,27 +394,12 @@ try {
     await tablet.close();
   }
 
-  const landscapeGameSpec = structuredClone(gameSpec);
-  landscapeGameSpec.primary_genre = "maze";
-  landscapeGameSpec.hero = {
-    ...(landscapeGameSpec.hero as Record<string, unknown>),
-    bbox: [0.08, 0.42, 0.18, 0.58],
-  };
-  landscapeGameSpec.entities = [{
-    id: "landscape_goal",
-    role: "goal",
-    bbox: [0.72, 0.42, 0.8, 0.58],
-    behavior: "static",
-    linked_to: null,
-    style_ref: "source",
-  }];
-  landscapeGameSpec.goal = { kind: "reach_goal", target_id: "landscape_goal" };
   const landscapeTouch = await browser.newPage({ viewport: { width: 844, height: 390 }, hasTouch: true });
   await landscapeTouch.goto(baseUrl);
   await landscapeTouch.locator("#spec-file").setInputFiles({
     name: "landscape-touch-game.json",
     mimeType: "application/json",
-    buffer: Buffer.from(JSON.stringify(landscapeGameSpec)),
+    buffer: Buffer.from(JSON.stringify(fourWayGameSpec)),
   });
   await landscapeTouch.locator("canvas").waitFor();
   const landscapeLayout = await landscapeTouch.evaluate(() => {

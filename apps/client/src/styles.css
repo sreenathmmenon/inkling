@@ -266,6 +266,8 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
 
 @media (min-width: 681px) and (min-height: 601px) {
   body.play-mode #game-shell { width: min(100%, calc((100svh - 224px) * 16 / 9)); }
+  body.play-mode.touch-controls #game-shell { width: min(100%, calc((100svh - 320px) * 16 / 9)); }
+  body.play-mode.touch-controls.four-way-controls #game-shell { width: min(100%, calc((100svh - 380px) * 16 / 9)); }
   body.play-mode.game-won #game-shell,
   body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 356px) * 16 / 9)); }
 }
@@ -376,7 +378,10 @@ body.play-mode.touch-controls.player-error #accessible-controls { display: none;
   body.play-mode #interpretation-note { margin-top: 4px; padding: 4px 7px; font-size: .68rem; line-height: 1.2; }
   body.play-mode .new-drawing-action { min-width: 48px; min-height: 48px; }
   body.play-mode #game-shell { width: min(100%, calc((100svh - 184px) * 4 / 5)); margin-inline: auto; }
+  body.play-mode.four-way-controls #game-shell { width: min(100%, calc((100svh - 232px) * 4 / 5)); }
   body.play-mode #accessible-controls { margin: 7px auto 0; }
+  body.play-mode.playing .assist-action:not([hidden]) { position: fixed; z-index: 350; right: max(8px, env(safe-area-inset-right)); bottom: max(92px, env(safe-area-inset-bottom)); min-width: 48px; min-height: 48px; }
+  body.play-mode.playing.four-way-controls .assist-action:not([hidden]) { bottom: max(158px, env(safe-area-inset-bottom)); }
   body.play-mode.game-won #game-shell,
   body.play-mode.game-lost #game-shell { width: min(100%, calc((100svh - 248px) * 4 / 5)); }
   body.play-mode.game-won .play-meta,

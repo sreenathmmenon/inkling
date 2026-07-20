@@ -264,6 +264,7 @@ async function play(spec: unknown): Promise<void> {
   const playable = resolvePlayableGame(spec);
   const plan = createPlatformerPlan(playable.gameSpec);
   const objective = createObjectiveContract(plan);
+  document.body.classList.toggle("four-way-controls", plan.contract.touchControls === "four_way");
   activeCounterLabel = objective.counterLabel;
   // A replay creates a fresh Phaser instance, so its visible status must also
   // start from a fresh playing state. Do this before the lazy player loads;

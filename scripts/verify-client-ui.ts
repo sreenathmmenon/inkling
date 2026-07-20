@@ -177,18 +177,19 @@ try {
     style_ref: "source",
   }];
   actionGameSpec.goal = { kind: "defeat_boss", target_id: "action_target" };
-
-  // Cross every control contract with every production viewport class. This
-  // prevents a generated genre from exposing a layout combination that only
-  // worked for the sample used by an earlier regression.
-  for (const viewport of [
+  const controlViewports = [
     { width: 320, height: 568 },
     { width: 360, height: 640 },
     { width: 390, height: 844 },
     { width: 844, height: 390 },
     { width: 768, height: 1024 },
     { width: 1366, height: 768 },
-  ]) {
+  ];
+
+  // Cross every control contract with every production viewport class. This
+  // prevents a generated genre from exposing a layout combination that only
+  // worked for the sample used by an earlier regression.
+  for (const viewport of controlViewports) {
     for (const contract of [
       { id: "side", spec: gameSpec, minimumButtons: 3 },
       { id: "four-way", spec: fourWayGameSpec, minimumButtons: 4 },
@@ -229,6 +230,66 @@ try {
       if (contract.id === "four-way-action") assert.equal(measurement.hasAction, "true");
       await matrixPage.close();
     }
+  }
+
+  const assistMatrix: Array<{
+    page: Page;
+    id: string;
+    viewport: { width: number; height: number };
+  }> = [];
+  for (const viewport of controlViewports) {
+    for (const contract of [
+      { id: "side", spec: gameSpec },
+      { id: "four-way-action", spec: actionGameSpec },
+    ]) {
+      const page = await browser.newPage({ viewport, hasTouch: true });
+      await page.goto(baseUrl);
+      await page.locator("#spec-file").setInputFiles({
+        name: `assist-${contract.id}-${viewport.width}x${viewport.height}.json`,
+        mimeType: "application/json",
+        buffer: Buffer.from(JSON.stringify(contract.spec)),
+      });
+      await page.locator("canvas").waitFor();
+      if (contract.id === "four-way-action" && viewport.width === 390 && viewport.height === 844) {
+        await page.locator("#fullscreen-game").click();
+        await page.waitForFunction(() => document.fullscreenElement?.id === "play-stage");
+      }
+      await page.locator('[data-game-control="left"]').dispatchEvent("pointerdown", {
+        pointerId: 70 + assistMatrix.length,
+        pointerType: "touch",
+      });
+      assistMatrix.push({ page, id: contract.id, viewport });
+    }
+  }
+  await Promise.all(assistMatrix.map(({ page }) => page.waitForTimeout(10_500)));
+  for (const [index, entry] of assistMatrix.entries()) {
+    await entry.page.locator('[data-game-control="left"]').dispatchEvent("pointerup", {
+      pointerId: 70 + index,
+      pointerType: "touch",
+    });
+    const assist = entry.page.getByRole("button", { name: "Give me a boost" });
+    await assist.waitFor({ state: "visible" });
+    const measurement = await entry.page.evaluate(() => {
+      const assistRect = document.querySelector<HTMLElement>("#assist-game")!.getBoundingClientRect();
+      const controlsRect = document.querySelector<HTMLElement>("#accessible-controls")!.getBoundingClientRect();
+      const overlap = !(
+        assistRect.right <= controlsRect.left ||
+        assistRect.left >= controlsRect.right ||
+        assistRect.bottom <= controlsRect.top ||
+        assistRect.top >= controlsRect.bottom
+      );
+      return {
+        assist: { top: assistRect.top, bottom: assistRect.bottom, left: assistRect.left, right: assistRect.right, width: assistRect.width, height: assistRect.height },
+        controls: { top: controlsRect.top, bottom: controlsRect.bottom, left: controlsRect.left, right: controlsRect.right },
+        viewport: { width: innerWidth, height: innerHeight },
+        overlap,
+      };
+    });
+    assert.ok(measurement.assist.width >= 48 && measurement.assist.height >= 48 && measurement.assist.top >= 0 && measurement.assist.bottom <= entry.viewport.height && measurement.assist.left >= 0 && measurement.assist.right <= entry.viewport.width, `assist matrix is unreachable for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}: ${JSON.stringify(measurement)}`);
+    assert.equal(measurement.overlap, false, `assist overlaps controls for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}: ${JSON.stringify(measurement)}`);
+    await assist.click();
+    assert.match(await entry.page.locator("#game-status").textContent() ?? "", /Help boost on/, `assist did not activate for ${entry.id}@${entry.viewport.width}x${entry.viewport.height}`);
+    await entry.page.close();
   }
 
   const shortPhone = await browser.newPage({ viewport: { width: 320, height: 568 }, hasTouch: true });

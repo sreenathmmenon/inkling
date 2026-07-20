@@ -204,7 +204,9 @@ async function certifyGeneratedGame(value: unknown): Promise<unknown> {
 }
 
 function showState(state: PlatformerState): void {
-  assistGame.hidden = !shouldShowAssist(state);
+  const assistVisible = shouldShowAssist(state);
+  assistGame.hidden = !assistVisible;
+  document.body.classList.toggle("assist-available", assistVisible);
   status.dataset.gameState = state.status;
   status.classList.remove("error");
   if (state.status === "won") {

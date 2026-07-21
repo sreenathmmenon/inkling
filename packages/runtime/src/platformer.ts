@@ -54,6 +54,7 @@ import {
 } from "./launch-contract.js";
 import type { InputFrame } from "./input-frame.js";
 import { findMazeRoute, type MazePoint } from "./maze-topology.js";
+import { carriedCollectibleIds } from "./progress-preservation.js";
 import {
   dominantSurfaceColor,
   dominantSurfaceShare,
@@ -95,6 +96,13 @@ export interface PlatformerOptions {
   showTouchControls?: boolean;
   /** Standalone keeps all runtime chrome; embedded lets the host own headings. */
   presentation?: "standalone" | "embedded";
+  /**
+   * Bonus collectibles carried forward from a rescan of the same world. Only
+   * ids the deterministic carry rule admits (still present, never required,
+   * never a collect_all objective) are marked collected at create; the
+   * certification replay never passes this, so solvability is unaffected.
+   */
+  initiallyCollected?: readonly string[];
 }
 
 export type PlatformerControl = "left" | "right" | "jump" | "down" | "action";
@@ -230,6 +238,7 @@ class PlatformerScene extends Phaser.Scene {
     private readonly showTouchControls = true,
     private readonly presentation: "standalone" | "embedded" = "standalone",
     private readonly backdrop?: BackdropPlan,
+    private readonly initiallyCollected: readonly string[] = [],
   ) {
     super("lane-a-platformer");
     this.coaching = createCoachingContract(plan);
@@ -486,6 +495,22 @@ class PlatformerScene extends Phaser.Scene {
     this.physics.add.overlap(this.hero, this.collectibles, (_hero, collected) => {
       this.collect(collected as Phaser.GameObjects.GameObject);
     });
+    // Rescan continuity: bonuses the deterministic carry rule admits start
+    // collected, quietly — no pickup feedback, no win evaluation. The rule
+    // guarantees none of these ids is required or part of a collect_all
+    // objective, so doors, goals, and certification stay untouched.
+    for (const entityId of carriedCollectibleIds(this.plan, this.initiallyCollected)) {
+      const gameObject = this.collectibles.getChildren().find((candidate) => (
+        candidate.getData("entityId") === entityId
+      ));
+      const body = gameObject?.body as Phaser.Physics.Arcade.StaticBody | null | undefined;
+      if (!gameObject || !body?.enable) continue;
+      body.enable = false;
+      (gameObject as Phaser.GameObjects.Rectangle).setVisible(false);
+      this.artworkByEntity.get(entityId)?.setVisible(false);
+      this.collected += 1;
+      this.collectedIds.add(entityId);
+    }
 
     this.goalTrigger = this.physics.add.staticGroup();
     // Every objective cue comes from the same contract as the win predicate.
@@ -1963,6 +1988,7 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
       options.showTouchControls ?? true,
       options.presentation ?? "standalone",
       playableGame.backdrop,
+      options.initiallyCollected ?? [],
     ),
   });
 }

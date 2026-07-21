@@ -154,6 +154,26 @@ test("P1 keeps its child-safety block list and fail-uncertain contract", () => {
   assert.match(text, /prompt injection/);
   assert.match(text, /Do not describe the content/, "blocked content is never described back");
   assert.match(text, /verdict in \{"allow","block","uncertain"\}/);
+  assert.match(
+    text,
+    /\["face_detected","personal_data","unsafe_content","injection"\]/,
+    "every genuine block category stays named",
+  );
+  assert.match(
+    text,
+    /drawn person or drawn character is expected input/,
+    "a drawn character must never read as an identifiable person",
+  );
+  assert.match(
+    text,
+    /cartoon weapons in a game context/,
+    "cartoon adventure content (animals, hazards, weapons-as-fiction) stays allowed",
+  );
+  assert.match(
+    text,
+    /never "block" on doubt/,
+    "borderline reads must route through the declared uncertain->escalate path, not block",
+  );
 });
 
 test("P8 keeps its bounded-repair and drawn-intent contract", () => {

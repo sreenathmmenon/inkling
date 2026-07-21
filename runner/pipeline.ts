@@ -1216,12 +1216,30 @@ export async function runShareModeration(
   return result;
 }
 
+/**
+ * Names the gate's schema-validated enum fields (never free text, never
+ * content) in the block message. Reports that only keep error.message —
+ * like the drawing-set validation report — would otherwise record a block
+ * with no reason, which is how the P1 false-positive class went undiagnosed.
+ */
+function describeGateVerdict(verdict: unknown): string {
+  if (!isRecord(verdict)) return "";
+  const parts: string[] = [];
+  for (const field of ["verdict", "publishable", "reason_code"]) {
+    const value = verdict[field];
+    if (typeof value === "string" || typeof value === "boolean") {
+      parts.push(`${field}=${String(value)}`);
+    }
+  }
+  return parts.length > 0 ? ` (${parts.join(", ")})` : "";
+}
+
 export class PipelineBlocked extends Error {
   constructor(
     public readonly callId: string,
     public readonly verdict: unknown,
   ) {
-    super(`Pipeline blocked at ${callId}`);
+    super(`Pipeline blocked at ${callId}${describeGateVerdict(verdict)}`);
     this.name = "PipelineBlocked";
   }
 }

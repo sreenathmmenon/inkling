@@ -1,5 +1,5 @@
 import { P8_SYNTHETIC_ENTITY_PREFIX } from "../packages/runtime/src/synthetic-entity.js";
-import { applyBoundedRepairs } from "../services/solve/src/playtest.js";
+import { applyBoundedRepairs, runPlaytest } from "../services/solve/src/playtest.js";
 import type { BehaviorPatch, GameSpec, PlaytestReport } from "./types.js";
 
 /**
@@ -12,6 +12,7 @@ import type { BehaviorPatch, GameSpec, PlaytestReport } from "./types.js";
 export type RecastRung =
   | "bounded_adjustment"
   | "reach_support"
+  | "hazard_relief"
   | "pickup_relief"
   | "objective_fallback"
   | "guarded_floor"
@@ -20,6 +21,7 @@ export type RecastRung =
 export const RECAST_RUNG_ORDER: readonly RecastRung[] = [
   "bounded_adjustment",
   "reach_support",
+  "hazard_relief",
   "pickup_relief",
   "objective_fallback",
   "guarded_floor",
@@ -28,6 +30,7 @@ export const RECAST_RUNG_ORDER: readonly RecastRung[] = [
 
 const SURFACE_ROLES = new Set(["platform", "water", "ice", "cloud", "launchpad"]);
 const PICKUP_ROLES = new Set(["collectible", "key"]);
+const HAZARD_ROLES = new Set(["hazard", "enemy", "boss"]);
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
@@ -142,7 +145,47 @@ function reachSupportCandidate(
 }
 
 /**
- * Rung 3 — lower the required interactions: pickups the deterministic route
+ * Rung 3 — hazard relief for hazard-dense worlds: exactly the hazards the
+ * deterministic route dies on become scenery, one at a time, until the route
+ * survives or every offender has been becalmed. Surfaces, pickups, the drawn
+ * goal, and the declared objective all stay exactly as drawn; demoted art
+ * remains visible at its drawn coordinates. Greedy, bounded by the hazard
+ * count, and driven only by playtest blocker evidence — never drawing nouns.
+ */
+function hazardReliefCandidate(
+  source: GameSpec,
+  report: PlaytestReport,
+): GameSpec | null {
+  const bossTargetId = source.goal.kind === "defeat_boss" ? source.goal.target_id : null;
+  const candidate = clone(source);
+  const demotable = (entityId: string): GameSpec["entities"][number] | undefined => {
+    const entity = candidate.entities.find((item) => item.id === entityId);
+    return entity && HAZARD_ROLES.has(entity.role) && entity.id !== bossTargetId
+      ? entity
+      : undefined;
+  };
+  const hazardCount = source.entities.filter((entity) => HAZARD_ROLES.has(entity.role)).length;
+  let currentReport = report;
+  let demoted = 0;
+  for (let round = 0; round < hazardCount; round += 1) {
+    const blockerId = blockerEntityId(currentReport, "lives_exhausted:");
+    const entity = blockerId ? demotable(blockerId) : undefined;
+    if (!entity) break;
+    entity.role = "decoration";
+    entity.behavior = "static";
+    entity.linked_to = null;
+    demoted += 1;
+    currentReport = runPlaytest(candidate);
+    if (currentReport.reached_goal) break;
+  }
+  if (demoted === 0) return null;
+  addFlag(candidate, "p8_hazard_relief");
+  addAssumption(candidate, "Some dangers were too fierce to get past, so they are just part of the scenery now.");
+  return candidate;
+}
+
+/**
+ * Rung 4 — lower the required interactions: pickups the deterministic route
  * never reached stop being required and become part of the scenery. Pickups
  * the route did reach stay collectible; the drawn goal stays the goal.
  */
@@ -179,7 +222,7 @@ function pickupReliefCandidate(
   return candidate;
 }
 
-/** Rung 4 — the world is untouched; the objective becomes one it supports. */
+/** Rung 5 — the world is untouched; the objective becomes one it supports. */
 function objectiveFallbackCandidate(source: GameSpec): GameSpec | null {
   const hasCollectibles = source.entities.some((entity) => entity.role === "collectible");
   const kind = hasCollectibles ? "collect_all" : "survive";
@@ -238,7 +281,7 @@ function appendSyntheticFloorAndFinish(candidate: GameSpec, used: Set<string>): 
 }
 
 /**
- * Rung 5 — a guaranteed ground route and finish are added, but the child's
+ * Rung 6 — a guaranteed ground route and finish are added, but the child's
  * drawing stays part of the playable world wherever it cannot trap or hurt:
  * drawn surfaces remain landable one-way platforms and drawn pickups remain
  * collectible. Only roles that can block or damage become scenery.
@@ -268,7 +311,7 @@ function guardedFloorCandidate(source: GameSpec): GameSpec {
 }
 
 /**
- * Rung 6 — the deterministic Lane A floor that existed before the ladder:
+ * Rung 7 — the deterministic Lane A floor that existed before the ladder:
  * every drawn mark is preserved as scenery at its drawn coordinates and the
  * mechanics are recast to a guaranteed ground route and finish.
  */
@@ -314,6 +357,8 @@ export function buildRungCandidate(
       return boundedAdjustmentCandidate(source, report);
     case "reach_support":
       return reachSupportCandidate(source, report);
+    case "hazard_relief":
+      return hazardReliefCandidate(source, report);
     case "pickup_relief":
       return pickupReliefCandidate(source, report);
     case "objective_fallback":

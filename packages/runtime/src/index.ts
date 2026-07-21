@@ -32,6 +32,11 @@ export {
   type ResolvedPlayableGame,
 } from "./artwork.js";
 export {
+  groundRouteUsedDrawnSupport,
+  isDrawnSupportSurfaceId,
+  SAFETY_FLOOR_ENTITY_ID,
+} from "./drawn-support.js";
+export {
   createPlayContract,
   LANE_A_CAPABILITY_PROFILE,
   type PlayContract,

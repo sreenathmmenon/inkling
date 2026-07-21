@@ -839,16 +839,25 @@ class PipelineRunner {
         );
       }
     }
-    if (
-      !solvabilityPassed ||
-      !solvability ||
-      !expressionIsTrue(call.loop_until, solvability) ||
-      !playtestReport.reached_goal
-    ) {
+    // The model's certification budget may end without agreement, but a hard
+    // failure is never the answer for a world the ladder's floor can save.
+    // The playtest outranks a disagreeing model verdict in both directions:
+    // if the current world is not locally finishable, the remaining rungs are
+    // climbed deterministically (the terminal full-floor rung is finishable
+    // by construction), and the adopted degradation is reported honestly
+    // instead of throwing the child's drawing away.
+    if (!solvabilityPassed && !playtestReport.reached_goal && advanceLadder(playtestReport)) {
+      playtestReport = runPlaytest(gameSpec, context.behaviorTracks);
+      state.playtest_report = playtestReport;
+    }
+    if (!solvability || !playtestReport.reached_goal) {
       throw new SolvabilityError(
         `${call.id} exhausted its repair loop before ready; ` +
         `headless blocker: ${playtestReport?.first_blocker ?? "none"}`,
       );
+    }
+    if (!solvabilityPassed) {
+      this.degraded.push(`${call.id}:repair_loop_exhausted:playtest_certified`);
     }
     return {
       gameSpec,

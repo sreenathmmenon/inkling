@@ -65,6 +65,13 @@ test("a bounded adjustment keeps a faithful world eligible for faithful_ready", 
   const relieved = structuredClone(faithful);
   relieved.flags.push("p8_optional_pickups");
   assert.equal(createPlayContract(relieved).outcome, "related_fallback");
+  const becalmed = structuredClone(faithful);
+  becalmed.flags.push("p8_hazard_relief");
+  assert.equal(
+    createPlayContract(becalmed).outcome,
+    "related_fallback",
+    "becalmed hazards are honest degradation, never a faithful claim",
+  );
 });
 
 test("reach support adds one synthetic one-way platform beneath the unreached target", () => {
@@ -89,6 +96,51 @@ test("reach support adds one synthetic one-way platform beneath the unreached ta
     assert.deepEqual(candidate.entities.find((other) => other.id === entity.id), entity, `${entity.id} is untouched`);
   }
   assert.ok(candidate.flags.includes("p8_reach_support"));
+});
+
+test("hazard relief demotes only the hazards the route dies on and keeps everything else drawn", () => {
+  const source = baseSpec();
+  const candidate = buildRungCandidate(
+    "hazard_relief",
+    source,
+    report({ first_blocker: "lives_exhausted:spike", visited: ["hero", "floor", "spike"] }),
+  );
+  assert.ok(candidate);
+  assert.equal(candidate.entities.find((entity) => entity.id === "spike")?.role, "decoration");
+  for (const entity of candidate.entities) {
+    const original = source.entities.find((other) => other.id === entity.id);
+    assert.ok(original);
+    assert.deepEqual(entity.bbox, original.bbox, `${entity.id} keeps its drawn position`);
+    if (entity.role !== original.role) {
+      assert.ok(
+        ["hazard", "enemy", "boss"].includes(original.role),
+        `${entity.id} was demoted but only hazards may be`,
+      );
+      assert.equal(entity.role, "decoration", "demoted art stays visible scenery");
+    }
+  }
+  assert.equal(candidate.entities.find((entity) => entity.id === "floor")?.role, "platform");
+  assert.equal(candidate.entities.find((entity) => entity.id === "gem")?.role, "collectible");
+  assert.equal(candidate.goal.kind, "reach_goal", "the declared objective is untouched");
+  assert.ok(candidate.flags.includes("p8_hazard_relief"));
+  assert.equal(candidate.flags.includes("p8_safety_recast"), false);
+});
+
+test("hazard relief never touches non-hazard blockers or a defeat_boss target", () => {
+  const source = baseSpec();
+  assert.equal(
+    buildRungCandidate("hazard_relief", source, report({ first_blocker: "playtest_timeout" })),
+    null,
+    "only hazard-death evidence triggers relief",
+  );
+
+  const bossWorld = baseSpec();
+  bossWorld.goal = { kind: "defeat_boss", target_id: "snake" };
+  assert.equal(
+    buildRungCandidate("hazard_relief", bossWorld, report({ first_blocker: "lives_exhausted:snake" })),
+    null,
+    "the boss the child must defeat is never becalmed into scenery",
+  );
 });
 
 test("pickup relief exists only for collect_all and keeps reached pickups collectible", () => {

@@ -83,6 +83,70 @@ test("P2 keeps its semantic-role, ambiguity, and art-preservation contract", () 
   assert.match(text, /modifiers\s*must be \[\]/);
 });
 
+test("P2 keeps its deterministic tie-break and granularity rules", () => {
+  const text = prompt("P2");
+  // Goal tie-break: an ordered rule ended the reach/collect flip (03-crayon-maze
+  // went 3/2 across identical runs) and the survive/collect flip (10-duck).
+  assert.match(text, /Goal tie-break — when more than one reading fits, decide in this exact\s*order/);
+  assert.match(text, /stop at the first rule that applies/);
+  assert.match(
+    text,
+    /finish marker \(flag, X, "END", trophy, home\) ALWAYS wins:\s*reach_goal, even when collectibles are also drawn/,
+    "a drawn finish marker must always beat collect_all",
+  );
+  assert.match(text, /No finish marker AND gathering is the point/);
+  assert.match(text, /Neither a finish marker nor a gatherable point -> survive/);
+  assert.match(text, /always yield the same goal\.kind/);
+  // Genre tie-break: a fixed priority ended runner/platformer flips
+  // (06-frog 4/1, 10-duck 3/2) when composition matched multiple cues.
+  assert.match(text, /Genre tie-break — when composition matches more than one cue above/);
+  assert.match(text, /slingshot — only when a launcher aimed at targets is explicitly\s*drawn/);
+  assert.match(text, /enclosed corridors beat path reading/);
+  assert.match(text, /gravity cues beat birds-eye reading/);
+  assert.match(text, /runner — only when none of the cues above are present/);
+  assert.match(text, /always yield the same genre/);
+  // Travel-surface rule: 04-fire-truck produced 5 role multisets in 5 runs
+  // because the drawn road flipped between platform/hazard/decoration.
+  assert.match(text, /surface the hero travels on/);
+  assert.match(text, /NEVER hazard and NEVER decoration/);
+  assert.match(text, /hazards\s*are things that hurt on contact, and the road itself never hurts/);
+  // Wall granularity: real mazes emit 22-28 strips; the stated range and the
+  // one-entity-per-run rule must agree with each other and the few-shot lesson.
+  assert.match(text, /exactly one platform entity per continuous straight drawn wall run/);
+  assert.match(text, /never merge separate runs into\s*one box and never split one straight run into fragments/);
+  assert.match(text, /10-30 wall entities/);
+});
+
+test("the maze few-shot exemplar teaches per-run wall granularity", () => {
+  const fewshot = JSON.parse(loadText(root, "spec/fewshot/gamespec_fewshot.json")) as Array<{
+    role: string;
+    content: Array<{ type: string; text: string }>;
+  }>;
+  const mazeIndex = fewshot.findIndex(
+    (message) => message.role === "user" && (message.content[0]?.text ?? "").toLowerCase().includes("maze"),
+  );
+  assert.ok(mazeIndex >= 0, "the maze lesson must exist");
+  const answer = fewshot[mazeIndex + 1];
+  assert.equal(answer?.role, "assistant", "the maze lesson must have a taught answer");
+  const spec = JSON.parse(answer?.content[0]?.text ?? "") as {
+    primary_genre: string;
+    entities: Array<{ role: string; bbox: [number, number, number, number] }>;
+  };
+  assert.equal(spec.primary_genre, "maze");
+  const walls = spec.entities.filter((entity) => entity.role === "platform");
+  assert.ok(
+    walls.length >= 10 && walls.length <= 30,
+    `the exemplar must model the granularity the prompt states (10-30 walls), got ${walls.length}`,
+  );
+  for (const wall of walls) {
+    const narrow = Math.min(
+      Math.abs(wall.bbox[2] - wall.bbox[0]),
+      Math.abs(wall.bbox[3] - wall.bbox[1]),
+    );
+    assert.ok(narrow <= 0.06, "every taught wall strip must be thin (narrow dimension <= 0.06)");
+  }
+});
+
 test("P1 keeps its child-safety block list and fail-uncertain contract", () => {
   const text = prompt("P1");
   assert.match(text, /real human faces or identifiable people/);

@@ -4,6 +4,7 @@ import {
   type PlatformerPlan,
 } from "./platformer-layout.js";
 import { contractForGenre } from "./game-contract.js";
+import { groundRouteUsedDrawnSupport } from "./drawn-support.js";
 import { keyDoorRelationships } from "./relationship-contract.js";
 
 export type RuntimeCapability =
@@ -30,7 +31,8 @@ export type RuntimeCapability =
   | "surface_ice"
   | "surface_cloud"
   | "surface_launchpad"
-  | "declared_genre_movement";
+  | "declared_genre_movement"
+  | "drawn_support_route";
 
 export type PlayContractOutcome =
   | "faithful_ready"
@@ -161,6 +163,11 @@ function requiredForGenre(spec: GameSpec, plan: PlatformerPlan): RuntimeCapabili
   if (plan.contract.movement === "free") pushUnique(required, "four_way_movement");
   if (plan.contract.movement === "auto_ground") pushUnique(required, "automatic_ground_movement");
   if (plan.contract.movement === "launch") pushUnique(required, "launch_trajectory");
+  if (plan.contract.movement === "ground" || plan.contract.movement === "auto_ground") {
+    // A faithful ground route runs on drawn support, not only on the
+    // synthetic safety floor; support is evidence-gated below.
+    pushUnique(required, "drawn_support_route");
+  }
 
   if (spec.entities.some((entity) => PLATFORM_ROLES.has(entity.role))) {
     pushUnique(required, "solid_platforms");
@@ -298,6 +305,15 @@ export interface PlayContractEvidence {
    * would stand still makes a "faithful" claim a lie.
    */
   certifiedDynamicEntityIds?: readonly string[];
+  /**
+   * Entity ids the deterministic solver route visited (the playtest report's
+   * `visited` set). When present, drawn_support_route counts as supported for
+   * a ground/auto_ground game only if the route actually landed on drawn
+   * (non-safety-floor) support — the same rule the runtime-trace audit
+   * enforces against real surface_landed events. A route that only ever
+   * stood on the synthetic floor is honestly a related fallback.
+   */
+  solverVisitedEntityIds?: readonly string[];
 }
 
 export function createPlayContract(
@@ -326,6 +342,24 @@ export function createPlayContract(
   ) {
     available.add("declared_rule_modifiers");
   }
+  if (required.includes("drawn_support_route")) {
+    const visited = evidence?.solverVisitedEntityIds;
+    // Without route evidence the claim stays structural (the plan has drawn
+    // support, or a structural blocker already reports its absence). With
+    // evidence, the solver route itself must have landed on drawn support —
+    // the shared rule the runtime-trace audit applies to real events.
+    const landedSurfaceIds = visited === undefined
+      ? undefined
+      : plan.platforms
+        .filter((platform) => visited.includes(platform.id))
+        .map((platform) => platform.id);
+    if (
+      landedSurfaceIds === undefined ||
+      groundRouteUsedDrawnSupport(plan.contract.movement, landedSurfaceIds)
+    ) {
+      available.add("drawn_support_route");
+    }
+  }
   if (required.includes("dynamic_entity_behavior")) {
     const certified = new Set(evidence?.certifiedDynamicEntityIds ?? []);
     const dynamicEntities = gameSpec.entities.filter(
@@ -347,6 +381,7 @@ export function createPlayContract(
     flag === "p8_safety_recast" ||
     flag === "p8_guarded_floor" ||
     flag === "p8_reach_support" ||
+    flag === "p8_hazard_relief" ||
     flag === "p8_optional_pickups" ||
     flag === "collect_all_fallback" ||
     flag === "survive_mode_fallback"

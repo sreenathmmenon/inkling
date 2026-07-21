@@ -7,6 +7,13 @@ export interface MazePoint {
   y: number;
 }
 
+/**
+ * The padding the four-way route search adds around the hero body when it
+ * tests a cell against walls. Every clearance decision — route search, the
+ * direct-line maze check, and wall-strip merging — must share this value.
+ */
+export const MAZE_ROUTE_CLEARANCE_PADDING = 8;
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }
@@ -38,7 +45,12 @@ export function findMazeRoute(
   const startIndex = indexOf(columnFor(start.x), rowFor(start.y));
   const targetIndex = indexOf(columnFor(target.x), rowFor(target.y));
   const blocked = (column: number, row: number): boolean => obstacles.some((obstacle) => (
-    overlaps(centre(column, row), heroWidth + 8, heroHeight + 8, obstacle)
+    overlaps(
+      centre(column, row),
+      heroWidth + MAZE_ROUTE_CLEARANCE_PADDING,
+      heroHeight + MAZE_ROUTE_CLEARANCE_PADDING,
+      obstacle,
+    )
   ));
 
   const parent = new Int32Array(columns * rows);
@@ -72,6 +84,99 @@ export function findMazeRoute(
   return reversed;
 }
 
+interface StripEdges {
+  left: number;
+  right: number;
+  top: number;
+  bottom: number;
+}
+
+function stripEdges(strip: PlannedEntity): StripEdges {
+  return {
+    left: strip.x - strip.width / 2,
+    right: strip.x + strip.width / 2,
+    top: strip.y - strip.height / 2,
+    bottom: strip.y + strip.height / 2,
+  };
+}
+
+/**
+ * Sub-strip extraction jitter: two runs reading the same drawn wall may
+ * disagree about strip edges by a few pixels. Seams within this tolerance are
+ * treated as the same drawn line; it is far below any hero clearance, so a
+ * genuinely passable corridor can never be closed by alignment alone.
+ */
+const STRIP_ALIGN_TOLERANCE = 6;
+
+/**
+ * Deterministically merges adjacent/collinear same-role wall strips whose
+ * seams no admissible hero could ever pass. Extraction naturally fragments
+ * one drawn wall into several strips with sub-clearance seams, and the exact
+ * fragmentation flutters run to run; equivalent strip sets must produce
+ * equivalent topology, so sub-clearance seams are sealed before any
+ * clearance decision reads the walls. `sealableGapBelow` must be the
+ * smallest clearance any admissible hero can use (collision size plus
+ * MAZE_ROUTE_CLEARANCE_PADDING): gaps at or above it are genuinely passable
+ * corridors and are never sealed. Pure, bounded, geometry-only.
+ */
+export function mergeAdjacentWallStrips(
+  walls: readonly PlannedEntity[],
+  sealableGapBelow: number,
+): PlannedEntity[] {
+  const strips = [...walls].sort((first, second) => (
+    (first.x - first.width / 2) - (second.x - second.width / 2) ||
+    (first.y - first.height / 2) - (second.y - second.height / 2) ||
+    first.id.localeCompare(second.id)
+  ));
+  const shouldMerge = (first: PlannedEntity, second: PlannedEntity): boolean => {
+    if (first.role !== second.role) return false;
+    const a = stripEdges(first);
+    const b = stripEdges(second);
+    const gapX = Math.max(a.left, b.left) - Math.min(a.right, b.right);
+    const gapY = Math.max(a.top, b.top) - Math.min(a.bottom, b.bottom);
+    const collinearHorizontally =
+      Math.abs(a.top - b.top) <= STRIP_ALIGN_TOLERANCE &&
+      Math.abs(a.bottom - b.bottom) <= STRIP_ALIGN_TOLERANCE;
+    const collinearVertically =
+      Math.abs(a.left - b.left) <= STRIP_ALIGN_TOLERANCE &&
+      Math.abs(a.right - b.right) <= STRIP_ALIGN_TOLERANCE;
+    if (collinearHorizontally && gapY <= 0 && gapX < sealableGapBelow) return true;
+    if (collinearVertically && gapX <= 0 && gapY < sealableGapBelow) return true;
+    return false;
+  };
+  // Each pass performs at most one merge and restarts, so the loop is bounded
+  // by the strip count and the scan order keeps the outcome deterministic.
+  let merged = true;
+  while (merged) {
+    merged = false;
+    scan:
+    for (let index = 0; index < strips.length; index += 1) {
+      for (let other = index + 1; other < strips.length; other += 1) {
+        const first = strips[index]!;
+        const second = strips[other]!;
+        if (!shouldMerge(first, second)) continue;
+        const a = stripEdges(first);
+        const b = stripEdges(second);
+        const left = Math.min(a.left, b.left);
+        const right = Math.max(a.right, b.right);
+        const top = Math.min(a.top, b.top);
+        const bottom = Math.max(a.bottom, b.bottom);
+        strips[index] = {
+          ...first,
+          x: (left + right) / 2,
+          y: (top + bottom) / 2,
+          width: right - left,
+          height: bottom - top,
+        };
+        strips.splice(other, 1);
+        merged = true;
+        break scan;
+      }
+    }
+  }
+  return strips;
+}
+
 export interface MazeTopologyInput {
   hero: PlannedEntity;
   goal: PlannedEntity;
@@ -96,8 +201,8 @@ export function mazeTopologyIsFinishable(input: MazeTopologyInput): boolean {
     y: input.hero.y + (input.goal.y - input.hero.y) * index / directSteps,
   })).some((point) => input.walls.some((wall) => overlaps(
     point,
-    heroWidth + 8,
-    heroHeight + 8,
+    heroWidth + MAZE_ROUTE_CLEARANCE_PADDING,
+    heroHeight + MAZE_ROUTE_CLEARANCE_PADDING,
     wall,
   )));
   // A page with decorative support geometry but an unobstructed direct line

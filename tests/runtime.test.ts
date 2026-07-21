@@ -286,7 +286,7 @@ test("PlayContract distinguishes faithful execution from a merely playable fallb
   assert.ok(runnerContract.supportedCapabilities.includes("runner_route_topology"));
 
   const candidate = createPlayableGameDocument(platformer, undefined, undefined, {
-    playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 3, seed: 1, visited: ["hero", "finish"] },
+    playtestReport: { reached_goal: true, first_blocker: null, time_to_win: 3, seed: 1, visited: ["hero", "floor", "finish"] },
     solvability: { verdict: "ready" },
   });
   assert.equal(
@@ -334,6 +334,59 @@ test("maze readiness comes from clearance-aware drawn wall topology", () => {
   assert.equal(sealed.mazeTopologyFallback, true);
   assert.deepEqual(sealed.mazeCollisionWalls, []);
   assert.equal(createPlayContract(maze).outcome, "needs_recast");
+});
+
+test("faithful ground claims require solver-route drawn support, one rule for both consumers", () => {
+  const platformer: GameSpec = {
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Hero", bbox: [0.1, 0.5, 0.2, 0.7], style_ref: "source" },
+    entities: [
+      { id: "floor", role: "platform", bbox: [0, 0.72, 1, 0.8], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.8, 0.5, 0.9, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+
+  const supported = createPlayContract(platformer, {
+    solverVisitedEntityIds: ["hero", "floor", "finish"],
+  });
+  assert.equal(supported.outcome, "faithful_ready");
+  assert.ok(supported.supportedCapabilities.includes("drawn_support_route"));
+
+  const floorOnly = createPlayContract(platformer, {
+    solverVisitedEntityIds: ["hero", "lane_a_safety_floor", "finish"],
+  });
+  assert.equal(
+    floorOnly.outcome,
+    "related_fallback",
+    "a route that only ever stood on the synthetic safety floor is not the drawn game",
+  );
+  assert.ok(floorOnly.unsupportedCapabilities.includes("drawn_support_route"));
+
+  // The server document threads the playtest's visited evidence itself, so
+  // the stored contract can never claim what the solver route never did.
+  const document = createPlayableGameDocument(platformer, undefined, undefined, {
+    playtestReport: {
+      reached_goal: true,
+      first_blocker: null,
+      time_to_win: 3,
+      seed: 1,
+      visited: ["hero", "lane_a_safety_floor", "finish"],
+    },
+    solvability: { verdict: "ready" },
+  });
+  assert.equal(document.readinessEvidence?.playContract.outcome, "related_fallback");
+
+  // Non-ground movements never require the rule.
+  const maze = structuredClone(platformer);
+  maze.primary_genre = "maze";
+  assert.equal(
+    createPlayContract(maze, { solverVisitedEntityIds: ["hero"] })
+      .requiredCapabilities.includes("drawn_support_route"),
+    false,
+  );
 });
 
 test("PlayContract rejects false-ready structural goals and unimplemented declared behavior", () => {

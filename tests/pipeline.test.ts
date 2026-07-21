@@ -9,7 +9,6 @@ import {
   createDeterministicSafetyRecast,
   ModelOutputError,
   PipelineBlocked,
-  SolvabilityError,
   runMultipageStitch,
   runPhotoScan,
   runPipeline,
@@ -190,15 +189,40 @@ function pipelineWithP8Sequence(
   };
 }
 
-test("a model that never approves a locally finishable world exhausts the gate and fails closed", async () => {
+test("a model that never approves a locally finishable world is outranked by the playtest, not hard-failed", async () => {
   for (const verdict of [
     { verdict: "repair", repairs: null, fallback: null },
     { verdict: "unsolvable_by_design", repairs: null, fallback: "survive_mode" },
   ]) {
     const run = pipelineWithP8Sequence([verdict]);
-    await assert.rejects(run.result, SolvabilityError);
-    assert.equal(run.attempts(), 4, "all four declared P8 attempts must run before fail-closed exhaustion");
+    const result = await run.result;
+    assert.equal(run.attempts(), 4, "all four declared P8 attempts still run before the playtest outranks the model");
+    assert.equal(result.playtestReport.reached_goal, true);
+    assert.ok(
+      result.degraded.includes("P8:repair_loop_exhausted:playtest_certified"),
+      "the disagreement is reported honestly, never hidden",
+    );
+    assert.deepEqual(result.gameSpec.flags, [], "the finishable drawn world is never degraded to satisfy the model");
+    assert.notEqual(result.solvability.verdict, "ready", "the model's dissent stays on the record");
   }
+});
+
+test("a blocked world the model never certifies is saved by the ladder instead of hard-failing", async () => {
+  assert.equal(runPlaytest(BLOCKED_GAME_SPEC).reached_goal, false);
+  const run = pipelineWithP8Sequence([
+    { verdict: "repair", repairs: null, fallback: null },
+  ], BLOCKED_GAME_SPEC);
+  const result = await run.result;
+  assert.equal(run.attempts(), 4, "the full model budget runs before the deterministic rescue stands alone");
+  assert.equal(result.playtestReport.reached_goal, true);
+  assert.ok(result.degraded.includes("P8:recast_ladder:objective_fallback"));
+  assert.ok(result.degraded.includes("P8:repair_loop_exhausted:playtest_certified"));
+  assert.ok(result.gameSpec.flags.includes("survive_mode_fallback"), "the adopted rung is declared honestly");
+  assert.equal(
+    result.gameSpec.flags.includes("p8_safety_recast"),
+    false,
+    "no synthetic recast for a world a gentler rung can save",
+  );
 });
 
 test("persistent false-ready climbs the ladder and certifies without destroying the drawn world", async () => {
@@ -1197,25 +1221,25 @@ test("a stitched world that fails the playtest is laddered through the same reca
   );
 });
 
-test("a rescan the model never certifies exhausts the gate and fails closed", async () => {
+test("a rescan the model never certifies is finished by the playtest instead of failing closed", async () => {
   const mock = rescanClient((callId) => (
     callId === "P1" ? { verdict: "allow", reason_code: "none" }
       : callId === "P10" ? SHAREABLE_GAME_SPEC
       : callId === "P8" ? { verdict: "repair", repairs: null, fallback: null }
       : {}
   ));
-  await assert.rejects(
-    runMultipageStitch(
-      { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), image_new: RESCAN_IMAGE },
-      { safetyId: "rescan-exhaust-user", client: mock.client, onRequest: mock.onRequest },
-    ),
-    SolvabilityError,
+  const result = await runMultipageStitch(
+    { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), image_new: RESCAN_IMAGE },
+    { safetyId: "rescan-exhaust-user", client: mock.client, onRequest: mock.onRequest },
   );
   assert.equal(
     mock.order.filter((callId) => callId === "P8").length,
     4,
-    "all four declared P8 attempts run before fail-closed exhaustion",
+    "all four declared P8 attempts run before the playtest outranks the model",
   );
+  assert.equal(result.playtestReport.reached_goal, true);
+  assert.ok(result.degraded.includes("P8:repair_loop_exhausted:playtest_certified"));
+  assert.notEqual(result.solvability.verdict, "ready", "the model's dissent stays on the record");
 });
 
 test("an invalid stitched result fails closed without substituting a fallback world", async () => {

@@ -4,7 +4,11 @@ import {
   keyDoorRelationships,
   type KeyDoorRelationship,
 } from "./relationship-contract.js";
-import { mazeTopologyIsFinishable } from "./maze-topology.js";
+import {
+  MAZE_ROUTE_CLEARANCE_PADDING,
+  mazeTopologyIsFinishable,
+  mergeAdjacentWallStrips,
+} from "./maze-topology.js";
 import { WORLD_HEIGHT, WORLD_WIDTH } from "./world-geometry.js";
 import { isP8SyntheticEntityId } from "./synthetic-entity.js";
 import {
@@ -60,6 +64,11 @@ export interface PlatformerPlan {
   /** Declared modifiers the runtime could not apply; non-empty blocks faithfulness. */
   unappliedModifiers: string[];
   relationships: KeyDoorRelationship[];
+  /**
+   * Merged drawn wall geometry (sub-clearance seams sealed). The scene's
+   * collision bodies, the topology check, and the analytic solver all read
+   * these boxes, so the three can never disagree about clearance.
+   */
   mazeCollisionWalls: PlannedEntity[];
   mazeTopologyFallback: boolean;
   goal: PlannedEntity;
@@ -528,11 +537,23 @@ export function createPlatformerPlan(
     width: Math.max(34, Math.round(hero.width * scale)),
     height: Math.max(34, Math.round(hero.height * scale)),
   }));
+  // Extraction fragments one drawn wall into several strips, and the exact
+  // seams flutter run to run. Seams below the smallest candidate hero's
+  // clearance are sealed before any topology, collision, or solver decision
+  // reads the walls, so equivalent extractions converge to equivalent
+  // topology while every genuinely passable corridor stays open.
+  const smallestMazeHero = mazeHeroCandidates[mazeHeroCandidates.length - 1] ?? hero;
+  const sealableGapBelow =
+    Math.min(smallestMazeHero.width, smallestMazeHero.height) * contract.colliderScale +
+    MAZE_ROUTE_CLEARANCE_PADDING;
+  const mazeWalls = contract.id === "maze"
+    ? mergeAdjacentWallStrips(drawnMazeWalls, sealableGapBelow)
+    : drawnMazeWalls;
   const fittedMazeHero = contract.id === "maze"
     ? mazeHeroCandidates.find((candidate) => mazeTopologyIsFinishable({
       hero: candidate,
       goal,
-      walls: drawnMazeWalls,
+      walls: mazeWalls,
       doors,
       hazards,
       collectibles,
@@ -564,7 +585,7 @@ export function createPlatformerPlan(
     heroSpeedFactor: appliedModifiers.heroSpeedFactor,
     unappliedModifiers: appliedModifiers.unapplied,
     relationships,
-    mazeCollisionWalls: contract.id === "maze" && !mazeTopologyFallback ? drawnMazeWalls : [],
+    mazeCollisionWalls: contract.id === "maze" && !mazeTopologyFallback ? mazeWalls : [],
     mazeTopologyFallback,
     goal,
     goalTrigger,

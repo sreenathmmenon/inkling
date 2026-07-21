@@ -1,3 +1,4 @@
+import { groundRouteUsedDrawnSupport } from "../../../packages/runtime/src/drawn-support.js";
 import type { PlayContract } from "../../../packages/runtime/src/play-contract.js";
 import type { RuntimeEvent } from "../../../packages/runtime/src/runtime-events.js";
 import type { RuntimeTraceReport } from "../../../packages/runtime/src/runtime-events.js";
@@ -88,10 +89,14 @@ export function validateRuntimeTrace(
       blockers.push(`required_interaction_missing:${entityId}`);
     }
   }
+  // Shared drawn-support rule: the same predicate the server PlayContract
+  // applies to the solver route's landed-surface evidence.
+  const landedSurfaceIds = events
+    .filter((event) => event.kind === "surface_landed" && typeof event.entityId === "string")
+    .map((event) => event.entityId as string);
   if (
-    (playContract.effectiveMovement === "ground" || playContract.effectiveMovement === "auto_ground") &&
     terminalSeen &&
-    !events.some((event) => event.kind === "surface_landed" && event.entityId !== "lane_a_safety_floor")
+    !groundRouteUsedDrawnSupport(playContract.effectiveMovement, landedSurfaceIds)
   ) {
     blockers.push("faithful_route_used_no_drawn_support");
   }

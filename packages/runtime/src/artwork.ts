@@ -188,8 +188,14 @@ export function createPlayableGameDocument(
     readinessEvidence: readinessEvidence
       ? {
         ...readinessEvidence,
+        // The solver route's visited set is the server-side drawn-support
+        // evidence; the client trace audit applies the same shared rule to
+        // real surface_landed events, so the two claims can never drift.
         playContract: createPlayContract(gameSpec, {
           certifiedDynamicEntityIds: Object.keys(tracks),
+          solverVisitedEntityIds: Array.isArray(readinessEvidence.playtestReport?.visited)
+            ? readinessEvidence.playtestReport.visited
+            : [],
         }),
         runtimeTraceReport: null,
       }

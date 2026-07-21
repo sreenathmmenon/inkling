@@ -66,6 +66,26 @@ test("real-runtime trace evidence accepts a legal input-backed win", () => {
   assert.equal(report.finalStatus, "won");
 });
 
+test("the trace audit applies the same drawn-support rule as the server contract", () => {
+  const safetyFloorOnly = validateRuntimeTrace([
+    event(0, 0, "state_changed", "playing"),
+    event(1, 3, "input_accepted", "playing"),
+    { ...event(2, 4, "surface_landed", "playing"), entityId: "lane_a_safety_floor" },
+    event(3, 180, "win", "won"),
+    event(4, 180, "state_changed", "won"),
+  ], createPlayContract(gameSpec));
+  assert.equal(safetyFloorOnly.valid, false);
+  assert.ok(safetyFloorOnly.blockers.includes("faithful_route_used_no_drawn_support"));
+
+  // Server-side, the identical evidence produces the identical verdict: a
+  // solver route with only safety-floor support downgrades the contract.
+  const serverContract = createPlayContract(gameSpec, {
+    solverVisitedEntityIds: ["hero", "lane_a_safety_floor", "finish"],
+  });
+  assert.equal(serverContract.outcome, "related_fallback");
+  assert.ok(serverContract.unsupportedCapabilities.includes("drawn_support_route"));
+});
+
 test("real-runtime trace evidence rejects a finish that bypasses required drawn interactions", () => {
   const withDrawnItem: GameSpec = structuredClone(gameSpec);
   withDrawnItem.entities.splice(1, 0, {

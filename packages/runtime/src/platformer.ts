@@ -355,7 +355,6 @@ class PlatformerScene extends Phaser.Scene {
     for (const decoration of this.plan.decorations) this.addArtwork(decoration, 0, 0.82);
 
     this.platforms = this.physics.add.staticGroup();
-    const mazeWallIds = new Set(this.plan.mazeCollisionWalls.map((wall) => wall.id));
     for (const platform of this.plan.platforms) {
       if (this.usesFreeMovement && platform.id === "lane_a_safety_floor") continue;
       const alpha = platform.id === "lane_a_safety_floor" ? 0.5 : 1;
@@ -371,10 +370,11 @@ class PlatformerScene extends Phaser.Scene {
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
       if (this.plan.contract.id === "maze") {
-        // In a finishable maze, the child's drawn support geometry is a set of
-        // full collision walls. If topology validation failed, it remains
+        // In a maze the drawn strips are visible art only; the collision
+        // bodies are added below from the plan's merged wall geometry so the
+        // scene, the topology check, and the analytic solver share one
+        // clearance truth. If topology validation failed, the strips remain
         // visible but non-colliding in the explicitly related fallback.
-        if (mazeWallIds.has(platform.id)) this.platforms.add(shape);
       } else {
         // Drawn platforms are landing surfaces. Let the hero pass through their
         // underside and sides, then collide with the top while descending. This
@@ -383,6 +383,18 @@ class PlatformerScene extends Phaser.Scene {
         this.platforms.add(shape);
       }
       this.addArtwork(platform, 2, alpha);
+    }
+    // Merged maze walls (sub-clearance seams sealed at plan level) become the
+    // collision bodies. They are invisible: the child's strips above stay the
+    // only visible wall art, exactly as drawn.
+    for (const wall of this.plan.mazeCollisionWalls) {
+      const collider = this.add
+        .rectangle(wall.x, wall.y, wall.width, wall.height, 0x000000, 0)
+        .setVisible(false)
+        .setData("entityId", wall.id)
+        .setData("role", wall.role);
+      this.physics.add.existing(collider, true);
+      this.platforms.add(collider);
     }
 
     this.hero = this.rectangle(this.plan.hero, heroColor, ink, 1);

@@ -2,33 +2,29 @@
 /* Premium experience system: the drawing is always the dominant object and
    every state shares one restrained paper/ink/violet visual language. */
 .ambient-shape { opacity: .55; }
-#capture-panel::after { display: none; }
-.preview-stage { overflow: hidden; border: 1px solid rgba(72,53,133,.1); border-radius: 28px; background: linear-gradient(145deg, #fff, #faf8ff); box-shadow: inset 0 1px rgba(255,255,255,.8), 0 20px 48px rgba(50,33,104,.1); }
-.paper-shadow, .preview-stage::before, .preview-stage::after, .tape { display: none; }
-#drawing-preview { width: 100%; max-height: 430px; border-radius: 20px; filter: drop-shadow(0 14px 22px rgba(54,39,100,.13)); transform: none; }
-#preview-empty { transform: none; }
-.empty-spark { width: 68px; height: 68px; border-radius: 22px; background: linear-gradient(145deg, #7355f5, #5634df); }
+.preview-stage { overflow: hidden; border: 1px solid var(--line); border-radius: 28px; background: var(--canvas); box-shadow: inset 0 1px rgba(255,255,255,.8), 0 20px 48px rgba(43,38,32,.08); }
+#drawing-preview { width: 100%; max-height: 430px; border-radius: 20px; filter: drop-shadow(0 14px 22px rgba(43,38,32,.14)); transform: none; }
 
 body.capture-ready #capture-panel { grid-template-columns: minmax(260px,.72fr) minmax(360px,1.28fr); grid-template-areas: "copy preview" "action preview" "adjust adjust" "progress progress" "safe-offer safe-offer"; min-height: 590px; }
 body.capture-ready .capture-copy > :not(#capture-status) { display: none; }
 body.capture-ready .capture-copy { align-self: end; }
-body.capture-ready #capture-status { max-width: 29ch; margin: 0; color: #342a54; font-size: 1.08rem; font-weight: 800; }
+body.capture-ready #capture-status { max-width: 29ch; margin: 0; color: var(--ink); font-size: 1.08rem; font-weight: 800; }
 body.capture-ready .capture-action-zone { align-self: start; }
 body.capture-ready .preview-stage { min-height: 480px; margin: 0; }
-body.capture-ready .capture-actions { display: grid; grid-template-columns: 1fr 1fr; max-width: 390px; }
+body.capture-ready .capture-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-width: 390px; }
 body.capture-ready .make-action { grid-column: 1 / -1; min-height: 64px; font-size: 1.03rem; }
 
-body.generating #capture-panel { border-color: rgba(255,255,255,.1); color: #fff; background: radial-gradient(circle at 10% 10%, #403176, transparent 34rem), #211a3b; box-shadow: 0 30px 90px rgba(28,20,57,.28); }
-body.generating .preview-stage { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.08); box-shadow: none; }
+body.generating #capture-panel { border-color: rgba(255,255,255,.1); color: #fff; background: var(--ink); box-shadow: 0 30px 90px rgba(24,20,15,.3); }
+body.generating .preview-stage { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.07); box-shadow: none; }
 body.generating #progress-title { color: #fff; }
-body.generating #progress-detail, body.generating #progress-time { color: #d8d1ed; }
-body.generating #progress-panel .eyebrow { color: #b9a9ff; }
-body.generating .progress-steps li { border-color: rgba(255,255,255,.1); color: #c9c2dc; background: rgba(255,255,255,.06); }
-body.generating .progress-steps li > span { color: #c8bfff; background: rgba(255,255,255,.1); }
-body.generating .progress-steps li.active { border-color: rgba(169,239,215,.7); color: #fff; background: rgba(169,239,215,.13); box-shadow: 0 12px 28px rgba(8,5,21,.2); }
-body.generating .progress-steps li.active > span { color: #211a3b; background: var(--mint); }
+body.generating #progress-detail, body.generating #progress-time { color: #d9d3c9; }
+body.generating #progress-panel .eyebrow { color: #cbc0ff; }
+body.generating .progress-steps li { border-color: rgba(255,255,255,.12); color: #cfc8bc; background: rgba(255,255,255,.06); }
+body.generating .progress-steps li > span { color: #cbc0ff; background: rgba(255,255,255,.1); }
+body.generating .progress-steps li.active { border-color: rgba(169,239,215,.7); color: #fff; background: rgba(169,239,215,.13); box-shadow: 0 12px 28px rgba(12,10,7,.25); }
+body.generating .progress-steps li.active > span { color: var(--ink); background: var(--mint); }
 body.generating .progress-steps li.active strong { color: #fff; }
-body.generating .text-action { color: #eeeaff; }
+body.generating .text-action { color: #efece5; }
 
 /* Materialize: the child's own scanned strokes lift off the page while the
    real pipeline runs. --materialize is set by the client only when a real SSE
@@ -39,13 +35,13 @@ body.generating .text-action { color: #eeeaff; }
    Presentation-only: the artwork pixels are never modified. */
 body.generating .preview-stage { --materialize: 0; }
 body.generating .preview-stage::before { content: ""; display: block; position: absolute; z-index: 1; inset: 14% 10%; border: 0; border-radius: 50%; background: radial-gradient(closest-side, rgba(169, 239, 215, .34), rgba(133, 108, 255, .18) 55%, transparent 78%); box-shadow: none; opacity: calc(.18 + .82 * var(--materialize)); transform: scale(calc(.72 + .38 * var(--materialize))); transition: opacity 950ms cubic-bezier(.2, .8, .2, 1), transform 950ms cubic-bezier(.2, .8, .2, 1); }
-body.generating #drawing-preview { filter: drop-shadow(0 calc(5px + 21px * var(--materialize)) calc(9px + 27px * var(--materialize)) rgba(7, 4, 22, .6)); transform: translateY(calc(-12px * var(--materialize))) scale(calc(1 + .05 * var(--materialize))); transition: transform 950ms cubic-bezier(.2, .8, .2, 1), filter 950ms cubic-bezier(.2, .8, .2, 1); will-change: transform, filter; animation: materialize-drift 4.6s ease-in-out infinite alternate; }
+body.generating #drawing-preview { filter: drop-shadow(0 calc(5px + 21px * var(--materialize)) calc(9px + 27px * var(--materialize)) rgba(12, 10, 7, .6)); transform: translateY(calc(-12px * var(--materialize))) scale(calc(1 + .05 * var(--materialize))); transition: transform 950ms cubic-bezier(.2, .8, .2, 1), filter 950ms cubic-bezier(.2, .8, .2, 1); will-change: transform, filter; animation: materialize-drift 4.6s ease-in-out infinite alternate; }
 @keyframes materialize-drift { from { translate: 0 0; } to { translate: 0 -5px; } }
 
-body.safe-offer #safe-offer-panel { border-color: rgba(54,162,123,.3); background: linear-gradient(135deg, #effcf7, #fff9e8); }
+body.safe-offer #safe-offer-panel { border-color: #c4e8d8; background: #f0fbf6; }
 body.safe-offer .safe-offer-icon { color: #174f3c; background: var(--mint); box-shadow: 0 10px 24px rgba(62,174,132,.2); }
 
-body.play-mode { background: radial-gradient(circle at 0 0, rgba(207,197,255,.34), transparent 28rem), radial-gradient(circle at 100% 0, rgba(255,222,145,.3), transparent 29rem), #faf9fc; }
+body.play-mode { background: var(--canvas); }
 body.play-mode .ambient-shape, body.play-mode .site-header { display: none; }
 body.play-mode #play-toolbar { border-radius: 18px; box-shadow: 0 9px 28px rgba(48,33,96,.08); }
 body.play-mode #objective-title { font-weight: 950; }
@@ -54,19 +50,19 @@ body.play-mode #objective-title { font-weight: 950; }
    stay visible during play — never hide it for aesthetics. */
 body.play-mode #game-shell { border-radius: 24px; }
 body.game-won #game-status, body.game-lost #game-status, body.player-error #game-status { top: 14px; width: min(80%, 430px); max-width: none; padding: 10px 14px; font-size: 1rem; }
-body.game-won .play-meta { border-color: rgba(42,174,125,.28); background: linear-gradient(135deg, #f1fff8, #fffefa); box-shadow: 0 14px 36px rgba(42,174,125,.14); }
-body.game-lost .play-meta, body.player-error .play-meta { border-color: rgba(255,113,108,.22); background: linear-gradient(135deg, #fff5f3, #fffefa); }
+body.game-won .play-meta { border-color: rgba(42,174,125,.28); background: #f1fbf6; box-shadow: 0 14px 36px rgba(42,174,125,.14); }
+body.game-lost .play-meta, body.player-error .play-meta { border-color: rgba(255,107,94,.24); background: #fdf3f1; }
 body.game-won #fullscreen-new-drawing, body.game-lost #fullscreen-new-drawing, body.player-error #fullscreen-new-drawing { display: inline-flex; }
 body.game-won #make-another, body.game-lost #make-another, body.player-error #make-another { display: none; }
-body.game-won #fullscreen-new-drawing { color: #fff; background: linear-gradient(135deg, #7355f5, #5634df); box-shadow: 0 9px 22px rgba(83,52,220,.25); }
-body.game-won #restart { color: #4f426f; background: #eeeaff; box-shadow: none; }
+body.game-won #fullscreen-new-drawing { color: #fff; background: var(--primary); box-shadow: 0 9px 22px rgba(108,92,231,.25); }
+body.game-won #restart { color: var(--primary-deep); background: var(--primary-tint); box-shadow: none; }
 body.game-won #fullscreen-game, body.game-lost #fullscreen-game, body.player-error #fullscreen-game { display: none; }
 body.game-won #play-stage:fullscreen #fullscreen-game, body.game-lost #play-stage:fullscreen #fullscreen-game, body.player-error #play-stage:fullscreen #fullscreen-game { display: inline-flex; }
-body.player-error #game-empty { color: #342a54; background: radial-gradient(circle at 50% 35%, #fff, #fff0ec); }
+body.player-error #game-empty { color: var(--ink); background: #fdf3f1; }
 
 body.play-mode.touch-controls #accessible-controls { border: 0; background: transparent; box-shadow: none; backdrop-filter: none; }
-body.play-mode.touch-controls #accessible-controls button { border-color: rgba(255,255,255,.28); background: linear-gradient(145deg, rgba(64,52,92,.91), rgba(37,29,61,.94)); box-shadow: 0 9px 22px rgba(32,25,54,.25), inset 0 1px rgba(255,255,255,.14); backdrop-filter: blur(10px); }
-body.play-mode.touch-controls #accessible-controls button.pressed { background: linear-gradient(145deg, #795df2, #5737d9); }
+body.play-mode.touch-controls #accessible-controls button { border-color: rgba(255,255,255,.28); background: rgba(43,38,32,.92); box-shadow: 0 9px 22px rgba(24,20,15,.25), inset 0 1px rgba(255,255,255,.14); backdrop-filter: blur(10px); }
+body.play-mode.touch-controls #accessible-controls button.pressed { background: var(--primary); }
 body.play-mode.playing.assist-available #play-stage:not(:fullscreen) .play-meta { top: 50%; right: max(10px, env(safe-area-inset-right)); bottom: auto; transform: translateY(-50%); }
 body.play-mode.playing.assist-available .assist-action { color: #153e33; border: 1px solid rgba(26,114,87,.14); border-radius: 999px; background: rgba(190,247,226,.95); box-shadow: 0 9px 24px rgba(41,141,105,.18); backdrop-filter: blur(10px); }
 
@@ -79,7 +75,7 @@ body.play-mode.playing.assist-available .assist-action { color: #153e33; border:
 
 @media (max-width: 760px) {
   .mini-journey { display: none; }
-  body.capture-ready #capture-panel { grid-template-columns: 1fr; grid-template-areas: "preview" "copy" "action" "adjust" "progress" "safe-offer"; min-height: 0; padding: 15px; }
+  body.capture-ready #capture-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "preview" "copy" "action" "adjust" "progress" "safe-offer"; min-height: 0; padding: 15px; }
   body.capture-ready .preview-stage { min-height: 0; height: min(48svh, 410px); margin: 0; padding: 14px; }
   body.capture-ready #drawing-preview { max-height: 100%; }
   body.capture-ready .capture-copy { margin-top: 13px; }
@@ -113,5 +109,5 @@ body.play-mode.playing.assist-available .assist-action { color: #153e33; border:
 }
 
 @media (max-width: 350px) {
-  body.capture-ready .capture-actions { grid-template-columns: 1fr; }
+  body.capture-ready .capture-actions { grid-template-columns: minmax(0, 1fr); }
 }

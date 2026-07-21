@@ -1399,3 +1399,20 @@ document.addEventListener("visibilitychange", () => {
 saveGame.disabled = currentSpec === null || currentSpec === undefined;
 if (currentSpec === null || currentSpec === undefined) showGameWaiting();
 else play(currentSpec);
+
+// The landing hero demo is decorative and strictly lazy: its module and game
+// frames must never join the capture shell's boot chunk, so it is imported
+// only after first paint. The module itself pauses whenever the demo is
+// off-screen or the child's own drawing has replaced the empty preview.
+const heroDemoHost = document.querySelector<HTMLElement>("#hero-demo");
+if (heroDemoHost) {
+  const loadHeroDemo = (): void => {
+    window.setTimeout(() => {
+      void import("./hero-demo.js")
+        .then(({ attachHeroDemo }) => { attachHeroDemo(heroDemoHost); })
+        .catch(() => undefined); // the static drawing frame stays on its own
+    }, 0);
+  };
+  if (document.readyState === "complete") loadHeroDemo();
+  else window.addEventListener("load", loadHeroDemo, { once: true });
+}

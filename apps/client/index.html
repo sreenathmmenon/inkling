@@ -25,22 +25,20 @@
       <section id="capture-panel" aria-labelledby="capture-title">
         <div class="capture-copy">
           <p class="eyebrow"><span aria-hidden="true">✦</span> Your drawing. Your game.</p>
-          <h1 id="capture-title">Draw it.<br /><span>Play it.</span></h1>
+          <h1 id="capture-title">Draw it.<br /><span>Play it.<svg class="crayon-underline" viewBox="0 0 220 20" preserveAspectRatio="none" aria-hidden="true" focusable="false"><path d="M6 13c54-7 146-9 208-3" /><path d="M16 17c56-6 128-8 188-4" /></svg></span></h1>
           <p class="hero-copy">One drawing becomes an original game—in your own lines, colors, and wonderfully wobbly style.</p>
           <p id="capture-status" aria-live="polite">Take a clear photo or choose one from this device. No account needed.</p>
 
         </div>
 
         <div class="preview-stage" aria-label="Drawing preview">
-          <div class="paper-shadow" aria-hidden="true"></div>
           <div id="preview-empty">
-            <span class="empty-spark" aria-hidden="true">✦</span>
-            <strong>Your drawing goes here</strong>
+            <div id="hero-demo" class="hero-demo" aria-hidden="true" data-demo-phase="drawing">
+              <img class="hero-demo-drawing" src="/demo/drawing.webp" alt="" width="480" height="720" loading="lazy" decoding="async" />
+            </div>
             <small>Your lines and colors stay exactly yours.</small>
           </div>
           <img id="drawing-preview" alt="Prepared crop of your drawing" hidden />
-          <span class="tape tape-one" aria-hidden="true"></span>
-          <span class="tape tape-two" aria-hidden="true"></span>
         </div>
 
         <div class="capture-action-zone">

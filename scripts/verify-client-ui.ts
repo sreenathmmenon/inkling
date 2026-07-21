@@ -25,6 +25,7 @@ function contentType(path: string): string {
   if (extname(path) === ".js") return "text/javascript; charset=utf-8";
   if (extname(path) === ".css") return "text/css; charset=utf-8";
   if (extname(path) === ".woff2") return "font/woff2";
+  if (extname(path) === ".webp") return "image/webp";
   return "text/html; charset=utf-8";
 }
 
@@ -98,6 +99,73 @@ try {
     assert.ok(primary && primary.width >= 48 && primary.height >= 48, `capture target is too small at ${viewport.width}x${viewport.height}`);
     await page.close();
   }
+
+  // Landing hero demo + readability. The demo is decorative and lazy: it must
+  // never trap focus, never claim the real materialize channel that belongs to
+  // .preview-stage, and every text/background pair the landing introduces must
+  // hold WCAG AA as a ratio (never a pinned color).
+  const landing = await browser.newPage({ viewport: { width: 1366, height: 768 } });
+  await landing.goto(baseUrl);
+  assert.match(
+    await landing.locator("#preview-empty small").textContent() ?? "",
+    /^Your lines and colors stay exactly yours\./,
+    "the capture caption no longer starts with the promised copy",
+  );
+  const heroDemo = landing.locator("#hero-demo");
+  assert.equal(await heroDemo.getAttribute("aria-hidden"), "true", "hero demo is not decorative for assistive tech");
+  assert.equal(
+    await heroDemo.evaluate((host) => host.querySelectorAll("a, button, input, select, textarea, [tabindex]").length),
+    0,
+    "hero demo exposes focusable elements",
+  );
+  for (let tabPress = 0; tabPress < 6; tabPress += 1) {
+    await landing.keyboard.press("Tab");
+    assert.equal(
+      await landing.evaluate(() => Boolean(document.activeElement?.closest("#hero-demo"))),
+      false,
+      "keyboard focus entered the decorative hero demo",
+    );
+  }
+  // The loop is real: after lazy load, the shipped materialize treatment runs
+  // on the demo host through every real stage and the captured game appears.
+  await landing.waitForFunction(() => {
+    const host = document.querySelector<HTMLElement>("#hero-demo");
+    const frame = host?.querySelector<HTMLImageElement>(".hero-demo-game");
+    return host?.getAttribute("data-demo-phase") === "game"
+      && host.style.getPropertyValue("--materialize").trim() === "1"
+      && Boolean(frame && frame.currentSrc.includes("/demo/game-"));
+  }, undefined, { timeout: 20_000 });
+  assert.equal(
+    await landing.locator(".preview-stage").evaluate((stage: HTMLElement) => stage.style.getPropertyValue("--materialize")),
+    "",
+    "hero demo leaked into the real materialize channel on .preview-stage",
+  );
+  const landingPairs = await landing.evaluate(() => {
+    const effectiveBackground = (start: Element): string => {
+      for (let element: HTMLElement | null = start as HTMLElement; element; element = element.parentElement) {
+        const candidate = getComputedStyle(element).backgroundColor;
+        const alpha = candidate.match(/rgba?\([^)]*?,\s*([\d.]+)\s*\)$/);
+        if (candidate !== "transparent" && !(alpha && Number.parseFloat(alpha[1]!) === 0)) return candidate;
+      }
+      return getComputedStyle(document.body).backgroundColor;
+    };
+    return [
+      "#capture-title", ".hero-copy", "#capture-status", ".eyebrow", ".choose-action",
+      "#preview-empty small", ".mini-journey strong", ".mini-journey small", ".mini-journey span",
+      "#privacy-promise",
+    ].map((selector) => {
+      const element = document.querySelector(selector);
+      if (!element) throw new Error(`landing readability selector missing: ${selector}`);
+      return { selector, color: getComputedStyle(element).color, background: effectiveBackground(element) };
+    });
+  });
+  for (const pair of landingPairs) {
+    assert.ok(
+      contrastRatio(pair.color, pair.background) >= 4.5,
+      `landing text is below AA contrast (needs >= 4.5:1): ${JSON.stringify(pair)}`,
+    );
+  }
+  await landing.close();
 
   const capture = await browser.newPage({ viewport: { width: 390, height: 844 } });
   let releaseGeneration: (() => void) | undefined;
@@ -339,6 +407,17 @@ try {
   assert.ok(cssSeconds(reducedMotionStyles.transitionDuration) <= 0.000_01, `reduced motion leaves long transitions: ${JSON.stringify(reducedMotionStyles)}`);
   assert.ok(cssSeconds(reducedMotionStyles.animationDuration) <= 0.000_01, `reduced motion leaves the progress shimmer active: ${JSON.stringify(reducedMotionStyles)}`);
   assert.equal(reducedMotionStyles.animationIterationCount, "1", `reduced motion leaves repeating animation: ${JSON.stringify(reducedMotionStyles)}`);
+  // Under reduced motion the hero demo must settle into an honest still pair
+  // (drawing plus captured game frame) instead of a looping morph.
+  await reducedMotion.locator("#hero-demo").scrollIntoViewIfNeeded();
+  await reducedMotion.waitForFunction(() => {
+    const host = document.querySelector<HTMLElement>("#hero-demo");
+    const frame = host?.querySelector<HTMLImageElement>(".hero-demo-game");
+    return host?.getAttribute("data-demo-phase") === "still"
+      && Boolean(frame && frame.currentSrc.includes("/demo/game-"))
+      && getComputedStyle(host.querySelector<HTMLImageElement>(".hero-demo-drawing")!).opacity === "1"
+      && getComputedStyle(frame!).opacity === "1";
+  }, undefined, { timeout: 20_000 });
   await reducedMotion.locator("#spec-file").setInputFiles({
     name: "reduced-motion-game.json",
     mimeType: "application/json",

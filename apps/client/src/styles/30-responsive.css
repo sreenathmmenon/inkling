@@ -14,32 +14,30 @@
   .brand { font-size: 1.24rem; }
   .brand-mark { width: 36px; height: 36px; border-radius: 12px; }
   .brand-mark svg { width: 21px; }
-  .quiet-file-action { min-height: 48px; justify-content: center; padding: 0 10px; color: #51496a; background: rgba(255,255,255,.66); font-size: .72rem; }
+  .quiet-file-action { min-height: 48px; justify-content: center; padding: 0 10px; color: var(--ink-soft); background: rgba(255,255,255,.66); font-size: .72rem; }
   .quiet-file-action svg { width: 17px; }
-  #capture-panel { grid-template-columns: 1fr; grid-template-areas: "copy" "action" "preview" "adjust" "progress" "safe-offer"; gap: 0; min-height: 0; padding: 30px 25px 27px; border-radius: 28px; }
+  #capture-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "copy" "action" "preview" "adjust" "progress" "safe-offer"; gap: 0; min-height: 0; padding: var(--section-pad); border-radius: 28px; }
   body.has-drawing #capture-panel { grid-template-areas: "copy" "preview" "action" "adjust" "progress" "safe-offer"; }
-  #capture-title { font-size: clamp(3.2rem, 16vw, 4.5rem); }
-  .hero-copy { margin-top: 20px; font-size: 1.03rem; }
-  #capture-status { font-size: 1rem; }
-  .capture-action-zone { margin-top: 26px; }
-  .capture-actions { display: grid; grid-template-columns: 1fr 1fr; margin-top: 0; }
+  #capture-title { font-size: var(--size-hero); }
+  .hero-copy { margin-top: var(--space-2); font-size: var(--size-subhead); }
+  #capture-status { font-size: var(--size-body); }
+  .capture-action-zone { margin-top: var(--space-3); }
+  .capture-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: 0; }
   .capture-actions .choose-action, .capture-actions .make-action { grid-column: 1 / -1; width: 100%; }
   .choose-action, .make-action { min-height: 58px; }
   .mini-journey { gap: 4px; margin-top: 26px; padding-top: 18px; }
   .mini-journey li { display: flex; flex-direction: column; gap: 4px; text-align: center; }
   .mini-journey span { width: 24px; height: 24px; }
   .mini-journey small { display: none; }
-  .preview-stage { min-height: 275px; margin-top: 28px; padding: 22px; }
+  .preview-stage { min-height: 275px; margin-top: var(--space-3); padding: var(--space-2); }
   body.has-drawing .preview-stage { margin-top: 20px; }
-  .paper-shadow { inset: 20px 8px 8px 17px; }
-  .preview-stage::before { inset: 5px 17px 17px 5px; }
-  .preview-stage::after { inset: 23px 34px 35px 22px; }
+  .hero-demo-drawing { max-height: 300px; }
   #drawing-preview { max-height: 300px; }
   #picture-adjuster { grid-template-columns: 1fr; padding: 21px; }
   .adjustment-grid { grid-template-columns: 1fr; }
   .adjustment-actions { justify-content: stretch; }
   .adjustment-actions > * { flex: 1 1 120px; }
-  body.generating #capture-panel { grid-template-columns: 1fr; grid-template-areas: "preview" "progress"; gap: 0; min-height: calc(100svh - 78px); padding-top: 24px; align-content: start; }
+  body.generating #capture-panel { grid-template-columns: minmax(0, 1fr); grid-template-areas: "preview" "progress"; gap: 0; min-height: calc(100svh - 78px); padding-top: 24px; align-content: start; }
   body.generating .preview-stage { min-height: 215px; max-height: 250px; margin-top: 0; }
   body.generating #drawing-preview { max-height: 220px; }
   body.generating #progress-panel { margin-top: 20px; padding: 4px 0 0; scroll-margin-top: 12px; }
@@ -99,9 +97,11 @@
 }
 
 @media (max-width: 350px) {
-  #capture-panel { padding-inline: 20px; }
-  #capture-title { font-size: 2.95rem; }
-  .capture-actions { grid-template-columns: 1fr; }
+  #capture-panel { padding-inline: var(--space-3); }
+  /* The 36px action padding cannot fit a 320px viewport at 200% text zoom;
+     narrow phones step the horizontal padding down one grid unit. */
+  button, .file-label { padding-inline: var(--space-3); }
+  .capture-actions { grid-template-columns: minmax(0, 1fr); }
   .capture-actions > * { grid-column: 1 !important; }
   .mini-journey strong { font-size: .74rem; }
 }

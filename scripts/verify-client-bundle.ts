@@ -31,7 +31,24 @@ const playerChunk = assets.find((name) => /^platformer-.*\.js$/.test(name));
 assert.ok(playerChunk, "production build has no lazy deterministic player chunk");
 assert.equal(html.includes(playerChunk), false, "player chunk is eagerly referenced by capture HTML");
 
+// The landing hero demo stays out of the boot path: its module is a lazy
+// chunk never referenced by the capture HTML, and its captured drawing/game
+// assets stay within an explicit weight budget so the loop never competes
+// with the capture shell for first paint.
+const demoChunk = assets.find((name) => /^hero-demo-.*\.js$/.test(name));
+assert.ok(demoChunk, "production build has no lazy hero-demo chunk");
+assert.equal(html.includes(demoChunk), false, "hero demo chunk is eagerly referenced by capture HTML");
+const demoAssets = (await readdir(resolve(clientRoot, "demo"))).filter((name) => name.endsWith(".webp"));
+assert.ok(
+  demoAssets.includes("drawing.webp") && demoAssets.some((name) => /^game-\d+\.webp$/.test(name)),
+  `hero demo assets are missing from the build: ${JSON.stringify(demoAssets)}`,
+);
+let demoBytes = 0;
+for (const name of demoAssets) demoBytes += (await stat(resolve(clientRoot, "demo", name))).size;
+assert.ok(demoBytes <= 300 * 1024, `hero demo assets are ${demoBytes} bytes; the landing loop budget is 307200`);
+
 console.log(
   `Client bundle boundary passed: capture entry ${(entryBytes / 1024).toFixed(1)} KiB; ` +
-  `player is lazy in ${playerChunk}.`,
+  `player is lazy in ${playerChunk}; hero demo is lazy in ${demoChunk} ` +
+  `with ${(demoBytes / 1024).toFixed(1)} KiB of captured assets.`,
 );

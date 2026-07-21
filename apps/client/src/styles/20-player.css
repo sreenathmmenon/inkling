@@ -2,27 +2,27 @@
 #play-toolbar { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 16px; align-items: center; width: min(100%, 1180px); margin: 0 auto 12px; padding: 15px 18px; border: 1px solid var(--line); border-radius: 22px; background: rgba(255,254,250,.94); box-shadow: 0 14px 38px rgba(64,45,120,.1); backdrop-filter: blur(14px); }
 #objective-title { margin: 0; font-size: clamp(1.35rem,3vw,2rem); line-height: 1.05; letter-spacing: -.055em; }
 #objective-detail { margin: 5px 0 0; color: var(--ink-soft); line-height: 1.4; }
-#interpretation-note { width: fit-content; margin: 8px 0 0; padding: 7px 10px; border: 1px solid rgba(98,70,234,.08); border-radius: 10px; color: #554970; background: #f0ecff; font-size: .78rem; font-weight: 800; }
+#interpretation-note { width: fit-content; margin: 8px 0 0; padding: 7px 10px; border: 1px solid rgba(108,92,231,.14); border-radius: 10px; color: var(--ink-soft); background: var(--primary-tint); font-size: .78rem; font-weight: 800; }
 .play-toolbar-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; }
-.new-drawing-action { color: #564b74; background: #f0ecff; box-shadow: none; }
-.new-drawing-action:hover { color: #423564; background: #e5dfff; }
+.new-drawing-action { padding: 12px 20px; color: var(--ink-soft); background: var(--primary-tint); box-shadow: none; }
+.new-drawing-action:hover { color: var(--ink); background: #e4dff7; }
 .new-drawing-action svg { width: 18px; fill: none; stroke: currentColor; stroke-linecap: round; stroke-width: 2; }
 #game-shell { position: relative; overflow: hidden; border: 1px solid rgba(54,39,100,.14); border-radius: 26px; background: #fff; box-shadow: 0 24px 60px rgba(44,31,88,.17), 0 2px 7px rgba(44,31,88,.07); }
 #game { width: 100%; aspect-ratio: 16 / 9; }
 #game canvas { display: block; width: 100% !important; height: 100% !important; }
-#game-empty { display: grid; min-height: 360px; place-items: center; padding: 32px; text-align: center; background: radial-gradient(circle at 50% 42%, #ede8ff, #fffdf9 63%); }
+#game-empty { display: grid; min-height: 360px; place-items: center; padding: 32px; text-align: center; background: var(--canvas); }
 #game-empty span { display: inline-grid; width: 56px; height: 56px; place-items: center; margin-bottom: 14px; border-radius: 20px; color: #fff; background: var(--violet); font-size: 1.5rem; }
 #game-empty h2 { margin: 0; font-size: clamp(1.5rem,4vw,2.25rem); letter-spacing: -.055em; }
 #game-empty p { max-width: 38ch; margin: 9px auto 0; color: var(--ink-soft); line-height: 1.5; }
 #runtime-replay-host { position: fixed; left: -10000px; top: 0; width: 960px; height: 540px; visibility: hidden; pointer-events: none; }
 .play-meta { margin: 12px 4px 0; }
 #game-status { position: absolute; z-index: 150; top: 12px; left: 12px; max-width: calc(100% - 24px); margin: 0; padding: 8px 12px; border: 1px solid rgba(255,255,255,.24); border-radius: 13px; color: #fff; background: rgba(31,25,52,.86); box-shadow: 0 8px 22px rgba(32,25,54,.2); font-size: .92rem; font-weight: 950; letter-spacing: -.01em; backdrop-filter: blur(9px); pointer-events: none; }
-.hint { margin: 5px 0; color: #746d87; font-size: .9rem; line-height: 1.45; }
+.hint { margin: 5px 0; color: var(--ink-soft); font-size: .9rem; line-height: 1.45; }
 #post-play-actions { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 0; }
 #post-play-actions button { min-height: 48px; padding: 9px 13px; font-size: .86rem; }
 #fullscreen-new-drawing { display: none; }
-#save-status { min-height: 1.2em; margin: 4px 0 0; color: #5f5675; font-size: .82rem; font-weight: 750; }
-.assist-action { color: #173a32; background: var(--mint); box-shadow: 0 8px 20px rgba(80,190,150,.2); }
+#save-status { min-height: 1.2em; margin: 4px 0 0; color: var(--ink-soft); font-size: .82rem; font-weight: 750; }
+.assist-action { padding: 12px 20px; color: #173a32; background: var(--mint); box-shadow: 0 8px 20px rgba(80,190,150,.2); }
 .error { color: #a92246 !important; }
 
 #accessible-controls { position: absolute; left: -10000px; display: flex; gap: 10px; }
@@ -47,8 +47,8 @@ body:not(.play-mode):not(.runtime-replay-mode) #accessible-controls { display: n
 body.play-mode main { width: min(100%, 1280px); }
 body.play-mode #game-shell { margin-inline: auto; }
 body.play-mode #play-stage { width: 100%; }
-body.game-won #play-toolbar { border-color: rgba(42,174,125,.35); background: linear-gradient(110deg, #f3fff9, #fffdf7); }
-body.game-lost #play-toolbar { background: linear-gradient(110deg, #fff5f5, #fffdf7); }
+body.game-won #play-toolbar { border-color: rgba(42,174,125,.35); background: #f1fbf6; }
+body.game-lost #play-toolbar { background: #fdf3f1; }
 body.playing .play-meta .hint { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 body.game-won .play-meta, body.game-lost .play-meta, body.player-error .play-meta { width: fit-content; max-width: calc(100% - 8px); margin: 10px auto 0; padding: 9px; border: 1px solid var(--line); border-radius: 19px; background: rgba(255,254,250,.96); box-shadow: 0 12px 32px rgba(64,45,120,.11); }
 body.game-won #game-status { left: 50%; color: #174f3c; background: rgba(228,255,243,.94); border-color: rgba(42,174,125,.42); font-size: 1.08rem; transform: translateX(-50%); }
@@ -59,7 +59,7 @@ body.player-error .hint { display: none; }
 body.game-won #post-play-actions .primary-action { color: #fff; }
 body.game-won #accessible-controls, body.game-lost #accessible-controls { display: none; }
 body.game-won .hint, body.game-lost .hint { display: none; }
-body.game-won #restart { color: #fff; background: linear-gradient(135deg, #7355f5, #5634df); box-shadow: 0 9px 22px rgba(83,52,220,.28); }
+body.game-won #restart { color: #fff; background: var(--primary); box-shadow: 0 9px 22px rgba(108,92,231,.28); }
 
 /* Experience state wins over every viewport-specific control layout below. */
 body.play-mode.game-won #accessible-controls,

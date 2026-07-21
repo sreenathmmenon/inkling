@@ -105,6 +105,30 @@ test("P2 keeps its deterministic tie-break and granularity rules", () => {
   assert.match(text, /gravity cues beat birds-eye reading/);
   assert.match(text, /runner — only when none of the cues above are present/);
   assert.match(text, /always yield the same genre/);
+  // Support-continuity refinement: the runner/platformer tie kept flipping
+  // (06-frog 4:1 with the dominant side swapping between batches) because
+  // discrete stepping surfaces read as both "path start to end" and
+  // "surfaces the hero stands on". The distinguishing rule is general:
+  // separate stepping surfaces with jumpable gaps -> platformer; one
+  // continuous travel surface, even with obstacles on it -> runner.
+  assert.match(text, /Support continuity is the deciding cue/);
+  assert.match(
+    text,
+    /SEPARATE stepping surfaces \(stones,\s*pads, ledges\) with open gaps between them that the hero must jump/,
+    "discrete stepping surfaces with jumpable gaps must decide platformer",
+  );
+  assert.match(text, /open air or water under the gaps is itself a gravity\s*cue/);
+  assert.match(
+    text,
+    /ONE\s*continuous, unbroken travel surface/,
+    "runner requires one continuous travel surface",
+  );
+  assert.match(
+    text,
+    /Obstacles drawn ON a continuous surface\s*keep it a runner/,
+    "obstacles on a continuous surface must not flip the genre",
+  );
+  assert.match(text, /gaps IN the travel surface itself/);
   // Travel-surface rule: 04-fire-truck produced 5 role multisets in 5 runs
   // because the drawn road flipped between platform/hazard/decoration.
   assert.match(text, /surface the hero travels on/);

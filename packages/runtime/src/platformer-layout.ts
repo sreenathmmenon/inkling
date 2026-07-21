@@ -209,18 +209,33 @@ function snapOntoSurface(
 function safeSpawn(
   hero: PlannedEntity,
   hazards: PlannedEntity[],
+  platforms: readonly PlannedEntity[],
 ): PlannedEntity {
   const overlapsHazard = (x: number, hazard: PlannedEntity): boolean => (
     Math.abs(x - hazard.x) * 2 < hero.width + hazard.width * 0.72 + 20 &&
     Math.abs(hero.y - hazard.y) * 2 < hero.height + hazard.height * 0.72 + 12
   );
   if (!hazards.some((hazard) => overlapsHazard(hero.x, hazard))) return hero;
+  // Hazard avoidance shifts x while keeping y, so an unconstrained shift can
+  // carry the hero past the edge of the surface it stands on — stranding an
+  // automatic runner in open air off its drawn route start, where it falls
+  // to the synthetic safety floor and forfeits drawn support. The shift is
+  // therefore constrained ALONG the current support surface, chosen by the
+  // same nearest-surface rule (chooseSupportSurface) the snap and the solver
+  // plan share, so avoidance can never move the hero onto different support.
+  const support = chooseSupportSurface(hero, platforms);
+  const minX = support
+    ? clamp(support.x - support.width / 2, hero.width / 2, WORLD_WIDTH - hero.width / 2)
+    : hero.width / 2;
+  const maxX = support
+    ? clamp(support.x + support.width / 2, hero.width / 2, WORLD_WIDTH - hero.width / 2)
+    : WORLD_WIDTH - hero.width / 2;
   const candidates: number[] = [];
   for (let offset = 0; offset <= WORLD_WIDTH; offset += 24) {
     candidates.push(hero.x - offset, hero.x + offset);
   }
   const x = candidates
-    .map((candidate) => clamp(candidate, hero.width / 2, WORLD_WIDTH - hero.width / 2))
+    .map((candidate) => clamp(candidate, minX, maxX))
     .find((candidate) => !hazards.some((hazard) => overlapsHazard(candidate, hazard)));
   return x === undefined ? hero : { ...hero, x };
 }
@@ -493,7 +508,7 @@ export function createPlatformerPlan(
     });
   const hero = usesFreeMovement
     ? safeFreeSpawn(surfaceHero, hazards, contract.colliderScale)
-    : safeSpawn(surfaceHero, hazards);
+    : safeSpawn(surfaceHero, hazards, platforms);
   const collectibles = entities
     .filter((entity) => COLLECTIBLE_ROLES.has(entity.role))
     .map((entity) => {

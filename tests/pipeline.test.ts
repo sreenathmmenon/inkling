@@ -834,6 +834,117 @@ test("per-model verbosity is declared, applied, and fails loudly on drift even i
   );
 });
 
+test("per-model deterministic sampling is declared, applied, and fails loudly on drift", async () => {
+  const sampling = new Map<string, { temperature: unknown; top_p: unknown }>();
+  await runPipeline(
+    { image: "data:image/png;base64,c2FtcGxpbmc=" },
+    {
+      safetyId: "sampling-user",
+      dryRun: true,
+      onRequest(trace, request) {
+        sampling.set(trace.callId, { temperature: request.temperature, top_p: request.top_p });
+      },
+    },
+  );
+  assert.deepEqual(
+    sampling.get("P2"),
+    { temperature: 0, top_p: 1 },
+    "extraction requests carry the declared deterministic sampling",
+  );
+  assert.deepEqual(
+    sampling.get("P6"),
+    { temperature: 0, top_p: 1 },
+    "every call on the declared model shares the same pinned sampling",
+  );
+  assert.deepEqual(
+    sampling.get("P8"),
+    { temperature: undefined, top_p: undefined },
+    "undeclared models keep sending no sampling params at all",
+  );
+
+  const p2 = spec.calls.find((call) => call.id === "P2");
+  assert.ok(p2);
+  const baseRequest = {
+    model: spec.models[p2.model] ?? "",
+    input: [],
+    reasoning: { effort: "medium" },
+    text: {
+      verbosity: "low",
+      format: { type: "json_schema", name: "gamespec", schema: {}, strict: true },
+    },
+    safety_identifier: "drift-check",
+  };
+  assert.throws(
+    () => assertRequestMatchesSpec(spec, p2, {
+      ...baseRequest,
+      temperature: 0.7,
+      top_p: 1,
+    } as Parameters<typeof assertRequestMatchesSpec>[2]),
+    /temperature/,
+    "an undeclared temperature is rejected before any request is sent",
+  );
+  assert.throws(
+    () => assertRequestMatchesSpec(spec, p2, {
+      ...baseRequest,
+      temperature: 0,
+    } as Parameters<typeof assertRequestMatchesSpec>[2]),
+    /top_p/,
+    "dropping a declared sampling param is rejected the same way",
+  );
+
+  const p8 = spec.calls.find((call) => call.id === "P8");
+  assert.ok(p8);
+  assert.throws(
+    () => assertRequestMatchesSpec(spec, p8, {
+      model: spec.models[p8.model] ?? "",
+      input: [],
+      reasoning: { effort: "high" },
+      text: {
+        verbosity: "low",
+        format: { type: "json_schema", name: "solvability_verdict", schema: {}, strict: true },
+      },
+      safety_identifier: "drift-check",
+      temperature: 0,
+    } as Parameters<typeof assertRequestMatchesSpec>[2]),
+    /temperature/,
+    "sampling params may not ride along on a model the spec never declared them for",
+  );
+});
+
+test("the loader rejects malformed deterministic-sampling declarations", () => {
+  const raw = loadJson<JsonObject>(root, "spec/pipeline.json");
+  const withSampling = (mutate: (globals: JsonObject) => void): JsonObject => {
+    const doc = structuredClone(raw);
+    mutate(doc["globals"] as JsonObject);
+    return doc;
+  };
+  assert.throws(
+    () => validatePipelineSpec(withSampling((globals) => {
+      globals["sampling_by_model"] = { unknown_alias: { temperature: 0 } };
+    })),
+    /unknown model alias/,
+  );
+  assert.throws(
+    () => validatePipelineSpec(withSampling((globals) => {
+      globals["sampling_by_model"] = { sol: { temperature: 0, seed: 7 } };
+    })),
+    /not a sampling param/,
+    "the Responses API has no seed param; declaring one must be refused, not silently dropped",
+  );
+  assert.throws(
+    () => validatePipelineSpec(withSampling((globals) => {
+      globals["sampling_by_model"] = { sol: { temperature: 3 } };
+    })),
+    /temperature/,
+  );
+  assert.throws(
+    () => validatePipelineSpec(withSampling((globals) => {
+      globals["sampling_by_model"] = { sol: { top_p: 0 } };
+    })),
+    /top_p/,
+  );
+});
+
 test("a thrown P7 session follows the declared escalation instead of bypassing it", async () => {
   const dynamicSpec = structuredClone(SHAREABLE_GAME_SPEC);
   dynamicSpec.entities.push({

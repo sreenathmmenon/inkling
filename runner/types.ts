@@ -57,6 +57,13 @@ export interface PipelineSpec {
     text_verbosity_json: "low" | "medium" | "high";
     /** Per-model-alias overrides for APIs that reject the global verbosity. */
     text_verbosity_by_model?: Record<string, "low" | "medium" | "high">;
+    /**
+     * Per-model-alias deterministic sampling. The Responses API accepts
+     * temperature and top_p (there is no seed parameter on this surface);
+     * declaring them here pins every request for that model to the exact
+     * declared values — undeclared sampling on a request is rejected.
+     */
+    sampling_by_model?: Record<string, { temperature?: number; top_p?: number }>;
     safety_identifier: string;
   };
   models: Record<string, string>;

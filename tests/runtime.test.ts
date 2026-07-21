@@ -892,6 +892,53 @@ test("a drawn trail keeps the runner automatic and starts the run on the route",
   );
 });
 
+test("hazard-avoidance spawn shifts stay on the hero's support surface", () => {
+  // Repro class: an automatic runner relocated to its drawn route start with
+  // a hazard sitting on that start. safeSpawn shifts x while keeping y, and
+  // an unconstrained shift walks past the trail's left edge — the hero
+  // spawns in open air off the drawn route, falls to the synthetic safety
+  // floor, and the run forfeits drawn_support_route (the residual
+  // 02-finger-paint contract flip). Avoidance must shift ALONG the support
+  // surface chosen by the shared nearest-surface rule.
+  const hazardAtRouteStart: GameSpec = {
+    primary_genre: "runner", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Runner", bbox: [0.05, 0.2, 0.12, 0.35], style_ref: "source" },
+    entities: [
+      { id: "trail", role: "platform", bbox: [0.5, 0.55, 0.8, 0.6], behavior: "static", linked_to: null, style_ref: "finger-paint" },
+      { id: "smudge", role: "hazard", bbox: [0.51, 0.45, 0.58, 0.53], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.85, 0.3, 0.93, 0.5], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const plan = createPlatformerPlan(hazardAtRouteStart);
+  assert.equal(plan.contract.movement, "auto_ground");
+  const trail = plan.platforms.find((platform) => platform.id === "trail");
+  const hazard = plan.hazards.find((entity) => entity.id === "smudge");
+  assert.ok(trail);
+  assert.ok(hazard);
+  // The shift resolved the hazard overlap...
+  assert.ok(
+    Math.abs(plan.hero.x - hazard.x) * 2 >= plan.hero.width + hazard.width * 0.72 + 20,
+    "the spawn no longer overlaps the hazard",
+  );
+  // ...without leaving the drawn route: the hero's x stays within the trail
+  // span (the same rule chooseSupportSurface applies), and its feet stay on
+  // the trail surface, never hovering over open air toward the safety floor.
+  assert.ok(
+    plan.hero.x >= trail.x - trail.width / 2 && plan.hero.x <= trail.x + trail.width / 2,
+    `avoidance must shift along the drawn support surface, got x=${plan.hero.x}`,
+  );
+  assert.equal(
+    plan.hero.y + plan.hero.height / 2,
+    trail.y - trail.height / 2 - 2,
+    "the shifted spawn still stands on the drawn trail",
+  );
+  // Deterministic pin: the first hazard-clear candidate along the trail.
+  assert.equal(plan.hero.x, 608);
+});
+
 test("declared modifiers are mechanically real and gate faithfulness honestly", () => {
   const spec: GameSpec = {
     primary_genre: "platformer", genre_confidence: 1, mood: null,

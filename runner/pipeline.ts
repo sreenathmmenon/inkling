@@ -337,6 +337,23 @@ export function assertRequestMatchesSpec(
       `${call.id} verbosity ${String(request.text?.verbosity)} does not match the declared ${expectedVerbosity} for ${modelAlias}`,
     );
   }
+  // Deterministic sampling is declared per model in pipeline.json exactly
+  // like verbosity: a request must carry the declared temperature/top_p for
+  // its model — no more, no less — so extraction variance cannot creep back
+  // in through an undeclared or dropped sampling param.
+  const expectedSampling = spec.globals.sampling_by_model?.[modelAlias];
+  if (request.temperature !== expectedSampling?.temperature) {
+    throw new Error(
+      `${call.id} temperature ${String(request.temperature)} does not match the declared ` +
+      `${String(expectedSampling?.temperature)} for ${modelAlias}`,
+    );
+  }
+  if (request.top_p !== expectedSampling?.top_p) {
+    throw new Error(
+      `${call.id} top_p ${String(request.top_p)} does not match the declared ` +
+      `${String(expectedSampling?.top_p)} for ${modelAlias}`,
+    );
+  }
   if (call.schema) {
     const format = request.text?.format;
     if (!format || format.type !== "json_schema" || format.strict !== true) {
@@ -454,6 +471,12 @@ class PipelineRunner {
       safety_identifier: this.options.safetyId,
       store: false,
     };
+    // Deterministic sampling comes only from the per-model declaration in
+    // pipeline.json (the Responses API supports temperature/top_p but has no
+    // seed param). Undeclared models send neither field, exactly as before.
+    const sampling = this.spec.globals.sampling_by_model?.[modelAlias];
+    if (sampling?.temperature !== undefined) request.temperature = sampling.temperature;
+    if (sampling?.top_p !== undefined) request.top_p = sampling.top_p;
     if (schema) {
       request.text = {
         ...request.text,

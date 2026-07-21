@@ -91,9 +91,17 @@ sides of the route make a maze even though the path also has a start
 and an end.
 3. platformer — gravity cues beat birds-eye reading: a side-view
 horizon, surfaces at different heights, or a hero standing on top of
-a surface make a platformer.
-4. runner — only when none of the cues above are present: a flat
-birds-eye path or single track read start to end.
+a surface make a platformer. Support continuity is the deciding cue
+when the readings still compete: SEPARATE stepping surfaces (stones,
+pads, ledges) with open gaps between them that the hero must jump
+across make a platformer even when every surface sits at the same
+height — the open air or water under the gaps is itself a gravity
+cue.
+4. runner — only when none of the cues above are present: ONE
+continuous, unbroken travel surface (a flat birds-eye path or single
+track) read start to end. Obstacles drawn ON a continuous surface
+keep it a runner; gaps IN the travel surface itself mean the drawing
+already matched rule 3.
 Set genre_confidence in [0,1]. If < 0.55, still choose the best genre and
 add "genre_uncertain" to flags (the client offers a one-tap re-cast).
 </genre_inference>

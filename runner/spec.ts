@@ -69,6 +69,7 @@ export const CONSUMED_GLOBAL_FIELDS = new Set([
   "reasoning_mode_offline",
   "text_verbosity_json",
   "text_verbosity_by_model",
+  "sampling_by_model",
   "safety_identifier",
 ]);
 export const CONSUMED_CALL_FIELDS = new Set([
@@ -148,6 +149,35 @@ export function validatePipelineSpec(document: unknown): PipelineSpec {
       }
       if (verbosity !== "low" && verbosity !== "medium" && verbosity !== "high") {
         throw new Error(`text_verbosity_by_model.${alias} must be low, medium, or high`);
+      }
+    }
+  }
+  const samplingByModel = spec.globals.sampling_by_model;
+  if (samplingByModel !== undefined) {
+    if (!isRecord(samplingByModel)) {
+      throw new Error("globals.sampling_by_model must map model aliases to sampling params");
+    }
+    for (const [alias, sampling] of Object.entries(samplingByModel)) {
+      if (!spec.models[alias]) {
+        throw new Error(`sampling_by_model references unknown model alias ${alias}`);
+      }
+      if (!isRecord(sampling)) {
+        throw new Error(`sampling_by_model.${alias} must be an object`);
+      }
+      for (const key of Object.keys(sampling)) {
+        if (key !== "temperature" && key !== "top_p") {
+          throw new Error(
+            `sampling_by_model.${alias}.${key} is not a sampling param the runner sends`,
+          );
+        }
+      }
+      const { temperature, top_p: topP } = sampling;
+      if (temperature !== undefined &&
+        (typeof temperature !== "number" || temperature < 0 || temperature > 2)) {
+        throw new Error(`sampling_by_model.${alias}.temperature must be a number in [0,2]`);
+      }
+      if (topP !== undefined && (typeof topP !== "number" || topP <= 0 || topP > 1)) {
+        throw new Error(`sampling_by_model.${alias}.top_p must be a number in (0,1]`);
       }
     }
   }

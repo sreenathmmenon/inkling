@@ -27,15 +27,33 @@ export function replayPlatformerInBrowser(
     let game: Phaser.Game | undefined;
     let advancing = false;
     let terminal = false;
+    const destroyNow = (): void => {
+      if (!game) return;
+      // Game.destroy() only flags pendingDestroy for the next loop step. This
+      // harness put the loop to sleep, so that step never comes and the replay
+      // instance would live on as a zombie whose window keyboard listeners
+      // preventDefault every captured key — silently killing keyboard input
+      // for the real game launched right after certification. Step once so
+      // runDestroy executes synchronously and every global listener is gone.
+      const zombie = game;
+      game = undefined;
+      try {
+        zombie.destroy(true);
+        zombie.step(zombie.loop.now, 0);
+      } catch {
+        // Destruction best-effort: a partially booted game may throw here,
+        // but the flagged destroy still prevents further scene work.
+      }
+    };
     const startupTimeout = window.setTimeout(() => {
-      game?.destroy(true);
+      destroyNow();
       reject(new Error("Production Phaser replay did not start"));
     }, 10_000);
 
     const finish = (): void => {
       window.clearTimeout(startupTimeout);
       const captured = [...events];
-      game?.destroy(true);
+      destroyNow();
       resolve(captured);
     };
     const advance = (): void => {
@@ -52,7 +70,7 @@ export function replayPlatformerInBrowser(
         finish();
       } catch (error) {
         window.clearTimeout(startupTimeout);
-        game.destroy(true);
+        destroyNow();
         reject(error);
       }
     };

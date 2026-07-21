@@ -651,6 +651,10 @@ class PlatformerScene extends Phaser.Scene {
       this.touchResizeObserver?.disconnect();
       this.touchResizeObserver = new ResizeObserver(([entry]) => {
         if (!entry || entry.contentRect.width <= 0 || entry.contentRect.height <= 0) return;
+        // Observations can be delivered after a synchronously destroyed game
+        // (e.g. the certification replay); a dead scene must never rebuild
+        // controls. Scene destroy nulls the factories this rebuild needs.
+        if (!this.add || !this.sys) return;
         this.createTouchControls(entry.contentRect.width, entry.contentRect.height);
       });
       this.touchResizeObserver.observe(this.game.canvas);
@@ -663,6 +667,13 @@ class PlatformerScene extends Phaser.Scene {
       this.assistTargetGuide = undefined;
       this.clearCoachingObjects(this.coachingObjects);
       this.clearCoachingObjects(this.controlCoachingObjects);
+    });
+    // Game.destroy() tears scenes down without SHUTDOWN; the observer must
+    // still stop watching the removed canvas or its pending notifications
+    // target a dead scene.
+    this.events.once(Phaser.Scenes.Events.DESTROY, () => {
+      this.touchResizeObserver?.disconnect();
+      this.touchResizeObserver = undefined;
     });
     this.publishState();
   }

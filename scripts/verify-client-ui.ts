@@ -331,7 +331,10 @@ try {
     for (const contract of [
       { id: "side", spec: gameSpec, minimumButtons: 3 },
       { id: "four-way", spec: fourWayGameSpec, minimumButtons: 4 },
-      { id: "four-way-action", spec: actionGameSpec, minimumButtons: 5 },
+      // The faithful slingshot template launches the hero itself: side aim
+      // controls, no separate action button. The old slingshot-as-free-move
+      // alias (four-way plus projectile) no longer exists in the engine.
+      { id: "launch", spec: actionGameSpec, minimumButtons: 3 },
     ]) {
       const matrixPage = await browser.newPage({ viewport, hasTouch: true });
       await matrixPage.goto(baseUrl);
@@ -363,9 +366,11 @@ try {
       assert.ok(measurement.controls.top >= 0 && measurement.controls.bottom <= viewport.height + 1 && measurement.controls.left >= 0 && measurement.controls.right <= viewport.width + 1, `control matrix is clipped for ${contract.id}@${viewport.width}x${viewport.height}: ${JSON.stringify(measurement)}`);
       assert.ok(measurement.buttons.length >= contract.minimumButtons && measurement.buttons.every((button) => button.width >= 48 && button.height >= 48 && button.top >= 0 && button.bottom <= viewport.height && button.left >= 0 && button.right <= viewport.width), `control matrix targets are incomplete for ${contract.id}@${viewport.width}x${viewport.height}: ${JSON.stringify(measurement)}`);
       assert.ok(measurement.horizontalOverflow <= 1, `control matrix overflows horizontally for ${contract.id}@${viewport.width}x${viewport.height}: ${JSON.stringify(measurement)}`);
-      if (contract.id === "side") assert.equal(measurement.layout, "side");
-      else assert.equal(measurement.layout, "four-way");
-      if (contract.id === "four-way-action") assert.equal(measurement.hasAction, "true");
+      if (contract.id === "four-way") assert.equal(measurement.layout, "four-way");
+      else assert.equal(measurement.layout, "side");
+      // No genre contract declares a separate projectile action today, so a
+      // visible action button anywhere would be dead vocabulary in the UI.
+      assert.equal(measurement.hasAction, "false", `phantom action button for ${contract.id}@${viewport.width}x${viewport.height}`);
       await matrixPage.close();
     }
   }
@@ -382,7 +387,9 @@ try {
     for (const viewport of controlViewports) {
       for (const contract of [
         { id: "side", spec: gameSpec },
-        { id: "four-way-action", spec: actionGameSpec },
+        // Four-way assist coverage moves to the maze contract, the only
+        // remaining four-way layout now slingshot is a faithful launcher.
+        { id: "four-way", spec: fourWayGameSpec },
       ]) {
         const page = await browser.newPage({ viewport, hasTouch: inputMode.hasTouch });
         await page.goto(baseUrl);
@@ -392,7 +399,7 @@ try {
           buffer: Buffer.from(JSON.stringify(contract.spec)),
         });
         await page.locator("canvas").waitFor();
-        if (contract.id === "four-way-action" && viewport.width === 390 && viewport.height === 844) {
+        if (contract.id === "four-way" && viewport.width === 390 && viewport.height === 844) {
           await page.locator("#fullscreen-game").click();
           await page.waitForFunction(() => document.fullscreenElement?.id === "play-stage");
         }

@@ -93,6 +93,16 @@ runnerGameSpec.entities.splice(1, 0, {
   id: "runner_hazard", role: "hazard", bbox: [0.44, 0.66, 0.5, 0.74], behavior: "static", linked_to: null, style_ref: "source",
 });
 
+// Faithful aim-and-launch: the anchored hero must clear a drawn hazard on a
+// quantized ballistic shot and reach the drawn goal. The analytic route and
+// the browser replay both consume the shared launch state machine.
+const slingshotGameSpec = structuredClone(baseGameSpec);
+slingshotGameSpec.primary_genre = "slingshot";
+slingshotGameSpec.hero.bbox = [0.08, 0.08, 0.15, 0.22];
+slingshotGameSpec.entities.splice(1, 0, {
+  id: "flight_hazard", role: "hazard", bbox: [0.45, 0.66, 0.52, 0.74], behavior: "static", linked_to: null, style_ref: "source",
+});
+
 // A large free-movement hero and clustered edge-adjacent targets exercise the
 // same precision/recovery class as arbitrary child drawings with coarse touch
 // input. Runtime behavior remains entirely geometry-driven.
@@ -192,6 +202,7 @@ const gameCases: Array<{ id: string; gameSpec: GameSpec }> = [
   { id: "water", gameSpec: waterGameSpec },
   { id: "maze", gameSpec: mazeGameSpec },
   { id: "runner", gameSpec: runnerGameSpec },
+  { id: "slingshot", gameSpec: slingshotGameSpec },
 ];
 
 const publicRoot = resolve(findProjectRoot(), "build/client");
@@ -308,6 +319,13 @@ try {
     assert.equal(idleReport.finalStatus, "playing", `${gameCase.id}: active play won with no input`);
     assert.equal(idleReport.inputAccepted, false);
     assert.ok(idleReport.blockers.includes("runtime_trace_has_no_terminal_state"));
+    if (gameCase.id === "slingshot") {
+      assert.equal(
+        idleEvents.some((event) => event.kind === "launch_fired"),
+        false,
+        "slingshot fired a shot with no input",
+      );
+    }
 
     const recoveryAttempt = applyReplayPolicy(analytic.inputFrames, "recovery");
     const recoveryEvents = await page.evaluate(async (input) => {

@@ -38,7 +38,11 @@ export type PlayContractOutcome =
   | "needs_recast";
 
 export interface RuntimeCapabilityProfile {
-  templateId: "lane-a-platformer-v1" | "lane-a-maze-v1" | "lane-a-runner-v1";
+  templateId:
+    | "lane-a-platformer-v1"
+    | "lane-a-maze-v1"
+    | "lane-a-runner-v1"
+    | "lane-a-slingshot-v1";
   capabilities: readonly RuntimeCapability[];
 }
 
@@ -121,6 +125,26 @@ export const LANE_A_RUNNER_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
   ],
 };
 
+/**
+ * The faithful launch template: the hero is anchored at spawn, taps adjust a
+ * quantized aim, jump fires a fixed-power deterministic ballistic shot, drawn
+ * platforms are landing surfaces, and the hero returns to the anchor between
+ * shots. Doors never block a flying hero and material/water effects do not
+ * alter flight, so those capabilities are deliberately not claimed.
+ */
+export const LANE_A_SLINGSHOT_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
+  templateId: "lane-a-slingshot-v1",
+  capabilities: [
+    "launch_trajectory",
+    "solid_platforms",
+    "contact_hazards",
+    "lives",
+    "reach_goal",
+    "collect_all",
+    "survive_timer",
+  ],
+};
+
 const PLATFORM_ROLES = new Set(["platform", "ice", "cloud", "launchpad"]);
 const HAZARD_ROLES = new Set(["hazard", "enemy", "boss"]);
 
@@ -169,9 +193,9 @@ function requiredForGoal(spec: GameSpec, required: RuntimeCapability[]): void {
   else if (spec.goal.kind === "survive") pushUnique(required, "survive_timer");
   else if (spec.goal.kind === "defeat_boss") {
     pushUnique(required, "multi_step_boss_encounter");
-    if (spec.primary_genre === "slingshot") {
-      pushUnique(required, "aimed_projectile");
-    }
+    // Slingshot resolves defeat_boss by launching the hero into the target,
+    // so launch_trajectory (already required) covers it; no remaining genre
+    // requires a separate auto-aimed projectile.
   } else pushUnique(required, "reach_goal");
 }
 
@@ -285,11 +309,13 @@ export function createPlayContract(
   requiredForGoal(gameSpec, required);
   requiredForDeclaredRules(gameSpec, required);
 
-  const capabilityProfile = plan.contract.id === "maze"
-    ? LANE_A_MAZE_CAPABILITY_PROFILE
-    : plan.contract.id === "runner"
-      ? LANE_A_RUNNER_CAPABILITY_PROFILE
-      : LANE_A_CAPABILITY_PROFILE;
+  const capabilityProfile = plan.contract.movement === "launch"
+    ? LANE_A_SLINGSHOT_CAPABILITY_PROFILE
+    : plan.contract.id === "maze"
+      ? LANE_A_MAZE_CAPABILITY_PROFILE
+      : plan.contract.id === "runner"
+        ? LANE_A_RUNNER_CAPABILITY_PROFILE
+        : LANE_A_CAPABILITY_PROFILE;
   const available = new Set(capabilityProfile.capabilities);
   // Declared modifiers count as supported only when the plan applied every
   // one of them — P8's own bounded repair encodings are now mechanically

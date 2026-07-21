@@ -44,6 +44,19 @@ export {
   PLATFORMER_PHYSICS,
 } from "./platformer-physics.js";
 export {
+  createLaunchState,
+  LAUNCH_CONTRACT,
+  launchVelocityForAim,
+  resetLaunchShot,
+  stepLaunchFrame,
+  type LaunchInput,
+  type LaunchPhase,
+  type LaunchState,
+  type LaunchStepResult,
+  type LaunchSurface,
+  type LaunchWorld,
+} from "./launch-contract.js";
+export {
   surfaceJumpVelocity,
   surfaceMaterial,
   surfaceVelocityX,

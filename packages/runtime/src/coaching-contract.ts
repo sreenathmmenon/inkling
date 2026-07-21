@@ -54,6 +54,12 @@ export function createCoachingContract(plan: PlatformerPlan): CoachingContract {
   if (plan.contract.movement === "auto_ground") {
     return { firstControl: "right", objectiveTarget, objectiveLabel };
   }
+  if (plan.contract.movement === "launch") {
+    // Firing is the signature launch action, and every winning launch replay
+    // must fire at least one shot, so coaching the fire control guarantees an
+    // input-backed win in the runtime trace.
+    return { firstControl: "jump", objectiveTarget, objectiveLabel };
+  }
   if (plan.contract.touchControls === "four_way") {
     const deltaX = objectiveTarget.x - plan.hero.x;
     const deltaY = objectiveTarget.y - plan.hero.y;

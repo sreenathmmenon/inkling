@@ -11,6 +11,15 @@ import {
   emptyInputFrame,
   type InputFrame,
 } from "../../../packages/runtime/src/input-frame.js";
+import {
+  createLaunchState,
+  LAUNCH_CONTRACT,
+  launchVelocityForAim,
+  resetLaunchShot,
+  stepLaunchFrame,
+  type LaunchState,
+  type LaunchWorld,
+} from "../../../packages/runtime/src/launch-contract.js";
 import { findMazeRoute } from "../../../packages/runtime/src/maze-topology.js";
 import {
   trackOffsetAt,
@@ -171,6 +180,67 @@ function routeAroundHazards(
 }
 
 /**
+ * Deterministically searches the quantized launch aims for the first shot
+ * that contacts the target, preferring shots that touch no hazard first and
+ * then the earliest contact. It simulates the exact shared launch state
+ * machine the Phaser scene consumes, so a found shot is a real shot.
+ */
+function findLaunchAim(
+  state: LaunchState,
+  target: PlannedEntity,
+  world: LaunchWorld,
+  hazards: PlannedEntity[],
+): number | undefined {
+  const candidates: Array<{ aim: number; contactFrame: number; hazardBeforeTarget: boolean }> = [];
+  for (
+    let aim = LAUNCH_CONTRACT.minAimDeg;
+    aim <= LAUNCH_CONTRACT.maxAimDeg;
+    aim += LAUNCH_CONTRACT.aimStepDeg
+  ) {
+    const [velocityX, velocityY] = launchVelocityForAim(aim);
+    const shot: LaunchState = {
+      ...state,
+      phase: "flight",
+      aimDeg: aim,
+      x: state.anchorX,
+      y: state.anchorY,
+      velocityX,
+      velocityY,
+    };
+    let hazardBeforeTarget = false;
+    for (let step = 1; step <= LAUNCH_CONTRACT.maxFlightFrames; step += 1) {
+      const result = stepLaunchFrame(
+        shot,
+        { left: false, right: false, jump: false, action: false },
+        world,
+      );
+      const shotBody: SimulatedBody = {
+        x: shot.x,
+        y: shot.y,
+        velocityX: shot.velocityX,
+        velocityY: shot.velocityY,
+      };
+      if (overlaps(shotBody, world.heroWidth, world.heroHeight, target)) {
+        candidates.push({ aim, contactFrame: step, hazardBeforeTarget });
+        break;
+      }
+      if (
+        !hazardBeforeTarget &&
+        hazards.some((hazard) => overlapsHazard(shotBody, world.heroWidth, world.heroHeight, hazard))
+      ) {
+        hazardBeforeTarget = true;
+      }
+      if (result.returnedToAnchor) break;
+    }
+  }
+  return candidates.sort((left, right) => (
+    Number(left.hazardBeforeTarget) - Number(right.hazardBeforeTarget) ||
+    left.contactFrame - right.contactFrame ||
+    left.aim - right.aim
+  ))[0]?.aim;
+}
+
+/**
  * Deterministic player-equivalent Lane A simulation. It shares the exact
  * platformer plan, world bounds, gravity, movement, jump, hazards, lives,
  * collectibles, goal trigger, and survival timer used by the Phaser player.
@@ -219,6 +289,20 @@ function executePlaytest(
   let freeRouteTargetId = "";
   let freeRoute: RoutePoint[] = [];
   let freeRouteIndex = 0;
+  const usesLaunchMovement = plan.contract.movement === "launch";
+  const launchState = usesLaunchMovement
+    ? createLaunchState(plan.hero.x, plan.hero.y)
+    : undefined;
+  const launchWorld: LaunchWorld = {
+    heroWidth,
+    heroHeight,
+    platforms: plan.platforms,
+  };
+  let launchShot: { targetId: string; aimDeg: number } | undefined;
+  // Emitted launch inputs use two-frame presses with two-frame gaps so one
+  // dropped replay frame delays a tap by a frame but can never split it in
+  // two or lose an isolated single-frame press.
+  const launchScript: Array<"left" | "right" | "jump" | null> = [];
 
   const respawn = (): void => {
     body.x = plan.hero.x;
@@ -228,6 +312,11 @@ function executePlaytest(
     grounded = false;
     groundedPlatform = undefined;
     descendingFrom = undefined;
+    if (launchState) {
+      resetLaunchShot(launchState);
+      launchShot = undefined;
+      launchScript.length = 0;
+    }
   };
 
   for (let frame = 0; frame < maxFrames; frame += 1) {
@@ -257,7 +346,66 @@ function executePlaytest(
       });
       lastProjectileAt = elapsedMs;
     }
-    if (usesFreeMovement) {
+    if (usesLaunchMovement && launchState) {
+      // Slingshot policy: while aiming, plan the next shot against the shared
+      // quantized-aim contract, tap toward the planned angle, then fire; the
+      // flight itself is the exact shared launch state machine, so the
+      // emitted InputFrames reproduce this route verbatim in Phaser.
+      if (launchScript.length === 0 && launchState.phase === "aiming" && plan.goalKind !== "survive") {
+        const requiredOutstanding = nearestOutstanding(
+          body,
+          plan.collectibles.filter((item) => plan.requiredCollectibleIds.includes(item.id)),
+          collected,
+        );
+        const target = plan.goalKind === "collect_all"
+          ? nearestOutstanding(body, plan.collectibles, collected)
+          : requiredOutstanding ?? (plan.goalKind === "defeat_boss" ? plan.goal : plan.goalTrigger);
+        if (target) {
+          if (!launchShot || launchShot.targetId !== target.id) {
+            if (launchState.shotsFired >= LAUNCH_CONTRACT.maxSolverShots) {
+              return {
+                reached_goal: false,
+                first_blocker: `launch_shot_budget_exhausted:${target.id}`,
+                time_to_win: null,
+                seed,
+                visited: [...visited],
+              };
+            }
+            const aim = findLaunchAim(launchState, target, launchWorld, plan.hazards);
+            if (aim === undefined) {
+              return {
+                reached_goal: false,
+                first_blocker: `launch_target_unreachable:${target.id}`,
+                time_to_win: null,
+                seed,
+                visited: [...visited],
+              };
+            }
+            launchShot = { targetId: target.id, aimDeg: aim };
+          }
+          const control = launchState.aimDeg < launchShot.aimDeg
+            ? "left" as const
+            : launchState.aimDeg > launchShot.aimDeg
+              ? "right" as const
+              : "jump" as const;
+          launchScript.push(control, control, null, null);
+        }
+      }
+      const scripted = launchScript.length > 0 ? launchScript.shift() : null;
+      if (scripted === "left") input.left = true;
+      else if (scripted === "right") input.right = true;
+      else if (scripted === "jump") input.jump = true;
+      const launchStep = stepLaunchFrame(
+        launchState,
+        { left: input.left, right: input.right, jump: input.jump, action: input.action },
+        launchWorld,
+      );
+      if (launchStep.returnedToAnchor) launchShot = undefined;
+      body.x = launchState.x;
+      body.y = launchState.y;
+      body.velocityX = launchState.velocityX;
+      body.velocityY = launchState.velocityY;
+    } else if (usesFreeMovement) {
       // Mirrors the free-movement scene: no gravity, bounded movement, and the
       // same fixed horizontal/vertical speed. The policy heads to outstanding
       // collectibles before the final target so collect-all games are tested

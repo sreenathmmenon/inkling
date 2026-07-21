@@ -37,7 +37,10 @@ export const GAME_CONTRACTS: Record<DeclaredGenre, GameContract> = {
     instruction: "Keep running and jump over danger",
   },
   slingshot: {
-    id: "slingshot", movement: "launch", colliderScale: 0.68, touchControls: "four_way", action: "projectile",
+    // The launched hero IS the projectile: left/right adjust a quantized aim,
+    // jump fires with fixed power, contact resolves the objective. No separate
+    // projectile action exists, so the action contract is honest "contact".
+    id: "slingshot", movement: "launch", colliderScale: 0.68, touchControls: "side", action: "contact",
     instruction: "Aim, launch, and reach your target",
   },
 };

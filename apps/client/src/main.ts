@@ -334,9 +334,11 @@ async function play(spec: unknown): Promise<void> {
   interpretationNote.textContent = noteText;
   document.body.classList.toggle("game-unverified", lastCertification === "unverified");
   renderAssumptionChips(specForNotices);
-  controlsHint.textContent = plan.contract.touchControls === "four_way"
-    ? "Use the four arrow buttons to steer. On a keyboard, use the arrow keys."
-    : "Use left and right, then tap jump. You can tap jump once more in the air.";
+  controlsHint.textContent = plan.contract.movement === "launch"
+    ? "Tap left or right to aim, then tap jump to launch. You fly back for another shot."
+    : plan.contract.touchControls === "four_way"
+      ? "Use the four arrow buttons to steer. On a keyboard, use the arrow keys."
+      : "Use left and right, then tap jump. You can tap jump once more in the air.";
   requireElement<HTMLButtonElement>('[data-game-control="down"]').hidden = plan.contract.touchControls !== "four_way";
   requireElement<HTMLButtonElement>('[data-game-control="action"]').hidden = !(
     plan.contract.action === "projectile" && plan.goalKind === "defeat_boss"

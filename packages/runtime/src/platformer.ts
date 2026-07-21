@@ -45,6 +45,13 @@ import {
   type CoachingContract,
 } from "./coaching-contract.js";
 import type { RuntimeEvent, RuntimeEventKind } from "./runtime-events.js";
+import {
+  createLaunchState,
+  resetLaunchShot,
+  stepLaunchFrame,
+  type LaunchState,
+  type LaunchWorld,
+} from "./launch-contract.js";
 import type { InputFrame } from "./input-frame.js";
 import { findMazeRoute, type MazePoint } from "./maze-topology.js";
 import {
@@ -173,6 +180,10 @@ class PlatformerScene extends Phaser.Scene {
   private assistAvailable = false;
   private assistActiveUntil = -Infinity;
   private assistTargetGuide: Phaser.GameObjects.Ellipse | undefined;
+  private launchState: LaunchState | undefined;
+  private launchWorld: LaunchWorld | undefined;
+  private aimIndicator: Phaser.GameObjects.Graphics | undefined;
+  private lastAimIndicatorKey = "";
   private status: PlatformerStatus = "playing";
   private frame = 0;
   private runtimeSequence = 0;
@@ -203,6 +214,10 @@ class PlatformerScene extends Phaser.Scene {
 
   private get usesFreeMovement(): boolean {
     return this.plan.contract.movement === "free" || this.plan.contract.movement === "launch";
+  }
+
+  private get usesLaunchMovement(): boolean {
+    return this.plan.contract.movement === "launch";
   }
 
   constructor(
@@ -258,6 +273,10 @@ class PlatformerScene extends Phaser.Scene {
     this.frame = 0;
     this.runtimeSequence = 0;
     this.trackedHazards = [];
+    this.launchState = undefined;
+    this.launchWorld = undefined;
+    this.aimIndicator = undefined;
+    this.lastAimIndicatorKey = "";
 
     const orderedPalette = [...this.plan.palette].sort((left, right) => (
       colorLuminance(color(left, 0xffffff)) - colorLuminance(color(right, 0xffffff))
@@ -396,7 +415,24 @@ class PlatformerScene extends Phaser.Scene {
       this.doorObjects.set(door.id, shape);
       this.addArtwork(door, 6, 1);
     }
-    this.physics.add.collider(this.hero, this.doors);
+    // A launched hero is positioned by the shared launch state machine, so a
+    // Phaser separation collider cannot block it. Doors therefore never gate a
+    // launch flight — the same rule the analytic solver uses — and the play
+    // contract honestly does not claim key_door_unlock for slingshot.
+    if (!this.usesLaunchMovement) this.physics.add.collider(this.hero, this.doors);
+    if (this.usesLaunchMovement) {
+      this.launchState = createLaunchState(this.plan.hero.x, this.plan.hero.y);
+      this.launchWorld = {
+        heroWidth: this.plan.hero.width * PLATFORMER_PHYSICS.freeMovementColliderScale,
+        heroHeight: this.plan.hero.height * PLATFORMER_PHYSICS.freeMovementColliderScale,
+        platforms: this.plan.platforms,
+      };
+      this.aimIndicator = this.add
+        .graphics()
+        .setDepth(7)
+        .setData("inklingPresentation", "mechanic-cue");
+      this.drawAimIndicator();
+    }
 
     for (const water of this.plan.waterVolumes) {
       if (this.canRenderEntityArtwork(water)) {
@@ -646,6 +682,16 @@ class PlatformerScene extends Phaser.Scene {
     this.animateHeroArtwork(body);
     this.collectAssistedNearbyTarget();
     if (this.status !== "playing") return;
+    if (this.usesLaunchMovement) {
+      this.updateLaunchMovement(body);
+      if (this.plan.goalKind === "survive") {
+        this.surviveRemainingMs -= delta;
+        if (this.surviveRemainingMs <= 0) this.win();
+      }
+      this.trackRecovery();
+      this.updateHud();
+      return;
+    }
     if (this.usesFreeMovement) {
       this.updateFreeMovementControls(body);
       this.tryProjectileAction();
@@ -861,6 +907,63 @@ class PlatformerScene extends Phaser.Scene {
     body.setVelocityY(up === down ? 0 : up ? -velocity : velocity);
   }
 
+  /**
+   * Slingshot control: the hero stays anchored while left/right taps step the
+   * shared quantized aim and jump (or action) fires a fixed-power ballistic
+   * shot. Every frame advances the exact state machine the analytic solver
+   * simulates, so the certified route and the played game cannot diverge.
+   */
+  private updateLaunchMovement(body: Phaser.Physics.Arcade.Body): void {
+    const state = this.launchState;
+    const world = this.launchWorld;
+    if (!state || !world) return;
+    const left = Boolean(this.controls.cursors?.left.isDown || this.controls.left?.isDown || this.touch.left);
+    const right = Boolean(this.controls.cursors?.right.isDown || this.controls.right?.isDown || this.touch.right);
+    const fire = Boolean(
+      this.controls.cursors?.up.isDown ||
+        this.controls.jump?.isDown ||
+        this.controls.space?.isDown ||
+        this.touch.jump ||
+        this.touch.action,
+    );
+    if (left) this.acceptCoachedControl("left");
+    if (right) this.acceptCoachedControl("right");
+    if (fire) this.acceptCoachedControl("jump");
+    const result = stepLaunchFrame(state, { left, right, jump: fire, action: false }, world);
+    if (result.fired) this.emitRuntimeEvent("launch_fired", null, false);
+    body.reset(state.x, state.y);
+    this.drawAimIndicator();
+  }
+
+  /**
+   * A small dotted aim ray in the product cue palette. It labels the launch
+   * mechanic near the hero and never covers or recolors the child's art.
+   */
+  private drawAimIndicator(): void {
+    const state = this.launchState;
+    const indicator = this.aimIndicator;
+    if (!state || !indicator) return;
+    const key = `${state.phase}:${state.aimDeg}:${Math.round(state.x)}:${Math.round(state.y)}`;
+    if (key === this.lastAimIndicatorKey) return;
+    this.lastAimIndicatorKey = key;
+    indicator.clear();
+    if (state.phase !== "aiming") return;
+    const radians = (state.aimDeg * Math.PI) / 180;
+    const directionX = Math.cos(radians);
+    const directionY = -Math.sin(radians);
+    const start = Math.max(this.plan.hero.width, this.plan.hero.height) * 0.62;
+    for (let dot = 0; dot < 3; dot += 1) {
+      const reach = start + dot * 16;
+      indicator.fillStyle(INKLING_CUE.violetDeep, 0.78);
+      indicator.fillCircle(state.x + directionX * reach, state.y + directionY * reach, 4 - dot * 0.5);
+    }
+    const tipReach = start + 52;
+    indicator.fillStyle(INKLING_CUE.sun, 0.95);
+    indicator.fillCircle(state.x + directionX * tipReach, state.y + directionY * tipReach, 6);
+    indicator.lineStyle(2, INKLING_CUE.ink, 0.85);
+    indicator.strokeCircle(state.x + directionX * tipReach, state.y + directionY * tipReach, 6);
+  }
+
   private showAssistTarget(target: PlannedEntity): void {
     this.assistTargetGuide?.destroy();
     this.assistTargetGuide = this.add
@@ -918,11 +1021,19 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   /**
+<<<<<<< ours
    * Boss-goal worlds with a projectile action contract use one deterministic,
    * local projectile rule. It is selected by GameSpec genre/goal, never by a
    * drawing name
    * or model-written code. The target direction is intentional: it keeps the
    * touch control usable for young players while P8 can simulate the same rule.
+=======
+   * Shooter worlds use this deterministic, local projectile contract; the
+   * slingshot template launches the hero itself instead. It is selected by
+   * GameSpec genre/goal, never by a drawing name or model-written code. The
+   * target direction is intentional: it keeps the touch control usable for
+   * young players while P8 can simulate the same rule.
+>>>>>>> theirs
    */
   private tryProjectileAction(): void {
     if (this.plan.contract.action !== "projectile" || this.plan.goalKind !== "defeat_boss") return;
@@ -1449,10 +1560,14 @@ class PlatformerScene extends Phaser.Scene {
     let scaleY = 1;
     let angle = 0;
     if (this.usesFreeMovement) {
+      // A launched hero is positioned kinematically, so its true velocity
+      // lives in the shared launch state rather than the Phaser body.
+      const velocityX = this.launchState?.velocityX ?? body.velocity.x;
+      const velocityY = this.launchState?.velocityY ?? body.velocity.y;
       scaleX = 1 + Math.sin(phase * 5) * 0.025;
       scaleY = 1 - Math.sin(phase * 5) * 0.025;
-      angle = Phaser.Math.Clamp(body.velocity.y / PLATFORMER_PHYSICS.moveVelocityX, -1, 1) * 12;
-      if (Math.abs(body.velocity.x) > 1) angle += Math.sign(body.velocity.x) * 4;
+      angle = Phaser.Math.Clamp(velocityY / PLATFORMER_PHYSICS.moveVelocityX, -1, 1) * 12;
+      if (Math.abs(velocityX) > 1) angle += Math.sign(velocityX) * 4;
     } else if (airborne && animations.includes("jump")) {
       scaleX = 0.9;
       scaleY = 1.1;
@@ -1708,6 +1823,12 @@ class PlatformerScene extends Phaser.Scene {
     body.setVelocity(0, 0);
     this.jumpsRemaining = PLATFORMER_PHYSICS.maxJumps;
     this.lastJumpPressedAt = -Infinity;
+    // A hazard hit ends the current shot: the hero returns to the anchor to
+    // aim again — the same rule the analytic solver applies on respawn.
+    if (this.launchState) {
+      resetLaunchShot(this.launchState);
+      this.drawAimIndicator();
+    }
     this.markObjectiveProgress();
   }
 

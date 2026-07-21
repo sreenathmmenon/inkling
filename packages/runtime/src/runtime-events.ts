@@ -7,7 +7,8 @@ export type RuntimeEventKind = GameplayFeedbackEvent["kind"] |
   "surface_landed" |
   "maze_wall_contact" |
   "material_effect" |
-  "water_entered";
+  "water_entered" |
+  "launch_fired";
 
 /**
  * Small, deterministic evidence records emitted by the real Phaser scene.

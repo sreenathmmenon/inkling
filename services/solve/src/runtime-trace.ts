@@ -71,6 +71,16 @@ export function validateRuntimeTrace(
   }
   const winIndex = events.findIndex((event) => event.kind === "win");
   const eventsBeforeWin = winIndex >= 0 ? events.slice(0, winIndex) : events;
+  if (
+    playContract.requiredCapabilities.includes("launch_trajectory") &&
+    playContract.goalKind !== "survive" &&
+    winIndex >= 0 &&
+    !eventsBeforeWin.some((event) => event.kind === "launch_fired")
+  ) {
+    // A slingshot win must come from an actually fired shot, not from
+    // geometry that happened to overlap the anchored hero.
+    blockers.push("launch_win_without_fired_shot");
+  }
   for (const entityId of playContract.requiredInteractionEntityIds ?? []) {
     if (!eventsBeforeWin.some((event) => (
       event.kind === "pickup" && event.required && event.entityId === entityId

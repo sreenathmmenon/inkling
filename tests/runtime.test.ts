@@ -486,7 +486,7 @@ test("first-use coaching derives only from engine contracts and objective geomet
   const slingshot = structuredClone(base);
   slingshot.primary_genre = "slingshot";
   slingshot.goal = { kind: "defeat_boss", target_id: "target" };
-  assert.equal(createCoachingContract(createPlatformerPlan(slingshot)).firstControl, "action");
+  assert.equal(createCoachingContract(createPlatformerPlan(slingshot)).firstControl, "jump", "firing is the signature launch action");
 });
 
 test("recovery coaching never suggests a control the active game does not expose", () => {

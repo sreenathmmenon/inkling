@@ -58,6 +58,41 @@ function dominantCluster(clusters: Map<number, ColorCluster>): ColorCluster | un
   return [...clusters.values()].sort((left, right) => right.count - left.count)[0];
 }
 
+/**
+ * Fixed-bucket quantization splits one physical surface across neighbouring
+ * buckets when its color sits near a bucket boundary or carries a lighting
+ * gradient — photographed paper regularly does both. Merging clusters whose
+ * mean colors are close restores the single real surface before any
+ * dominance decision. Order-independent for disjoint colors: only clusters
+ * that describe the same surface fold together.
+ */
+function mergeNearbyClusters(
+  clusters: Map<number, ColorCluster>,
+  maxDistance: number,
+): ColorCluster[] {
+  const ordered = [...clusters.values()].sort((left, right) => right.count - left.count);
+  const merged: ColorCluster[] = [];
+  for (const cluster of ordered) {
+    const [red, green, blue] = clusterColor(cluster);
+    const host = merged.find((candidate) => {
+      const [hostRed, hostGreen, hostBlue] = clusterColor(candidate);
+      return Math.hypot(red - hostRed, green - hostGreen, blue - hostBlue) <= maxDistance;
+    });
+    if (!host) {
+      merged.push({ ...cluster });
+      continue;
+    }
+    host.count += cluster.count;
+    host.red += cluster.red;
+    host.green += cluster.green;
+    host.blue += cluster.blue;
+    host.redSquared += cluster.redSquared;
+    host.greenSquared += cluster.greenSquared;
+    host.blueSquared += cluster.blueSquared;
+  }
+  return merged.sort((left, right) => right.count - left.count);
+}
+
 function clusterColor(cluster: ColorCluster): [number, number, number] {
   return [
     Math.round(cluster.red / cluster.count),
@@ -150,7 +185,7 @@ export function isolateBorderConnectedBackdrop(surface: PixelSurface): BackdropI
     sample(width - 1, y);
   }
 
-  const orderedClusters = [...clusters.values()].sort((left, right) => right.count - left.count);
+  const orderedClusters = mergeNearbyClusters(clusters, 26);
   const dominant = orderedClusters[0];
   if (!dominant || borderSamples === 0 || dominant.count / borderSamples < 0.28) {
     return { isolated: false, removedPixels: 0, backdropColor: undefined };

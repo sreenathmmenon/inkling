@@ -1320,44 +1320,62 @@ class PlatformerScene extends Phaser.Scene {
     const cropTextureKey = `inkling-art-crop-${entity.id}`;
     let isolatedArtwork = false;
     if (!this.textures.exists(cropTextureKey) && source.image) {
-      const cropTexture = this.textures.createCanvas(cropTextureKey, cropWidth, cropHeight);
+      // A tight crop can be bordered almost entirely by the drawn marks
+      // themselves, which starves border-connected isolation of paper samples
+      // and leaves a visible paper box behind the art. Sampling a surrounding
+      // context margin exposes the real paper; the texture is cropped back to
+      // the exact entity rectangle afterwards, so neighbouring strokes never
+      // join this entity's art. Purely geometric — no drawing specifics.
+      const contextPad = Math.round(Math.min(cropWidth, cropHeight) * 0.2) + 4;
+      const paddedX = Math.max(0, cropX - contextPad);
+      const paddedY = Math.max(0, cropY - contextPad);
+      const paddedWidth = Math.min(source.width, cropX + cropWidth + contextPad) - paddedX;
+      const paddedHeight = Math.min(source.height, cropY + cropHeight + contextPad) - paddedY;
+      const innerX = cropX - paddedX;
+      const innerY = cropY - paddedY;
+      const cropTexture = this.textures.createCanvas(cropTextureKey, paddedWidth, paddedHeight);
       if (cropTexture) {
         cropTexture.context.drawImage(
           source.image as CanvasImageSource,
-          cropX,
-          cropY,
-          cropWidth,
-          cropHeight,
+          paddedX,
+          paddedY,
+          paddedWidth,
+          paddedHeight,
           0,
           0,
-          cropWidth,
-          cropHeight,
+          paddedWidth,
+          paddedHeight,
         );
-        const isolation = this.removePaperBackground(cropTexture.context, cropWidth, cropHeight);
+        const isolation = this.removePaperBackground(cropTexture.context, paddedWidth, paddedHeight);
         isolatedArtwork = isolation.isolated;
         if (isolatedArtwork) {
           if (isolation.backdropColor !== undefined) {
-            const pixels = cropTexture.context.getImageData(0, 0, cropWidth, cropHeight);
+            const pixels = cropTexture.context.getImageData(0, 0, paddedWidth, paddedHeight);
             if (softlyRemoveKnownBackdrop(
-              { data: pixels.data, width: cropWidth, height: cropHeight },
+              { data: pixels.data, width: paddedWidth, height: paddedHeight },
               isolation.backdropColor,
             )) {
               cropTexture.context.putImageData(pixels, 0, 0);
             }
           }
+          this.cropTextureToRect(cropTexture, innerX, innerY, cropWidth, cropHeight);
           this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
         } else {
-          const pixels = cropTexture.context.getImageData(0, 0, cropWidth, cropHeight);
+          const padded = cropTexture.context.getImageData(0, 0, paddedWidth, paddedHeight);
           isolatedArtwork = softlyIsolateLocalBackdrop({
-            data: pixels.data,
-            width: cropWidth,
-            height: cropHeight,
+            data: padded.data,
+            width: paddedWidth,
+            height: paddedHeight,
           });
-          if (!isolatedArtwork) {
+          cropTexture.context.putImageData(padded, 0, 0);
+          this.cropTextureToRect(cropTexture, innerX, innerY, cropWidth, cropHeight);
+          if (isolatedArtwork) {
+            this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
+          } else {
+            const pixels = cropTexture.context.getImageData(0, 0, cropWidth, cropHeight);
             featherSurfaceEdges({ data: pixels.data, width: cropWidth, height: cropHeight });
+            cropTexture.context.putImageData(pixels, 0, 0);
           }
-          cropTexture.context.putImageData(pixels, 0, 0);
-          if (isolatedArtwork) this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
         }
         this.artworkIsolationByEntity.set(entity.id, isolatedArtwork);
         cropTexture.refresh();
@@ -1544,6 +1562,20 @@ class PlatformerScene extends Phaser.Scene {
     // Match the real drawing surface instead of lightening it: even a small
     // shift makes any unavoidable anti-aliased edge read as a rectangular tile.
     return sampled === undefined ? fallback : sampled;
+  }
+
+  /** Restores a context-padded crop texture to the entity's exact rectangle. */
+  private cropTextureToRect(
+    texture: Phaser.Textures.CanvasTexture,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+  ): void {
+    if (x === 0 && y === 0 && texture.width === width && texture.height === height) return;
+    const inner = texture.context.getImageData(x, y, width, height);
+    texture.setSize(width, height);
+    texture.context.putImageData(inner, 0, 0);
   }
 
   /** Shrinks an already-isolated local texture to its surviving child strokes. */

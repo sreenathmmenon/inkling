@@ -246,9 +246,15 @@ function contractForSpec(spec: GameSpec): GameContract {
     FALLBACK_SPEC.hero.bbox,
   );
   const heroX = (heroLeft + heroRight) / 2;
+  // A runner's route is the drawn surface itself: any drawn surface keeps the
+  // declared automatic movement, and plan creation relocates the spawn onto
+  // the route start. Only a drawing with no surface at all downgrades —
+  // trails and roads are legitimate support even when the hero is drawn
+  // beside or inside the stroke rather than pixel-perfectly on top of it.
   const hasDrawnSupport = spec.entities.some((entity) => {
     if (!PLATFORM_ROLES.has(entity.role)) return false;
     const [left, top, right] = normalizeBBox(entity.bbox, [0, 0, 0, 0]);
+    if (declared.movement === "auto_ground") return right - left >= 0.01;
     return heroX >= left && heroX <= right && top >= heroBottom - 0.1;
   });
   return hasDrawnSupport
@@ -341,7 +347,29 @@ export function createPlatformerPlan(
         : { minWidth: 34, minHeight: 44, maxWidth: 64, maxHeight: 82 },
     );
   const usesFreeMovement = contract.movement === "free" || contract.movement === "launch";
-  const surfaceHero = usesFreeMovement ? rawHero : snapOntoSurface(rawHero, platforms);
+  // An automatic runner starts at the beginning of its drawn route: when the
+  // drawn hero is not over any drawn surface, relocate the spawn to the
+  // leftmost drawn support deterministically. This keeps the declared
+  // movement honest (the run happens on the child's trail, not the safety
+  // floor) and the trace validator's drawn-support rule satisfiable.
+  const drawnSupports = platforms.filter((platform) => platform.artworkSource === "drawing");
+  const heroOverSupport = drawnSupports.some((platform) =>
+    rawHero.x >= platform.x - platform.width / 2 &&
+    rawHero.x <= platform.x + platform.width / 2,
+  );
+  const routeStart = [...drawnSupports].sort((left, right) =>
+    (left.x - left.width / 2) - (right.x - right.width / 2))[0];
+  const routeStartHero = contract.movement === "auto_ground" && !heroOverSupport && routeStart
+    ? {
+      ...rawHero,
+      x: clamp(
+        routeStart.x - routeStart.width / 2 + rawHero.width / 2,
+        rawHero.width / 2,
+        WORLD_WIDTH - rawHero.width / 2,
+      ),
+    }
+    : rawHero;
+  const surfaceHero = usesFreeMovement ? routeStartHero : snapOntoSurface(routeStartHero, platforms);
 
   const targetId = spec.goal.target_id ?? entities.find((entity) => entity.role === "goal")?.id;
   const target = entities.find((entity) => entity.id === targetId) ?? {

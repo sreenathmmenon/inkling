@@ -788,3 +788,36 @@ test("known substrate cleanup removes enclosed photo pockets but retains distinc
   assert.equal(data[(9 * width + 9) * 4 + 3], 0);
   assert.equal(data[(6 * width + 6) * 4 + 3], 255);
 });
+
+test("a drawn trail keeps the runner automatic and starts the run on the route", () => {
+  const trailRunner: GameSpec = {
+    primary_genre: "runner", genre_confidence: 1, mood: null,
+    // The hero is drawn floating beside the trail, not pixel-perfectly on it —
+    // the shape of the three corpus drawings that downgraded to free.
+    hero: { id: "hero", name: "Runner", bbox: [0.05, 0.2, 0.15, 0.4], style_ref: "source" },
+    entities: [
+      { id: "trail", role: "platform", bbox: [0.2, 0.55, 0.95, 0.68], behavior: "static", linked_to: null, style_ref: "finger-paint" },
+      { id: "finish", role: "goal", bbox: [0.86, 0.35, 0.94, 0.55], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const plan = createPlatformerPlan(trailRunner);
+  assert.equal(plan.contract.movement, "auto_ground", "a drawn trail is legitimate runner support");
+  const trail = plan.platforms.find((platform) => platform.id === "trail");
+  assert.ok(trail);
+  assert.ok(
+    Math.abs(plan.hero.x - (trail.x - trail.width / 2)) <= plan.hero.width,
+    "the spawn relocates to the start of the drawn route",
+  );
+  const contract = createPlayContract(trailRunner);
+  assert.equal(contract.requiredCapabilities.includes("declared_genre_movement"), false);
+  assert.equal(contract.outcome, "faithful_ready", "a trail runner is faithful-capable again");
+  
+
+  const surfaceless = structuredClone(trailRunner);
+  surfaceless.entities = surfaceless.entities.filter((entity) => entity.id !== "trail");
+  const downgraded = createPlatformerPlan(surfaceless);
+  assert.equal(downgraded.contract.movement, "free", "no drawn surface at all still downgrades honestly");
+});

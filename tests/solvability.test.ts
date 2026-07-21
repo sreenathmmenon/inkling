@@ -349,3 +349,20 @@ test("validator executes accepted code only in the restricted sandbox", async ()
   assert.equal(invalid.fallback, "static");
   assert.ok(invalid.errors.includes("forbidden_network"));
 });
+
+test("the solver proves a relocated trail-runner route end to end", () => {
+  const trailRunner: GameSpec = {
+    primary_genre: "runner", genre_confidence: 1, mood: null,
+    hero: { id: "hero", name: "Runner", bbox: [0.05, 0.2, 0.15, 0.4], style_ref: "source" },
+    entities: [
+      { id: "trail", role: "platform", bbox: [0.2, 0.55, 0.95, 0.68], behavior: "static", linked_to: null, style_ref: "finger-paint" },
+      { id: "finish", role: "goal", bbox: [0.86, 0.35, 0.94, 0.55], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: [] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const report = runPlaytest(trailRunner);
+  assert.equal(report.reached_goal, true, "the relocated automatic run must finish");
+  assert.deepEqual(report, runPlaytest(trailRunner), "and stay deterministic");
+});

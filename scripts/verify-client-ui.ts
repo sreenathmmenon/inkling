@@ -89,7 +89,21 @@ try {
   assert.ok(preview && preview.y >= 0 && preview.y + preview.height <= 844, "drawing is not visible during generation");
   assert.ok(progress && progress.y >= 0 && progress.y < 844, "real progress is not visible during generation");
   assert.ok(cancel && cancel.y >= 0 && cancel.y + cancel.height <= 844, "generation recovery is not visible");
+  // The materialize treatment must reflect exactly the one real stage that has
+  // landed (the route above never answers, so only local "checking" fires).
+  const materializeState = await capture.evaluate(() => {
+    const stage = document.querySelector<HTMLElement>(".preview-stage")!;
+    return { progress: stage.style.getPropertyValue("--materialize").trim(), stage: stage.dataset.materializeStage };
+  });
+  assert.equal(materializeState.stage, "checking", "materialize treatment is not tied to the real pipeline stage");
+  assert.equal(materializeState.progress, "0.25", "materialize progress does not match the single real stage reached");
   await capture.locator("#cancel-generation").click();
+  await capture.locator("body.capture-ready").waitFor();
+  const restedMaterialize = await capture.evaluate(() => {
+    const stage = document.querySelector<HTMLElement>(".preview-stage")!;
+    return { progress: stage.style.getPropertyValue("--materialize"), stage: stage.dataset.materializeStage ?? "" };
+  });
+  assert.deepEqual(restedMaterialize, { progress: "", stage: "" }, "cancelled generation leaves the materialize treatment applied");
   releaseGeneration?.();
   await capture.close();
 

@@ -30,6 +30,18 @@ body.generating .progress-steps li.active > span { color: #211a3b; background: v
 body.generating .progress-steps li.active strong { color: #fff; }
 body.generating .text-action { color: #eeeaff; }
 
+/* Materialize: the child's own scanned strokes lift off the page while the
+   real pipeline runs. --materialize is set by the client only when a real SSE
+   stage lands (checking .25 → understanding .5 → animating .75 → testing 1),
+   so the lift honestly tracks the wait and holds between stages. The drift is
+   an ambient liveness cue only; it carries no progress meaning. Reduced motion
+   is honored globally by 90-motion-preferences, leaving discrete static steps.
+   Presentation-only: the artwork pixels are never modified. */
+body.generating .preview-stage { --materialize: 0; }
+body.generating .preview-stage::before { content: ""; display: block; position: absolute; z-index: 1; inset: 14% 10%; border: 0; border-radius: 50%; background: radial-gradient(closest-side, rgba(169, 239, 215, .34), rgba(133, 108, 255, .18) 55%, transparent 78%); box-shadow: none; opacity: calc(.18 + .82 * var(--materialize)); transform: scale(calc(.72 + .38 * var(--materialize))); transition: opacity 950ms cubic-bezier(.2, .8, .2, 1), transform 950ms cubic-bezier(.2, .8, .2, 1); }
+body.generating #drawing-preview { filter: drop-shadow(0 calc(5px + 21px * var(--materialize)) calc(9px + 27px * var(--materialize)) rgba(7, 4, 22, .6)); transform: translateY(calc(-12px * var(--materialize))) scale(calc(1 + .05 * var(--materialize))); transition: transform 950ms cubic-bezier(.2, .8, .2, 1), filter 950ms cubic-bezier(.2, .8, .2, 1); will-change: transform, filter; animation: materialize-drift 4.6s ease-in-out infinite alternate; }
+@keyframes materialize-drift { from { translate: 0 0; } to { translate: 0 -5px; } }
+
 body.safe-offer #safe-offer-panel { border-color: rgba(54,162,123,.3); background: linear-gradient(135deg, #effcf7, #fff9e8); }
 body.safe-offer .safe-offer-icon { color: #174f3c; background: var(--mint); box-shadow: 0 10px 24px rgba(62,174,132,.2); }
 

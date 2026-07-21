@@ -24,6 +24,7 @@ import {
   generationErrorMessage,
   visibleGenerationFailure,
 } from "./generation-copy.js";
+import { attachMaterialize, type MaterializeStage } from "./materialize.js";
 import { attachMotionDelight } from "./motion-delight.js";
 import {
   appendCorrection,
@@ -103,6 +104,9 @@ const motionDelight = attachMotionDelight({
   actions: postPlayActions,
 });
 const soundFeedback = attachSoundFeedback({ button: soundToggle });
+// The materialize moment writes its stage-driven ink-lift treatment onto the
+// preview stage, so the drawing image and its under-glow share one progress.
+const materialize = attachMaterialize(previewStage);
 
 // The standalone player may replace this at build time; the local capture
 // server intentionally does not need Vite's websocket client to do so.
@@ -153,7 +157,7 @@ function renderExperienceState(state: ExperienceState): void {
   document.body.classList.toggle("game-lost", state === "lost");
 }
 
-type GenerationStage = "checking" | "understanding" | "animating" | "testing";
+type GenerationStage = MaterializeStage;
 type GenerationEvent = {
   type: "progress" | "complete" | "error";
   requestId?: string;
@@ -612,6 +616,9 @@ function showGenerationStage(stage: GenerationStage): void {
   const current = STAGES[index];
   if (!current || index < generationStageIndex) return;
   generationStageIndex = index;
+  // The child's strokes lift a little further only because a real pipeline
+  // stage landed — the materialize treatment never runs on its own clock.
+  materialize.stageReached(stage);
   progressPanel.hidden = false;
   progressTitle.textContent = current.title;
   progressDetail.textContent = current.detail;
@@ -632,6 +639,7 @@ function showGenerationStage(stage: GenerationStage): void {
 function startGenerationProgress(): void {
   window.clearInterval(generationProgressTimer);
   generationStageIndex = -1;
+  materialize.reset();
   generationStartedAt = performance.now();
   showGenerationStage("checking");
   renderExperienceState("generating");
@@ -666,6 +674,9 @@ function newRequestId(): string {
 function stopGenerationProgress(): void {
   window.clearInterval(generationProgressTimer);
   generationProgressTimer = undefined;
+  // Rest the drawing without any completion flourish: an earned win is
+  // celebrated by the game itself, never by the loading treatment.
+  materialize.reset();
   cancelGeneration.hidden = true;
   for (const element of document.querySelectorAll<HTMLElement>(".progress-steps [data-stage]")) {
     element.classList.remove("active");

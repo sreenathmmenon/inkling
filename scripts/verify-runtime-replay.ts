@@ -1,3 +1,15 @@
+/**
+ * REVIEW GATE — solver/runtime agreement in production Phaser.
+ *
+ * Protects: the analytic playtester's solution genuinely wins in the real
+ * browser runtime under every certification policy, idle input never wins,
+ * assist forgives near-misses without tunneling walls or locked doors, and
+ * the P8 safety recast remains finishable (Non-Negotiables 1, 6).
+ * Why it may not be weakened: this is the product's only proof that the
+ * simulator and the game a child actually plays agree. Assertions here are
+ * event-occurrence and terminal-state properties — keep them that way rather
+ * than pinning frame indexes.
+ */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";

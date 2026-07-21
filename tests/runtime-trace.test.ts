@@ -1,3 +1,13 @@
+/**
+ * REVIEW GATE — earned readiness from real replay traces.
+ *
+ * Protects: "ready" is earned by a legal runtime trace that agrees with the
+ * PlayContract — input was genuinely accepted, a terminal win was genuinely
+ * reached, and an illegal or truncated trace is rejected (Non-Negotiable 6).
+ * Why it may not be weakened: this is the check that stops a claimed win from
+ * substituting for a demonstrated one. Any change must preserve rejection of
+ * every illegal-trace class covered here.
+ */
 import assert from "node:assert/strict";
 import test from "node:test";
 

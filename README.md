@@ -61,6 +61,25 @@ npm install
 npm run verify
 ```
 
+### Review-gate tests
+
+`npm run verify` starts with `npm run typecheck`, so TypeScript errors fail the
+chain before any test runs. Some files in the chain are **intentional review
+gates**: they protect a product invariant, and a legitimate redesign changes
+*how* the property is asserted, never *whether*. Each carries a header comment
+naming what it protects:
+
+| Gate | Protects |
+|---|---|
+| `scripts/verify-css-architecture.ts` | Ordered import-only CSS cascade; every cross-module override is reviewed. Diffs against `scripts/css-override-baseline.json` and explains selector/property-level changes; approve intentional changes by updating the baseline in the same commit. |
+| `scripts/verify-client-bundle.ts` | Capture shell boots without Phaser; player stays a lazy chunk. Builds its own input. |
+| `scripts/verify-client-ui.ts` | Real-browser accessibility, layout, contrast (ratio-based), and recovery contracts. |
+| `scripts/verify-runtime-replay.ts` | Solver and production Phaser runtime agree; idle never wins; assist never tunnels. |
+| `tests/solvability.test.ts` | Games are provably finishable; sandbox validation holds. |
+| `tests/runtime-trace.test.ts` | Readiness is earned by a legal replay trace, never claimed. |
+| `tests/replay-policies.test.ts` | Certification input policies stay deterministic and honest. |
+| `tests/recast-ladder.test.ts` | Safety recast keeps the child's drawing playable; only the last rung adds synthetic geometry. |
+
 `npm run audit:strict` separately checks the narrower JSON Schema subset
 accepted by OpenAI Structured Outputs. This is stricter than parsing the files
 as ordinary JSON Schema and intentionally exits non-zero when a source schema

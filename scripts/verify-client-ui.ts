@@ -1,3 +1,14 @@
+/**
+ * REVIEW GATE — real-browser UI contract (accessibility, layout, recovery).
+ *
+ * Protects: the visible product works for a child on real viewport classes —
+ * reachable >=48px touch targets, keyboard/switch operability, visible focus,
+ * readable contrast (ratio-based, never a pinned color), reduced motion,
+ * 200% text zoom, honest progress, and recovery paths that never dead-end.
+ * Why it may not be weakened: these are the assertions standing between a
+ * passing build and a child who cannot press the buttons. Assert properties
+ * (ratios, geometry invariants, event order) — not exact pixels or colors.
+ */
 import assert from "node:assert/strict";
 import { createServer } from "node:http";
 import { readFile } from "node:fs/promises";
@@ -37,6 +48,33 @@ const address = server.address();
 assert.ok(address && typeof address === "object");
 const baseUrl = `http://127.0.0.1:${address.port}`;
 const browser = await chromium.launch({ headless: true });
+
+function parseCssColor(value: string): { red: number; green: number; blue: number; alpha: number } | undefined {
+  const match = value.match(/rgba?\(\s*([\d.]+)\s*,\s*([\d.]+)\s*,\s*([\d.]+)\s*(?:,\s*([\d.]+)\s*)?\)/);
+  if (!match) return undefined;
+  return {
+    red: Number.parseFloat(match[1]!),
+    green: Number.parseFloat(match[2]!),
+    blue: Number.parseFloat(match[3]!),
+    alpha: match[4] === undefined ? 1 : Number.parseFloat(match[4]),
+  };
+}
+
+function contrastRatio(foreground: string, background: string): number {
+  const luminance = (color: { red: number; green: number; blue: number }): number => {
+    const linear = (channel: number): number => {
+      const scaled = channel / 255;
+      return scaled <= 0.04045 ? scaled / 12.92 : ((scaled + 0.055) / 1.055) ** 2.4;
+    };
+    return 0.2126 * linear(color.red) + 0.7152 * linear(color.green) + 0.0722 * linear(color.blue);
+  };
+  const first = parseCssColor(foreground);
+  const second = parseCssColor(background);
+  assert.ok(first && second, `unparseable colors for contrast: ${foreground} on ${background}`);
+  const lighter = Math.max(luminance(first), luminance(second));
+  const darker = Math.min(luminance(first), luminance(second));
+  return (lighter + 0.05) / (darker + 0.05);
+}
 
 async function assertNoHorizontalOverflow(page: Page): Promise<void> {
   const dimensions = await page.evaluate(() => ({
@@ -93,10 +131,19 @@ try {
   // landed (the route above never answers, so only local "checking" fires).
   const materializeState = await capture.evaluate(() => {
     const stage = document.querySelector<HTMLElement>(".preview-stage")!;
-    return { progress: stage.style.getPropertyValue("--materialize").trim(), stage: stage.dataset.materializeStage };
+    return {
+      progress: stage.style.getPropertyValue("--materialize").trim(),
+      stage: stage.dataset.materializeStage,
+      stageCount: document.querySelectorAll(".progress-steps [data-stage]").length,
+    };
   });
   assert.equal(materializeState.stage, "checking", "materialize treatment is not tied to the real pipeline stage");
-  assert.equal(materializeState.progress, "0.25", "materialize progress does not match the single real stage reached");
+  assert.ok(materializeState.stageCount > 0, "generation progress declares no stages");
+  const materializeProgress = Number.parseFloat(materializeState.progress);
+  assert.ok(
+    Math.abs(materializeProgress - 1 / materializeState.stageCount) < 0.001,
+    `materialize progress does not match exactly one of the ${materializeState.stageCount} real stages: ${JSON.stringify(materializeState)}`,
+  );
   await capture.locator("#cancel-generation").click();
   await capture.locator("body.capture-ready").waitFor();
   const restedMaterialize = await capture.evaluate(() => {
@@ -264,7 +311,11 @@ try {
     outlineWidth: getComputedStyle(label).outlineWidth,
     outlineStyle: getComputedStyle(label).outlineStyle,
   }));
-  assert.deepEqual(restoredCaptureFocus, { activeId: "drawing-file", outlineWidth: "3px", outlineStyle: "solid" }, `new-drawing flow restores invisible keyboard focus: ${JSON.stringify(restoredCaptureFocus)}`);
+  assert.equal(restoredCaptureFocus.activeId, "drawing-file", `new-drawing flow does not restore keyboard focus to capture: ${JSON.stringify(restoredCaptureFocus)}`);
+  assert.ok(
+    restoredCaptureFocus.outlineStyle !== "none" && Number.parseFloat(restoredCaptureFocus.outlineWidth) >= 2,
+    `restored keyboard focus has no visible focus indicator: ${JSON.stringify(restoredCaptureFocus)}`,
+  );
   await keyboardAccessibility.close();
 
   const reducedMotion = await browser.newPage({ viewport: { width: 390, height: 844 } });
@@ -858,16 +909,32 @@ try {
   await smallRight.dispatchEvent("pointerup", { pointerId: 3, pointerType: "touch" });
   await smallFullscreen.locator("body.game-won").waitFor();
   const terminalRects = await smallFullscreen.evaluate(() => {
-    const statusRect = document.querySelector("#game-status")!.getBoundingClientRect();
+    const status = document.querySelector<HTMLElement>("#game-status")!;
+    const statusRect = status.getBoundingClientRect();
     const actionsRect = document.querySelector("#post-play-actions")!.getBoundingClientRect();
+    // The readability property is foreground-versus-effective-background, so
+    // resolve the first opaque ancestor background rather than pinning colors.
+    let backgroundColor = "rgb(255, 255, 255)";
+    for (let element: HTMLElement | null = status; element; element = element.parentElement) {
+      const candidate = getComputedStyle(element).backgroundColor;
+      const alpha = candidate.match(/rgba?\([^)]*?,\s*([\d.]+)\s*\)$/);
+      if (candidate !== "transparent" && !(alpha && Number.parseFloat(alpha[1]!) === 0)) {
+        backgroundColor = candidate;
+        break;
+      }
+    }
     return {
       statusBottom: statusRect.bottom,
       actionsTop: actionsRect.top,
-      statusColor: getComputedStyle(document.querySelector("#game-status")!).color,
+      statusColor: getComputedStyle(status).color,
+      backgroundColor,
     };
   });
   assert.ok(terminalRects.actionsTop >= terminalRects.statusBottom, `fullscreen terminal actions cover the result: ${JSON.stringify(terminalRects)}`);
-  assert.equal(terminalRects.statusColor, "rgb(23, 79, 60)", "fullscreen win copy loses its readable foreground");
+  assert.ok(
+    contrastRatio(terminalRects.statusColor, terminalRects.backgroundColor) >= 4.5,
+    `fullscreen win copy loses its readable foreground (needs >= 4.5:1 contrast): ${JSON.stringify(terminalRects)}`,
+  );
   await smallFullscreen.close();
 
   const lossSpec = structuredClone(gameSpec);
@@ -884,7 +951,11 @@ try {
   await lossRight.dispatchEvent("pointerdown", { pointerId: 4, pointerType: "touch" });
   await loss.locator("body.game-lost").waitFor({ timeout: 8_000 });
   await lossRight.dispatchEvent("pointerup", { pointerId: 4, pointerType: "touch" });
-  assert.equal(await loss.locator("#game-status").textContent(), "No lives left. Tap Play again to try again.");
+  // The property: a loss explains what happened and names the visible recovery
+  // action — the exact sentence may be redesigned through the copy allowlist.
+  const lossCopy = await loss.locator("#game-status").textContent() ?? "";
+  assert.match(lossCopy, /No lives left/, `loss copy does not explain the outcome: ${lossCopy}`);
+  assert.match(lossCopy, /Play again/, `loss copy does not name the recovery action: ${lossCopy}`);
   assert.equal(await loss.locator("#accessible-controls").isVisible(), false, "loss leaves movement controls visible");
   assert.equal(await loss.evaluate(() => (document.activeElement as HTMLElement | null)?.id), "restart", "loss does not move focus to Play again");
   await loss.getByRole("button", { name: "Play again" }).click();

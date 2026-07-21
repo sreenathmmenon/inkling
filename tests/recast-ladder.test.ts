@@ -1,3 +1,13 @@
+/**
+ * REVIEW GATE — graded safety recast preserves the child's world.
+ *
+ * Protects: repair rungs stay ordered and minimal, drawn entities stay
+ * collidable/playable wherever safe, only the final rung introduces synthetic
+ * geometry, every rung is certified by the deterministic playtester, and
+ * honest outcome reporting survives recasting (Non-Negotiables 4, 6, 7).
+ * Why it may not be weakened: weakening returns the product to "your drawing
+ * decorates a game" — the failure the ladder exists to prevent.
+ */
 import assert from "node:assert/strict";
 import test from "node:test";
 

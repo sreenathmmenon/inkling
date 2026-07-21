@@ -1,3 +1,14 @@
+/**
+ * REVIEW GATE — solvability and sandbox floor.
+ *
+ * Protects: every generated game is provably finishable by the deterministic
+ * analytic playtester before it is called playable, and Lane B behavior code
+ * never escapes validation. A model verdict may never stand in for the
+ * simulator (AGENTS.md Non-Negotiables 2, 3, 6).
+ * Why it may not be weakened: loosening these assertions lets an unfinishable
+ * or unsafe game reach a child. Redesigns must keep every property asserted
+ * here, expressed against the new mechanism.
+ */
 import assert from "node:assert/strict";
 import test from "node:test";
 

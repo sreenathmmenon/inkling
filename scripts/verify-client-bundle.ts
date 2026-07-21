@@ -1,3 +1,13 @@
+/**
+ * REVIEW GATE — capture-shell / player chunk boundary.
+ *
+ * Protects: the capture shell boots without Phaser — the entry chunk stays
+ * small and the deterministic player stays a lazy chunk never referenced by
+ * the capture HTML (AGENTS.md §3: the player is a lazy chunk).
+ * Why it may not be weakened: an eager or bloated entry silently breaks
+ * camera-first mobile boot. Runs against a build it triggers itself (via the
+ * npm script), never a stale dist/.
+ */
 import assert from "node:assert/strict";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { resolve } from "node:path";

@@ -1,5 +1,17 @@
+/**
+ * REVIEW GATE — CSS cascade architecture.
+ *
+ * Protects: the client stylesheet stays an ordered, import-only cascade of
+ * single-purpose modules, and every cross-module property override (a later
+ * module winning over an earlier one purely by import order) is an explicitly
+ * reviewed decision recorded in css-override-baseline.json.
+ * Why it may not be weakened: an unreviewed override silently changes which
+ * module owns a visual property, which is exactly how cascade regressions
+ * ship. Legitimate redesigns pass by updating the baseline in the same
+ * change, after reviewing the printed selector/property-level diff — never by
+ * removing the comparison.
+ */
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { basename, resolve } from "node:path";
 
@@ -135,15 +147,34 @@ const crossModuleOverrides = [...owners]
   .filter(([, moduleNames]) => moduleNames.size > 1)
   .map(([key, moduleNames]) => `${key} :: ${[...moduleNames].sort().join(",")}`)
   .sort();
-const overrideFingerprint = createHash("sha256").update(crossModuleOverrides.join("\n")).digest("hex");
-// These are the reviewed overrides created by responsive sizing and the final
-// experience-polish pass. Any new cross-module property collision must be
-// reviewed explicitly instead of silently relying on import order.
-const expectedOverrideFingerprint = "22b227fa2bd5141b5f502ceec18f7db7db41ec37e160a573c88dcf506d458feb";
-assert.equal(
-  overrideFingerprint,
-  expectedOverrideFingerprint,
-  `cross-module CSS overrides changed; review cascade ownership before updating the fingerprint:\n${crossModuleOverrides.join("\n")}`,
-);
+
+// The reviewed overrides live in css-override-baseline.json (each entry is
+// "context :: selector :: property :: owning modules"). Any drift fails this
+// gate with an entry-level diff so the review happens on the actual selectors
+// and properties, not on an opaque fingerprint. After reviewing cascade
+// ownership, an intentional change is approved by updating the baseline file
+// in the same commit.
+const baselinePath = resolve(root, "scripts/css-override-baseline.json");
+const baseline = JSON.parse(await readFile(baselinePath, "utf8")) as string[];
+assert.ok(Array.isArray(baseline) && baseline.every((entry) => typeof entry === "string"), "css-override-baseline.json must be an array of override entries");
+const baselineSet = new Set(baseline);
+const currentSet = new Set(crossModuleOverrides);
+const added = crossModuleOverrides.filter((entry) => !baselineSet.has(entry));
+const removed = baseline.filter((entry) => !currentSet.has(entry));
+if (added.length > 0 || removed.length > 0) {
+  const explain = (label: string, sign: string, entries: string[]): string => entries.length === 0
+    ? ""
+    : `\n${label} (${entries.length}):\n${entries.map((entry) => {
+      const [context, selector, property, moduleNames] = entry.split(" :: ");
+      const where = context ? ` inside ${context}` : "";
+      return `  ${sign} ${selector}${where} — property "${property}" now set by [${moduleNames}]`;
+    }).join("\n")}`;
+  console.error(`After review, the full current override set as baseline JSON:\n${JSON.stringify(crossModuleOverrides, null, 2)}`);
+  assert.fail(
+    "cross-module CSS overrides changed; review cascade ownership, then update scripts/css-override-baseline.json to approve:" +
+    explain("New unapproved overrides", "+", added) +
+    explain("Approved overrides no longer present", "-", removed),
+  );
+}
 
 console.log(`CSS architecture verified: ${modules.length} ordered modules, ${crossModuleOverrides.length} reviewed cross-module overrides.`);

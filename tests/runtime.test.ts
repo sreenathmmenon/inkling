@@ -775,9 +775,26 @@ test("world backdrop comes from image dominance or a neutral palette color, neve
   }
   assert.equal(dominantSurfaceColor({ data, width, height }), 0xfaf8f2);
   assert.ok(dominantSurfaceShare({ data, width, height }) > 0.8);
-  assert.equal(fallbackWorldColor(["#ffd800", "#ff8800", "#ffffff"]), 0xffffff);
-  assert.equal(fallbackWorldColor(["#ffd800", "#ff8800"]), 0xf7f4ff);
-  assert.equal(softenWorldColor(0xd2cdc4), 0xeeece9);
+  // The world-color properties, not incidental hex values: the backdrop must
+  // read as light neutral paper so the child's ink stays legible, and it must
+  // come from the child's own palette whenever the palette offers one.
+  const channelsOf = (value: number): [number, number, number] => [(value >> 16) & 0xff, (value >> 8) & 0xff, value & 0xff];
+  const isNeutralLightPaper = (value: number): boolean => {
+    const rgb = channelsOf(value);
+    return Math.max(...rgb) - Math.min(...rgb) < 40 && rgb[0] + rgb[1] + rgb[2] > 600;
+  };
+  const paletteFallback = fallbackWorldColor(["#ffd800", "#ff8800", "#ffffff"]);
+  assert.ok([0xffd800, 0xff8800, 0xffffff].includes(paletteFallback), "world fallback ignored the child's own palette");
+  assert.ok(isNeutralLightPaper(paletteFallback), "palette-derived world color is not neutral light paper");
+  const syntheticFallback = fallbackWorldColor(["#ffd800", "#ff8800"]);
+  assert.equal([0xffd800, 0xff8800].includes(syntheticFallback), false, "a saturated palette forced a saturated backdrop");
+  assert.ok(isNeutralLightPaper(syntheticFallback), "synthetic world fallback is not neutral light paper");
+  const softened = softenWorldColor(0xd2cdc4);
+  const softenedChannels = channelsOf(softened);
+  const originalChannels = channelsOf(0xd2cdc4);
+  assert.ok(softenedChannels.every((channel, index) => channel >= originalChannels[index]!), "softening darkened a channel");
+  assert.ok(isNeutralLightPaper(softened), "softened world color stopped reading as light paper");
+  assert.notEqual(softened, 0xd2cdc4, "softening left a mid-tone backdrop unchanged");
 });
 
 test("uncertain hero crops feather only their outside edge", () => {

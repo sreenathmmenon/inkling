@@ -49,7 +49,9 @@ body.play-mode { background: radial-gradient(circle at 0 0, rgba(207,197,255,.34
 body.play-mode .ambient-shape, body.play-mode .site-header { display: none; }
 body.play-mode #play-toolbar { border-radius: 18px; box-shadow: 0 9px 28px rgba(48,33,96,.08); }
 body.play-mode #objective-title { font-weight: 950; }
-body.play-mode #interpretation-note { display: none; }
+/* The interpretation note is the honesty channel (simplifications, unverified
+   check): it renders only when the child needs to be told something and must
+   stay visible during play — never hide it for aesthetics. */
 body.play-mode #game-shell { border-radius: 24px; }
 body.game-won #game-status, body.game-lost #game-status, body.player-error #game-status { top: 14px; width: min(80%, 430px); max-width: none; padding: 10px 14px; font-size: 1rem; }
 body.game-won .play-meta { border-color: rgba(42,174,125,.28); background: linear-gradient(135deg, #f1fff8, #fffefa); box-shadow: 0 14px 36px rgba(42,174,125,.14); }

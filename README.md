@@ -2,6 +2,8 @@
 
 **Draw it on paper. Play it in your browser.**
 
+**▶ Try it now: [inkling-web-production.up.railway.app](https://inkling-web-production.up.railway.app)** — no install, no account. Scan a drawing, or grab one of [our test drawings](docs/Inkling-brief-and-drawings.zip).
+
 Kids draw games all the time — a hero, some spikes, a door you have to reach at
 the end. Inkling takes a photo of that drawing and hands back a playable
 platformer about a minute later. The art in the game *is* the drawing: every
@@ -21,6 +23,8 @@ Built for OpenAI Build Week with **Codex** and **GPT-5.6**.
 ---
 
 ## Try it
+
+The fastest way is the live site above. To run it yourself:
 
 ```bash
 npm install

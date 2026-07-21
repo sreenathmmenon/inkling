@@ -950,19 +950,33 @@ function stopGenerationProgress(): void {
   }
 }
 
+/**
+ * A dead delivery pipe, not a verdict. Mobile browsers sever the event stream
+ * when the screen locks or the tab is backgrounded while the server keeps
+ * building the game — the one failure class worth a single automatic retry.
+ * Coded server errors are decisions and must never be retried.
+ */
+class GenerationTransportDeath extends Error {}
+
 async function readGenerationStream(
   response: Response,
   isCurrent: () => boolean,
   expectedRequestId: string,
   onStage: (stage: GenerationStage) => void = showGenerationStage,
 ): Promise<unknown> {
-  if (!response.body) throw new Error(generationErrorMessage());
+  if (!response.body) throw new GenerationTransportDeath("stream_missing");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
   try {
     while (true) {
-      const next = await reader.read();
+      let next: ReadableStreamReadResult<Uint8Array>;
+      try {
+        next = await reader.read();
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") throw error;
+        throw new GenerationTransportDeath("stream_severed");
+      }
       if (!isCurrent()) throw new DOMException("Generation cancelled", "AbortError");
       if (next.done) break;
       buffer += decoder.decode(next.value, { stream: true });
@@ -992,7 +1006,8 @@ async function readGenerationStream(
   } finally {
     reader.releaseLock();
   }
-  throw new Error(generationErrorMessage());
+  // The pipe ended without a verdict — severed delivery, not a decision.
+  throw new GenerationTransportDeath("stream_ended_early");
 }
 
 fileInput.addEventListener("change", async () => {
@@ -1141,36 +1156,62 @@ async function runGeneration(): Promise<void> {
         : "We’re turning your drawing into a game. Keep this page open.",
   );
   startGenerationProgress();
+  void holdScreenAwake();
   try {
-    const response = await fetch("/api/games/drawing", {
-      method: "POST",
-      headers: { "content-type": "application/json", accept: "text/event-stream" },
-      body: JSON.stringify({
-        image: preparedDrawing.dataUrl,
-        request_id: requestId,
-        ...(pendingCorrections.length > 0 ? { corrections: pendingCorrections } : {}),
-        ...(rescan ? { previous_game: rescan.previousGame } : {}),
-      }),
-      signal: controller.signal,
+    const requestBody = JSON.stringify({
+      image: preparedDrawing.dataUrl,
+      request_id: requestId,
+      ...(pendingCorrections.length > 0 ? { corrections: pendingCorrections } : {}),
+      ...(rescan ? { previous_game: rescan.previousGame } : {}),
     });
-    if (sequence !== generationSequence) return;
-    if (!response.ok) {
-      let body: { error?: string } = {};
+    // One quiet retry, only when the delivery pipe itself died (mobile screen
+    // lock, dropped connection). Coded server verdicts throw straight out.
+    let delivered: unknown;
+    for (let attempt = 0; ; attempt += 1) {
       try {
-        body = await response.json() as { error?: string };
-      } catch {
-        // A misconfigured/restarting service may not return JSON. Do not surface
-        // transport details to a child, and never retry/upload automatically.
+        let response: Response;
+        try {
+          response = await fetch("/api/games/drawing", {
+            method: "POST",
+            headers: { "content-type": "application/json", accept: "text/event-stream" },
+            body: requestBody,
+            signal: controller.signal,
+          });
+        } catch (error) {
+          if (error instanceof DOMException && error.name === "AbortError") throw error;
+          throw new GenerationTransportDeath("request_failed");
+        }
+        if (sequence !== generationSequence) return;
+        if (!response.ok) {
+          let body: { error?: string } = {};
+          try {
+            body = await response.json() as { error?: string };
+          } catch {
+            // A misconfigured/restarting service may not return JSON. Do not
+            // surface transport details to a child.
+          }
+          throw new Error(generationErrorMessage(body.error));
+        }
+        if (response.headers.get("content-type")?.startsWith("text/event-stream")) {
+          delivered = await readGenerationStream(response, () => sequence === generationSequence, requestId);
+        } else {
+          const result = await response.json() as { requestId?: string; playableGame?: unknown };
+          if (result.requestId !== requestId) throw new Error(generationErrorMessage());
+          delivered = result.playableGame;
+        }
+        break;
+      } catch (error) {
+        const retriable = error instanceof GenerationTransportDeath &&
+          attempt === 0 &&
+          sequence === generationSequence &&
+          !controller.signal.aborted;
+        if (!retriable) throw error;
+        showCaptureStatus("Still working — reconnecting to finish your game…");
+        await new Promise((resolveDelay) => setTimeout(resolveDelay, 2_000));
+        if (sequence !== generationSequence) return;
       }
-      throw new Error(generationErrorMessage(body.error));
     }
-    if (response.headers.get("content-type")?.startsWith("text/event-stream")) {
-      currentSpec = await readGenerationStream(response, () => sequence === generationSequence, requestId);
-    } else {
-      const result = await response.json() as { requestId?: string; playableGame?: unknown };
-      if (result.requestId !== requestId) throw new Error(generationErrorMessage());
-      currentSpec = result.playableGame;
-    }
+    currentSpec = delivered;
     if (sequence !== generationSequence) return;
     if (!currentSpec) throw new Error(generationErrorMessage());
     const certified = await certifyGeneratedGame(currentSpec);
@@ -1226,6 +1267,7 @@ async function runGeneration(): Promise<void> {
     renderExperienceState(preparedDrawing ? "capture-ready" : "capture-empty");
   } finally {
     if (activeGeneration?.sequence === sequence) activeGeneration = undefined;
+    if (!activeGeneration) releaseScreenWakeLock();
     if (sequence === generationSequence) {
       stopGenerationProgress();
       makeGame.disabled = preparedDrawing === undefined || pendingPlayableGame !== undefined;
@@ -1235,6 +1277,32 @@ async function runGeneration(): Promise<void> {
     }
   }
 }
+
+/**
+ * Mobile screens auto-lock during the minute-long wait, which severs the
+ * delivery stream. A held wake lock removes the most common cause; browsers
+ * without support keep the existing "keep this page open" copy as the ask.
+ */
+let screenWakeLock: { release(): Promise<void> } | null = null;
+async function holdScreenAwake(): Promise<void> {
+  try {
+    const wakeLock = (navigator as Navigator & {
+      wakeLock?: { request(type: "screen"): Promise<{ release(): Promise<void> }> };
+    }).wakeLock;
+    if (wakeLock) screenWakeLock = await wakeLock.request("screen");
+  } catch {
+    // Unsupported or denied — the copy already asks to keep the page open.
+  }
+}
+function releaseScreenWakeLock(): void {
+  void screenWakeLock?.release().catch(() => undefined);
+  screenWakeLock = null;
+}
+// The lock is silently dropped when the tab is hidden; retake it on return
+// while a generation is still running.
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible" && activeGeneration) void holdScreenAwake();
+});
 
 makeGame.addEventListener("click", () => {
   pendingCorrections = [];

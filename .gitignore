@@ -38,6 +38,8 @@ output/
 .aider*
 .goal
 
-# Local generated drawing/evaluation sets live in the named Downloads folder.
-# They are large test inputs, not product source or committed customer data.
-fixtures/validation-drawings/
+# The round-1 validation corpus is tracked: it is generated test drawings the
+# verify chain and corpus baselines depend on, not customer data. Scratch
+# rounds beyond it stay local.
+fixtures/validation-drawings/*
+!fixtures/validation-drawings/round-1/

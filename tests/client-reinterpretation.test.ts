@@ -8,6 +8,7 @@ import {
   offeredGenre,
   reinterpretationArrived,
   reinterpretationFailed,
+  routeReinterpretationArrival,
   toggleReinterpretation,
 } from "../apps/client/src/reinterpretation.js";
 
@@ -101,4 +102,31 @@ test("an arrival certified as a third genre is offered under its true name", () 
   assert.ok(arrived, "a genuinely different certified genre still counts");
   assert.equal(arrived.alternateGenre, "platformer", "the label follows what was actually certified");
   assert.equal(offeredGenre(arrived), "runner");
+});
+
+test("a needs_recast reinterpretation is mediated by the safe offer, never played directly", () => {
+  const machine = createReinterpretation("platformer", "maze", ORIGINAL);
+  assert.ok(machine);
+  const requested = beginReinterpretationRequest(machine);
+
+  const blocked = routeReinterpretationArrival(requested, ALTERNATE, "maze", "needs_recast");
+  assert.equal(
+    blocked.disposition,
+    "mediate",
+    "a recast verdict must route through the same safe-offer surface as a first scan",
+  );
+  assert.equal("machine" in blocked, false, "no toggle survives to swap into an unaccepted world");
+
+  const playable = routeReinterpretationArrival(requested, ALTERNATE, "maze", "faithful_ready");
+  assert.equal(playable.disposition, "play", "a ready verdict plays immediately");
+  assert.ok(playable.disposition === "play" && playable.machine.active === "alternate");
+  const related = routeReinterpretationArrival(requested, ALTERNATE, "maze", "related_fallback");
+  assert.equal(related.disposition, "play", "an honest fallback world is playable without mediation");
+
+  const collapsed = routeReinterpretationArrival(requested, ALTERNATE, "platformer", "needs_recast");
+  assert.equal(
+    collapsed.disposition,
+    "withdrawn",
+    "genre collapse withdraws the offer before the outcome gate is even consulted",
+  );
 });

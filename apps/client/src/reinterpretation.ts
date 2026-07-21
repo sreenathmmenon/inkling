@@ -98,6 +98,30 @@ export function reinterpretationArrived(
   };
 }
 
+export type ReinterpretationArrival =
+  | { disposition: "withdrawn" }
+  | { disposition: "mediate" }
+  | { disposition: "play"; machine: ReinterpretationMachine };
+
+/**
+ * Routes a certified arrival by its PlayContract verdict. A reinterpreted
+ * world whose outcome is needs_recast must go through the same safe-offer
+ * mediation as a first scan — never straight to play — and the toggle is
+ * withdrawn, because no honest instant swap exists to a world the child has
+ * not yet accepted.
+ */
+export function routeReinterpretationArrival(
+  machine: ReinterpretationMachine,
+  alternate: ReinterpretationVariant,
+  certifiedGenre: unknown,
+  readinessOutcome: unknown,
+): ReinterpretationArrival {
+  const next = reinterpretationArrived(machine, alternate, certifiedGenre);
+  if (!next) return { disposition: "withdrawn" };
+  if (readinessOutcome === "needs_recast") return { disposition: "mediate" };
+  return { disposition: "play", machine: next };
+}
+
 /** The round-trip failed; the child keeps their game and the offer stays. */
 export function reinterpretationFailed(
   machine: ReinterpretationMachine,

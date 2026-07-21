@@ -61,6 +61,12 @@ npm install
 npm run verify
 ```
 
+`npm run verify` is self-contained from a fresh clone: the drawing corpus it
+exercises is tracked at `fixtures/validation-drawings/round-1/` (generated
+test drawings, not customer data). The multi-run corpus baseline uses the same
+set via `npm run validate:drawing-set -- fixtures/validation-drawings/round-1
+out.json --fresh`.
+
 ### Review-gate tests
 
 `npm run verify` starts with `npm run typecheck`, so TypeScript errors fail the

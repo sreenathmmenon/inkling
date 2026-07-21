@@ -1,0 +1,2053 @@
+{
+  "generatedAt": "2026-07-21T07:19:13.645Z",
+  "revision": "68b46cdf092d0546a0270a9461336d831b0e3b1e",
+  "seed": 42,
+  "concurrency": 3,
+  "results": [
+    {
+      "path": "01-caterpillar-leaves.png",
+      "hash": "d566c92344982b915f3e75163f62142faeb7f3e79dc7f8bfb9418de9ebe95348",
+      "status": "ready",
+      "durationMs": 52472,
+      "genre": "platformer",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {
+        "ladybug_1": 128.6,
+        "ladybug_2": 128.6,
+        "ladybug_3": 100
+      },
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 6340.212125
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4479.3126250000005
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 26212.549917000004
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 1786.9619579999999
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5244.968207999998
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 5823.226666000002
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 1739.4786660000027
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 2,
+          "durationMs": 2095.757792000004
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 3,
+          "durationMs": 2130.9510420000006
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 4,
+          "durationMs": 1125.584167000001
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 5,
+          "durationMs": 1118.2917080000043
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 6,
+          "durationMs": 6318.739792
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 1108.1029999999955
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [],
+      "extractedBehaviors": [
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "enemy",
+          "behavior": "patrol"
+        },
+        {
+          "role": "enemy",
+          "behavior": "patrol"
+        },
+        {
+          "role": "enemy",
+          "behavior": "patrol"
+        },
+        {
+          "role": "goal",
+          "behavior": "static"
+        }
+      ],
+      "playContractOutcome": "faithful_ready"
+    },
+    {
+      "path": "02-finger-paint-trail.png",
+      "hash": "76cf894722f3cd63f9ec6490753aa1c584eed0b767e5564680b9b2189c3065c0",
+      "status": "ready",
+      "durationMs": 62387,
+      "genre": "runner",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {},
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5695.669416999999
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3698.4943329999996
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 45448.930666
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3143.7636669999993
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5440.823750000003
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 6551.900458000004
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 974.679750000003
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [
+        "declared_genre_movement",
+        "four_way_movement"
+      ],
+      "extractedBehaviors": [
+        {
+          "role": "goal",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        }
+      ],
+      "playContractOutcome": "related_fallback"
+    },
+    {
+      "path": "03-crayon-maze.png",
+      "hash": "f2062324176a8012708bf3408c3556b2e5ce945d470fdb97a44b1e7160ea5078",
+      "status": "ready",
+      "durationMs": 53576,
+      "genre": "maze",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {},
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5093.283084
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3826.176875000001
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 35015.141959
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 1815.3863750000019
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4321.191291999996
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 7578.5613749999975
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 2038.2479170000006
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [],
+      "extractedBehaviors": [
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "goal",
+          "behavior": "static"
+        }
+      ],
+      "playContractOutcome": "needs_recast"
+    },
+    {
+      "path": "04-fire-truck-road.png",
+      "hash": "5ab740d6c856f59fe605c7d440bd4b3afe121c641ce6b69cd24f1c0d5705d2d7",
+      "status": "ready",
+      "durationMs": 51297,
+      "genre": "runner",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {},
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 6709.289832999995
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4267.105625000004
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 30547.263333000003
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 2808.226874999993
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4485.129625000001
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 8033.891499999998
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 1721.9440000000031
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [],
+      "extractedBehaviors": [
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "goal",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        }
+      ],
+      "playContractOutcome": "faithful_ready"
+    },
+    {
+      "path": "05-submarine-maze.png",
+      "hash": "f5607231ab44c05a449249b5412f8b54b6f4dca13522b0f3fa7188f1b6930aa6",
+      "status": "ready",
+      "durationMs": 92771,
+      "genre": "maze",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {
+        "jellyfish_1": 100
+      },
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4487.475833000004
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3642.085374999995
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 73012.516
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 1957.4739160000172
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 4800.323332999978
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5281.010999999999
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 2963.042709000001
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 2,
+          "durationMs": 2053.8102499999804
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 1248.3202499999898
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [
+        "dynamic_entity_behavior"
+      ],
+      "extractedBehaviors": [
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "patrol"
+        },
+        {
+          "role": "collectible",
+          "behavior": "patrol"
+        },
+        {
+          "role": "collectible",
+          "behavior": "patrol"
+        },
+        {
+          "role": "collectible",
+          "behavior": "patrol"
+        },
+        {
+          "role": "collectible",
+          "behavior": "patrol"
+        },
+        {
+          "role": "collectible",
+          "behavior": "patrol"
+        },
+        {
+          "role": "enemy",
+          "behavior": "chase"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "goal",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        }
+      ],
+      "playContractOutcome": "needs_recast"
+    },
+    {
+      "path": "06-frog-lilypad.png",
+      "hash": "21b92e24a6562e60be6330974b17f4b173e7f0287a2cf65246ca1c773bd12060",
+      "status": "ready",
+      "durationMs": 67043,
+      "genre": "platformer",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {},
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3979.8520419999986
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3723.6042920000036
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 52905.235833
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 2338.6979160000046
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 5234.322832999998
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5234.424708999999
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 1175.3154169999907
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [
+        "declared_genre_movement"
+      ],
+      "extractedBehaviors": [
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "cloud",
+          "behavior": "static"
+        },
+        {
+          "role": "cloud",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        },
+        {
+          "role": "goal",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "static"
+        }
+      ],
+      "playContractOutcome": "related_fallback"
+    },
+    {
+      "path": "07-robot-factory.png",
+      "hash": "58774a84517d6460b7b0ff4b040cca99f48202bec34b5440b96a9b5dd249c9d7",
+      "status": "ready",
+      "durationMs": 131967,
+      "genre": "platformer",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 4,
+      "safetyRecast": true,
+      "objectiveFallback": false,
+      "recastRung": "guarded_floor",
+      "trackPeaks": {},
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4031.0510420000064
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3212.2130840000027
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 74127.003167
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 1492.4271250000165
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4692.470334000012
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 6018.5399580000085
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 2,
+          "durationMs": 2176.4933329999913
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 5,
+          "durationMs": 1457.423415999976
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 4191.289749999996
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 6,
+          "durationMs": 1000.7563329999975
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 4,
+          "durationMs": 5769.032166999998
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 7,
+          "durationMs": 996.4311250000028
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 3,
+          "durationMs": 6817.120875000022
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 8,
+          "durationMs": 1226.644250000012
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 5532.204583000013
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 2,
+          "durationMs": 7472.109583000012
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 3,
+          "durationMs": 21073.222542000003
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 4,
+          "durationMs": 2363.1124169999966
+        }
+      ],
+      "degraded": [
+        "P8:recast_ladder:guarded_floor"
+      ],
+      "unsupportedCapabilities": [],
+      "extractedBehaviors": [
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "spinner"
+        },
+        {
+          "role": "hazard",
+          "behavior": "faller"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "spinner"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "spinner"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        }
+      ],
+      "playContractOutcome": "related_fallback"
+    },
+    {
+      "path": "08-dog-stones.png",
+      "hash": "7ef7c0a6309c005d9a53ee807104cf833056f72eb4709bd0207633881872faac",
+      "status": "ready",
+      "durationMs": 105899,
+      "genre": "runner",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 4,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": "reach_support",
+      "trackPeaks": {},
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3533.568000000014
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5963.593499999988
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 56501.953666999994
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 2531.128417
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5147.508082999993
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 8459.53229100001
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 7168.122791000002
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 2,
+          "durationMs": 16246.520667000004
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 3,
+          "durationMs": 6897.513082999998
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 4,
+          "durationMs": 1086.7012920000125
+        }
+      ],
+      "degraded": [
+        "P8:recast_ladder:reach_support"
+      ],
+      "unsupportedCapabilities": [],
+      "extractedBehaviors": [
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "goal",
+          "behavior": "static"
+        }
+      ],
+      "playContractOutcome": "related_fallback"
+    },
+    {
+      "path": "09-jungle-explorer.png",
+      "hash": "62a84b832cea57fc55bfbc863eca93b8f3185e49c9d88296d85f51b592e30ee4",
+      "status": "ready",
+      "durationMs": 78452,
+      "genre": "platformer",
+      "goal": "reach_goal",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {
+        "snake_1": 100,
+        "snake_2": 100
+      },
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3952.4694589999854
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4184.570582999993
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 57166.646833000006
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 2096.0720410000067
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 5745.187416000001
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 7884.832334000006
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 2,
+          "durationMs": 1635.481958999997
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 1,
+          "durationMs": 2052.164791999996
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 3,
+          "durationMs": 941.3894999999902
+        },
+        {
+          "callId": "P7",
+          "callName": "bespoke_behavior_code",
+          "model": "gpt-5.2-codex",
+          "effort": "medium",
+          "attempt": 4,
+          "durationMs": 2123.2070420000236
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 1017.8340829999943
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [],
+      "extractedBehaviors": [
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "collectible",
+          "behavior": "static"
+        },
+        {
+          "role": "enemy",
+          "behavior": "patrol"
+        },
+        {
+          "role": "enemy",
+          "behavior": "patrol"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "hazard",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "goal",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        }
+      ],
+      "playContractOutcome": "faithful_ready"
+    },
+    {
+      "path": "10-duck-water.png",
+      "hash": "30620aee0caa7dd1941e44a2c2f5350c22da11e08f8e6428a512f85fa88d27fc",
+      "status": "ready",
+      "durationMs": 42182,
+      "genre": "runner",
+      "goal": "survive",
+      "reachedGoal": true,
+      "p8Iterations": 1,
+      "safetyRecast": false,
+      "objectiveFallback": false,
+      "recastRung": null,
+      "trackPeaks": {},
+      "calls": [
+        {
+          "callId": "P1",
+          "callName": "safety_precheck",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3085.170207999996
+        },
+        {
+          "callId": "P0_calibrate",
+          "callName": "effort_calibration",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 3216.9142920000013
+        },
+        {
+          "callId": "P2",
+          "callName": "gamespec_extraction",
+          "model": "gpt-5.6-sol",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 18847.27687500001
+        },
+        {
+          "callId": "P3",
+          "callName": "character_rig_plan",
+          "model": "gpt-5.6-terra",
+          "effort": "low",
+          "attempt": 1,
+          "durationMs": 3910.526083999983
+        },
+        {
+          "callId": "P4",
+          "callName": "background_plate",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 4412.983957999997
+        },
+        {
+          "callId": "P5",
+          "callName": "sound_mood",
+          "model": "gpt-5.6-luna",
+          "effort": "none",
+          "attempt": 1,
+          "durationMs": 7985.862416999997
+        },
+        {
+          "callId": "P6",
+          "callName": "genre_inference_hard",
+          "model": "gpt-5.6-sol",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 6732.10920799998
+        },
+        {
+          "callId": "P8",
+          "callName": "solvability_verdict",
+          "model": "gpt-5.6-terra",
+          "effort": "high",
+          "attempt": 1,
+          "durationMs": 2290.964500000002
+        }
+      ],
+      "degraded": [],
+      "unsupportedCapabilities": [],
+      "extractedBehaviors": [
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "water",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "platform",
+          "behavior": "static"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        },
+        {
+          "role": "decoration",
+          "behavior": "none"
+        }
+      ],
+      "playContractOutcome": "faithful_ready"
+    }
+  ],
+  "summary": {
+    "total": 10,
+    "playable": 10,
+    "failed": 0,
+    "failureCodes": {},
+    "playContractOutcomes": {
+      "faithful_ready": 4,
+      "related_fallback": 4,
+      "needs_recast": 2
+    },
+    "finalGenres": {
+      "platformer": 4,
+      "runner": 4,
+      "maze": 2
+    },
+    "certification": {
+      "not_measured": 10
+    },
+    "recastRungs": {
+      "none": 8,
+      "guarded_floor": 1,
+      "reach_support": 1
+    },
+    "safetyRecastRate": 0.1,
+    "objectiveFallbackRate": 0,
+    "p8IterationsMean": 1.6,
+    "latencyMs": {
+      "p50": 62387,
+      "p90": 105899,
+      "max": 131967
+    },
+    "callLatencyMs": {
+      "P1": {
+        "count": 10,
+        "p50": 4031.0510420000064,
+        "max": 6709.289832999995
+      },
+      "P0_calibrate": {
+        "count": 10,
+        "p50": 3723.6042920000036,
+        "max": 5963.593499999988
+      },
+      "P2": {
+        "count": 10,
+        "p50": 45448.930666,
+        "max": 74127.003167
+      },
+      "P5": {
+        "count": 10,
+        "p50": 2096.0720410000067,
+        "max": 7985.862416999997
+      },
+      "P4": {
+        "count": 10,
+        "p50": 5147.508082999993,
+        "max": 5745.187416000001
+      },
+      "P3": {
+        "count": 10,
+        "p50": 6018.5399580000085,
+        "max": 8459.53229100001
+      },
+      "P7": {
+        "count": 20,
+        "p50": 2052.164791999996,
+        "max": 6817.120875000022
+      },
+      "P8": {
+        "count": 16,
+        "p50": 2038.2479170000006,
+        "max": 21073.222542000003
+      },
+      "P6": {
+        "count": 1,
+        "p50": 6732.10920799998,
+        "max": 6732.10920799998
+      }
+    }
+  }
+}

@@ -45,8 +45,8 @@ import {
   beginReinterpretationRequest,
   createReinterpretation,
   offeredGenre,
-  reinterpretationArrived,
   reinterpretationFailed,
+  routeReinterpretationArrival,
   toggleReinterpretation,
   type ReinterpretationMachine,
 } from "./reinterpretation.js";
@@ -497,6 +497,31 @@ function playedGenreOf(playable: ReturnType<typeof resolvePlayableGame>): string
 }
 
 /**
+ * The single safe-offer surface for any world whose contract verdict is
+ * needs_recast — first scans and reinterpretations alike route here, so a
+ * blocked world can never reach play without this mediation.
+ */
+function presentSafeOfferMediation(
+  playable: ReturnType<typeof resolvePlayableGame>,
+  playableDocument: unknown,
+): void {
+  pendingPlayableGame = playableDocument;
+  progressPanel.hidden = true;
+  safeOfferPanel.hidden = false;
+  renderExperienceState("safe-offer");
+  // A sealed maze earns a warm physical invitation: erase a wall on the
+  // paper and rescan it. Every other blocked world keeps the safe offer.
+  const blockers = playable.playContract?.blockers;
+  const invitation = safeOfferInvitation(Array.isArray(blockers) ? blockers : []);
+  safeOfferTitle.textContent = invitation.title;
+  safeOfferDetail.textContent = invitation.detail;
+  rescanPaperOffer.textContent = invitation.rescanAction;
+  rescanPaperOffer.hidden = !rescannableGame(playableDocument);
+  showCaptureStatus(invitation.announcement);
+  playSafeVersion.focus();
+}
+
+/**
  * The one-tap toggle between the two certified ways of playing the same
  * drawing. The first tap is one server round-trip that re-certifies the
  * alternate genre through the same gates as a first scan; both versions are
@@ -555,20 +580,32 @@ async function requestReinterpretation(): Promise<void> {
     if (!arrived) throw new Error(generationErrorMessage());
     const certified = await certifyGeneratedGame(arrived);
     if (token !== reinterpretSequence) return;
-    const next = reinterpretationArrived(
+    const arrivedPlayable = resolvePlayableGame(certified.value);
+    const arrival = routeReinterpretationArrival(
       machine,
       { document: certified.value, certification: certified.certification },
-      playedGenreOf(resolvePlayableGame(certified.value)),
+      playedGenreOf(arrivedPlayable),
+      arrivedPlayable.readinessOutcome,
     );
-    reinterpretation = next;
-    if (!next) {
+    if (arrival.disposition === "withdrawn") {
       // Certification collapsed the alternate onto the same kind of game, so
       // there is no honest second version; the offer disappears with a reason.
+      reinterpretation = null;
       showCaptureStatus(reinterpretFailedMessage());
       status.textContent = reinterpretFailedMessage();
       syncReinterpretControl();
       return;
     }
+    if (arrival.disposition === "mediate") {
+      reinterpretation = null;
+      syncReinterpretControl();
+      currentSpec = certified.value;
+      lastCertification = certified.certification;
+      activeCarriedCollectibles = [];
+      presentSafeOfferMediation(arrivedPlayable, certified.value);
+      return;
+    }
+    reinterpretation = arrival.machine;
     currentSpec = certified.value;
     lastCertification = certified.certification;
     activeCarriedCollectibles = [];
@@ -1155,20 +1192,7 @@ async function runGeneration(): Promise<void> {
     // now shows the whole changed paper.
     if (rescan && rescanContext === rescan) rescanContext = undefined;
     if (playable.readinessOutcome === "needs_recast") {
-      pendingPlayableGame = currentSpec;
-      progressPanel.hidden = true;
-      safeOfferPanel.hidden = false;
-      renderExperienceState("safe-offer");
-      // A sealed maze earns a warm physical invitation: erase a wall on the
-      // paper and rescan it. Every other blocked world keeps the safe offer.
-      const blockers = playable.playContract?.blockers;
-      const invitation = safeOfferInvitation(Array.isArray(blockers) ? blockers : []);
-      safeOfferTitle.textContent = invitation.title;
-      safeOfferDetail.textContent = invitation.detail;
-      rescanPaperOffer.textContent = invitation.rescanAction;
-      rescanPaperOffer.hidden = !rescannableGame(currentSpec);
-      showCaptureStatus(invitation.announcement);
-      playSafeVersion.focus();
+      presentSafeOfferMediation(playable, currentSpec);
     } else if (rescan) {
       // Progress preservation: bonuses the child had already found stay
       // collected wherever the merged world kept those ids as bonus

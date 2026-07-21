@@ -60,16 +60,30 @@ export function artworkHaloForWorldColor(worldColor: number): { color: number; a
  * the plan's, identical for the scene and the analytic solver.
  */
 export const HERO_READABLE_MIN_DIMENSION = 38;
-const HERO_READABLE_MAX_BOOST = 2.6;
+const HERO_READABLE_MAX_BOOST = 3.2;
+/** The hero's visual honors how large the child drew it, at this fraction. */
+const HERO_DRAWN_PRESENCE = 0.5;
+/** But it never dwarfs the playfield. */
+const HERO_READABLE_MAX_DIMENSION = 190;
 
 export function readableHeroArtworkFit(
   fitted: { width: number; height: number },
+  drawnDimension?: number,
 ): { width: number; height: number } {
   const minDimension = Math.min(fitted.width, fitted.height);
   if (!Number.isFinite(minDimension) || minDimension <= 0) return fitted;
+  // A rocket drawn across half the page deserves half-page presence in its
+  // game, not a collider-sized sliver. Visual only: collision geometry,
+  // physics, and the solver's world are untouched by this scale.
+  const drawnTarget = Number.isFinite(drawnDimension) && (drawnDimension ?? 0) > 0
+    ? Math.min(HERO_READABLE_MAX_DIMENSION, (drawnDimension as number) * HERO_DRAWN_PRESENCE)
+    : 0;
+  const targetDimension = Math.max(HERO_READABLE_MIN_DIMENSION, drawnTarget);
+  const largest = Math.max(fitted.width, fitted.height);
   const boost = Math.min(
     HERO_READABLE_MAX_BOOST,
-    Math.max(1, HERO_READABLE_MIN_DIMENSION / minDimension),
+    // Never scale past the playfield cap on the LARGEST side either.
+    Math.max(1, Math.min(targetDimension / minDimension, HERO_READABLE_MAX_DIMENSION / largest)),
   );
   return { width: fitted.width * boost, height: fitted.height * boost };
 }

@@ -1519,7 +1519,10 @@ class PlatformerScene extends Phaser.Scene {
     const fitted = isSurface
       ? { width: entity.width, height: entity.height }
       : entity.id === this.plan.hero.id
-        ? readableHeroArtworkFit(fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height))
+        ? readableHeroArtworkFit(
+          fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height),
+          this.heroDrawnDimension(),
+        )
         : fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height);
     if (!isSurface) {
       // The halo is a legibility backing that hugs the rendered art — never a
@@ -1757,6 +1760,16 @@ class PlatformerScene extends Phaser.Scene {
       // the palette bands beneath. Entities still win by depth, not by fade.
       .setDepth(-4)
       .setData("inklingPresentation", "page-backdrop");
+  }
+
+  /** The smaller world-dimension of the hero AS DRAWN on the page, from its crop. */
+  private heroDrawnDimension(): number | undefined {
+    const crop = this.artwork?.entityCrops[this.plan.hero.id];
+    if (!crop) return undefined;
+    const drawnWidth = Math.max(0, crop[2] - crop[0]) * WORLD_WIDTH;
+    const drawnHeight = Math.max(0, crop[3] - crop[1]) * WORLD_HEIGHT;
+    const dimension = Math.min(drawnWidth, drawnHeight);
+    return dimension > 0 ? dimension : undefined;
   }
 
   /** Feathered alpha-only erasure of normalized source rects from a canvas texture. */

@@ -12,3 +12,13 @@ Return only the merged GameSpec (the schema has no summary field).
 - Resolve the seam (how page B connects to page A) as a traversable link.
 - Do not restyle or move existing entities beyond the seam join.
 </constraints>
+<maze_walls>
+When the merged game is a maze, re-trace the wall lines from the new scan
+rather than copying the previous wall boxes. Emit each straight wall run
+as its own thin platform entity (narrow dimension at most 0.06 of the
+page; a curved or L-shaped wall becomes several short thin boxes). Never
+cover open corridor space with a wall bbox, and never keep a wall segment
+the child erased — an erased wall is exactly how a child opens a route,
+and the route must open where the paper now shows a gap. A wall whose
+strokes are unchanged may keep its existing id.
+</maze_walls>

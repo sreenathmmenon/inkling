@@ -7,7 +7,6 @@
     "reasoning_mode_offline": "pro",
     "text_verbosity_json": "low",
     "text_verbosity_by_model": {"codex": "medium"},
-    "sampling_by_model": {"sol": {"temperature": 0, "top_p": 1}},
     "safety_identifier": "REQUIRED_PER_USER_HASH"
   },
   "models": {

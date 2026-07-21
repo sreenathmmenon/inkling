@@ -834,7 +834,7 @@ test("per-model verbosity is declared, applied, and fails loudly on drift even i
   );
 });
 
-test("per-model deterministic sampling is declared, applied, and fails loudly on drift", async () => {
+test("no deterministic sampling is declared, none is sent, and drift fails loudly", async () => {
   const sampling = new Map<string, { temperature: unknown; top_p: unknown }>();
   await runPipeline(
     { image: "data:image/png;base64,c2FtcGxpbmc=" },
@@ -848,13 +848,13 @@ test("per-model deterministic sampling is declared, applied, and fails loudly on
   );
   assert.deepEqual(
     sampling.get("P2"),
-    { temperature: 0, top_p: 1 },
-    "extraction requests carry the declared deterministic sampling",
+    { temperature: undefined, top_p: undefined },
+    "extraction requests send no sampling params (the live API rejects them on this model)",
   );
   assert.deepEqual(
     sampling.get("P6"),
-    { temperature: 0, top_p: 1 },
-    "every call on the declared model shares the same pinned sampling",
+    { temperature: undefined, top_p: undefined },
+    "no call sends sampling params when the spec declares none",
   );
   assert.deepEqual(
     sampling.get("P8"),
@@ -886,10 +886,10 @@ test("per-model deterministic sampling is declared, applied, and fails loudly on
   assert.throws(
     () => assertRequestMatchesSpec(spec, p2, {
       ...baseRequest,
-      temperature: 0,
+      top_p: 1,
     } as Parameters<typeof assertRequestMatchesSpec>[2]),
     /top_p/,
-    "dropping a declared sampling param is rejected the same way",
+    "an undeclared top_p is rejected the same way",
   );
 
   const p8 = spec.calls.find((call) => call.id === "P8");

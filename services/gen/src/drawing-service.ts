@@ -123,6 +123,29 @@ export async function generateDrawingGame(
 
   if (request.previousGame !== undefined) {
     const previous = parseRescanPreviousGame(request.previousGame);
+    if (previous.gameSpec.primary_genre === "maze") {
+      // A maze rescan exists precisely so an erased wall disappears, but
+      // stitch merging demonstrably re-imposes remembered wall geometry over
+      // the child's eraser, falsely sealing routes. Maze walls carry no
+      // player progress, so the changed paper is re-read as a fresh faithful
+      // scan through the same P1 -> generation -> P8 gates; the prior
+      // backdrop and sound plans still carry forward so the world keeps its
+      // character. If treasures reset, the client already says so honestly.
+      const scan = await runDrawingScan(
+        { image: request.image, context: request.context ?? {} },
+        runnerOptions,
+      );
+      return {
+        scan,
+        playableGame: createPlayableGameDocument(scan.gameSpec, request.image, scan.assets.P3, {
+          playtestReport: scan.playtestReport,
+          solvability: scan.solvability,
+        }, scan.behaviorTracks, {
+          backdrop: previous.backdrop ?? scan.assets.P4,
+          soundPack: previous.soundPack ?? scan.assets.P5,
+        }),
+      };
+    }
     const scan = await runMultipageStitch(
       {
         gamespec_existing: previous.gameSpec,

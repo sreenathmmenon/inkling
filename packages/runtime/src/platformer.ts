@@ -194,6 +194,7 @@ class PlatformerScene extends Phaser.Scene {
   private lastAimIndicatorKey = "";
   private status: PlatformerStatus = "playing";
   private frame = 0;
+  private physicsStepsElapsed = 0;
   private runtimeSequence = 0;
   private readonly replayFrames: ReadonlyMap<number, InputFrame>;
   private readonly coaching: CoachingContract;
@@ -280,6 +281,14 @@ class PlatformerScene extends Phaser.Scene {
     this.recoveryGuide?.destroy();
     this.recoveryGuide = undefined;
     this.frame = 0;
+    this.physicsStepsElapsed = 0;
+    // Frame identity advances with the fixed 60 Hz physics step, never the
+    // render tick: high-refresh displays call update() faster than the
+    // simulation, and every frame-indexed contract (certified replay input,
+    // tracked hazard motion, launch stepping, runtime-event frames) must stay
+    // in exact agreement with the analytic playtester.
+    this.physics.world.off(Phaser.Physics.Arcade.Events.WORLD_STEP, this.countPhysicsStep, this);
+    this.physics.world.on(Phaser.Physics.Arcade.Events.WORLD_STEP, this.countPhysicsStep, this);
     this.runtimeSequence = 0;
     this.trackedHazards = [];
     this.launchState = undefined;
@@ -690,31 +699,45 @@ class PlatformerScene extends Phaser.Scene {
     this.publishState();
   }
 
+  /** One fixed physics step happened; scene UPDATE fires it before update(). */
+  private countPhysicsStep(): void {
+    this.physicsStepsElapsed += 1;
+  }
+
   update(_time: number, delta: number): void {
     if (this.status !== "playing") return;
-    this.frame += 1;
-    for (const tracked of this.trackedHazards) {
-      const [offsetX, offsetY] = trackOffsetAt(tracked.track, this.frame);
-      for (const part of tracked.parts) {
-        part.object.setPosition(part.baseX + offsetX, part.baseY + offsetY);
+    // Consume exactly the fixed physics steps that have happened, not one
+    // frame per render tick (see the WORLD_STEP subscription in create).
+    const stepsElapsed = this.physicsStepsElapsed;
+    const framesAdvanced = stepsElapsed - this.frame;
+    let replayConsumedThisUpdate = false;
+    while (this.frame < stepsElapsed) {
+      this.frame += 1;
+      for (const tracked of this.trackedHazards) {
+        const [offsetX, offsetY] = trackOffsetAt(tracked.track, this.frame);
+        for (const part of tracked.parts) {
+          part.object.setPosition(part.baseX + offsetX, part.baseY + offsetY);
+        }
+        tracked.body.updateFromGameObject();
+        // updateFromGameObject resets the body to the full shape; restore the
+        // reduced collision size so browser contact matches the solver exactly.
+        tracked.body.setSize(tracked.bodyWidth, tracked.bodyHeight);
       }
-      tracked.body.updateFromGameObject();
-      // updateFromGameObject resets the body to the full shape; restore the
-      // reduced collision size so browser contact matches the solver exactly.
-      tracked.body.setSize(tracked.bodyWidth, tracked.bodyHeight);
-    }
-    const replay = this.replayFrames.get(this.frame);
-    if (replay) {
-      this.touch = {
-        left: replay.left,
-        right: replay.right,
-        jump: replay.jump,
-        down: replay.down,
-        action: replay.action,
-      };
-      if (replay.assist) this.requestAssist();
-    } else if (this.replayFrames.size > 0) {
-      this.touch = { left: false, right: false, jump: false, down: false, action: false };
+      if (this.replayFrames.size > 0) {
+        const replay = this.replayFrames.get(this.frame);
+        // When one late tick catches up several steps, press-like inputs
+        // survive the whole batch; held directions take the newest frame.
+        const batch = replayConsumedThisUpdate ? this.touch : undefined;
+        this.touch = {
+          left: replay?.left ?? false,
+          right: replay?.right ?? false,
+          jump: (replay?.jump ?? false) || (batch?.jump ?? false),
+          down: replay?.down ?? false,
+          action: (replay?.action ?? false) || (batch?.action ?? false),
+        };
+        if (replay?.assist) this.requestAssist();
+        replayConsumedThisUpdate = true;
+      }
     }
     this.elapsedMs += delta;
     if (this.goalGuide) {
@@ -731,7 +754,9 @@ class PlatformerScene extends Phaser.Scene {
     this.collectAssistedNearbyTarget();
     if (this.status !== "playing") return;
     if (this.usesLaunchMovement) {
-      this.updateLaunchMovement(body);
+      // The launch state machine is frame-indexed like the analytic solver's:
+      // advance it once per fixed physics step, never per render tick.
+      for (let step = 0; step < framesAdvanced; step += 1) this.updateLaunchMovement(body);
       if (this.plan.goalKind === "survive") {
         this.surviveRemainingMs -= delta;
         if (this.surviveRemainingMs <= 0) this.win();

@@ -190,6 +190,11 @@ declare global {
     __INKLING_REPLAY__?: {
       run(gameSpec: unknown, inputFrames: readonly InputFrame[]): Promise<RuntimeEvent[]>;
     };
+    __INKLING_CERTIFIED_DRIVE__?: {
+      reachedGoal: boolean;
+      timeToWin: number | null;
+      frameCount: number;
+    };
   }
 }
 
@@ -236,6 +241,14 @@ if (new URLSearchParams(window.location.search).has("runtime-replay")) {
     },
   };
 }
+
+// "certified-drive" is test/evidence plumbing like "runtime-replay" above: a
+// journey harness opts in via URL and each interactive launch then replays the
+// deterministic playtester's own certified InputFrames through the production
+// scene, so any certified world drives itself to the same win the solver
+// proved. It carries no model code (the analytic trace already ships for
+// certification), changes no gate, and never runs without the explicit flag.
+const certifiedDriveEnabled = new URLSearchParams(window.location.search).has("certified-drive");
 
 async function certifyGeneratedGame(
   value: unknown,
@@ -392,12 +405,31 @@ async function play(spec: unknown): Promise<void> {
     return;
   }
   if (sequence !== playSequence) return;
+  // Certified-route drive lane (opt-in, see certifiedDriveEnabled): the scene
+  // consumes these frames fixed-step, preferring them over live input, and a
+  // restart replays them from frame zero. Any failure to produce a winning
+  // trace falls back to normal live input — Lane A play is never blocked.
+  let certifiedDriveFrames: readonly InputFrame[] | undefined;
+  if (certifiedDriveEnabled) {
+    try {
+      const analytic = runPlaytestWithTrace(playable.gameSpec as GameSpec, playable.behaviorTracks);
+      if (analytic.report.reached_goal) certifiedDriveFrames = analytic.inputFrames;
+      window.__INKLING_CERTIFIED_DRIVE__ = {
+        reachedGoal: analytic.report.reached_goal,
+        timeToWin: analytic.report.time_to_win,
+        frameCount: analytic.inputFrames.length,
+      };
+    } catch {
+      window.__INKLING_CERTIFIED_DRIVE__ = { reachedGoal: false, timeToWin: null, frameCount: 0 };
+    }
+  }
   game = launchPlatformer({
     parent,
     gameSpec: spec,
     showTouchControls: false,
     presentation: "embedded",
     initiallyCollected: [...activeCarriedCollectibles],
+    ...(certifiedDriveFrames ? { inputFrames: certifiedDriveFrames } : {}),
     onStateChange: showState,
     onRuntimeEvent(event: RuntimeEvent) {
       if (event.kind === "pickup" && event.entityId) collectedIdsThisPlay.add(event.entityId);

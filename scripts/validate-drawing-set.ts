@@ -199,6 +199,7 @@ async function runCase(file: DrawingFile): Promise<DrawingCaseResult> {
       ),
       calls: metrics.calls,
       degraded: generated.scan.degraded.map(safeError),
+      unsupportedCapabilities: [...(generated.playableGame.readinessEvidence?.playContract.unsupportedCapabilities ?? [])],
       ...(extractedBehaviors !== undefined ? { extractedBehaviors } : {}),
       ...(playContractOutcome !== undefined ? { playContractOutcome } : {}),
     };

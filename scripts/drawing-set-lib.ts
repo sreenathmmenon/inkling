@@ -42,6 +42,8 @@ export interface DrawingCaseResult {
   degraded?: string[];
   /** Certified track evidence: entity id -> peak offset px. Content-free. */
   trackPeaks?: Record<string, number>;
+  /** Capability enum names the contract could not support. Content-free. */
+  unsupportedCapabilities?: string[];
   calls?: GenerationMetrics["calls"];
   error?: string;
   diagnostics?: { gameSpec?: unknown; solvabilityVerdicts: unknown[] };

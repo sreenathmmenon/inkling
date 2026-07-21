@@ -21,6 +21,9 @@ Known-world semantics to apply when the drawing depicts them:
 - cloud -> soft one-way platform
 - spring / trampoline / arrow-up -> launch pad
 - key + door/lock -> door opens on key pickup (linked)
+- linked_to is ONLY for key->door pairs. Every other entity must set
+linked_to: null — never link thematic pairs (a creature to its perch, an
+item to its owner); the runtime treats non-key links as unsupported rules
 - star / coin / gem / heart-pickup -> collectible
 - flag / X / "END" / trophy -> goal
 - arrow -> movement direction or wind hint

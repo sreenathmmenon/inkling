@@ -1,6 +1,7 @@
 import { PipelineBlocked, SolvabilityError } from "../../../runner/pipeline.js";
 import {
   generateDrawingGame,
+  reinterpretDrawingGame,
   type DrawingGenerationOptions,
 } from "./drawing-service.js";
 import {
@@ -54,6 +55,7 @@ function publicError(error: unknown): NonNullable<DrawingGenerationProgressEvent
   if (error instanceof SolvabilityError) return "game_not_finishable";
   if (error instanceof Error && (
     error.message.startsWith("Drawing input") ||
+    error.message.startsWith("Reinterpret target") ||
     error.message.startsWith("maxImageBytes") ||
     error.message.startsWith("safetyId")
   )) return "invalid_drawing_request";
@@ -79,11 +81,12 @@ async function requestPayload(
   options: DrawingGenerationHttpOptions,
 ): Promise<
   | {
-    image: string;
+    image?: string;
     safetyId: string;
     requestId: string;
     corrections?: string[];
     previousGame?: Record<string, unknown>;
+    reinterpretTo?: string;
   }
   | Response
 > {
@@ -102,10 +105,29 @@ async function requestPayload(
   }
   if (
     !isRecord(payload) ||
-    typeof payload.image !== "string" ||
     typeof payload.request_id !== "string" ||
     !/^[A-Za-z0-9_-]{16,80}$/.test(payload.request_id)
   ) {
+    return json(400, { error: "invalid_drawing_request" });
+  }
+
+  // A reinterpret request carries no new capture: it replays the prior
+  // certified document (validated below and again at the service layer) as
+  // its alternate genre. It must name a plausible genre id, must bring the
+  // document to reinterpret, and never mixes with correction context.
+  let reinterpretTo: string | undefined;
+  if (payload.reinterpret_to !== undefined) {
+    if (
+      typeof payload.reinterpret_to !== "string" ||
+      !/^[a-z_]{3,24}$/.test(payload.reinterpret_to) ||
+      payload.previous_game === undefined ||
+      payload.corrections !== undefined
+    ) {
+      return json(400, { error: "invalid_drawing_request" });
+    }
+    reinterpretTo = payload.reinterpret_to;
+  }
+  if (reinterpretTo === undefined && typeof payload.image !== "string") {
     return json(400, { error: "invalid_drawing_request" });
   }
 
@@ -143,11 +165,12 @@ async function requestPayload(
   const safetyId = await options.resolveSafetyId(request);
   if (!safetyId) return json(401, { error: "missing_session" });
   return {
-    image: payload.image,
+    ...(typeof payload.image === "string" ? { image: payload.image } : {}),
     safetyId,
     requestId: payload.request_id,
     ...(corrections ? { corrections } : {}),
     ...(previousGame ? { previousGame } : {}),
+    ...(reinterpretTo ? { reinterpretTo } : {}),
   };
 }
 
@@ -194,7 +217,9 @@ export function createDrawingGenerationStreamHandler(
           const boundEvent: DrawingGenerationProgressEvent = { ...event, requestId: payload.requestId };
           controller.enqueue(encoder.encode(`data: ${JSON.stringify(boundEvent)}\n\n`));
         };
-        emit({ type: "progress", stage: "checking" });
+        // A reinterpret replays an already-checked drawing, so its honest
+        // first stage is the certification playthrough, never a fresh check.
+        emit({ type: "progress", stage: payload.reinterpretTo !== undefined ? "testing" : "checking" });
         const generationStartedAt = performance.now();
         const recordQuality = (record: GenerationQualityRecord): void => {
           try {
@@ -204,19 +229,27 @@ export function createDrawingGenerationStreamHandler(
           }
         };
         try {
-          const result = await generateDrawingGame({
-            image: payload.image,
-            safetyId: payload.safetyId,
-            ...(payload.corrections ? { context: { corrections: payload.corrections } } : {}),
-            ...(payload.previousGame ? { previousGame: payload.previousGame } : {}),
-          }, {
+          const onStreamRequest: DrawingGenerationOptions["onRequest"] = (trace, modelRequest) => {
+            options.onRequest?.(trace, modelRequest);
+            emit({ type: "progress", stage: stageForCall(trace.callId) });
+          };
+          const streamOptions = {
             ...options,
             signal: streamAbort.signal,
-            onRequest(trace, modelRequest) {
-              options.onRequest?.(trace, modelRequest);
-              emit({ type: "progress", stage: stageForCall(trace.callId) });
-            },
-          });
+            onRequest: onStreamRequest,
+          };
+          const result = payload.reinterpretTo !== undefined
+            ? await reinterpretDrawingGame({
+              previousGame: payload.previousGame,
+              targetGenre: payload.reinterpretTo,
+              safetyId: payload.safetyId,
+            }, streamOptions)
+            : await generateDrawingGame({
+              image: payload.image ?? "",
+              safetyId: payload.safetyId,
+              ...(payload.corrections ? { context: { corrections: payload.corrections } } : {}),
+              ...(payload.previousGame ? { previousGame: payload.previousGame } : {}),
+            }, streamOptions);
           recordQuality(buildPlayableQualityRecord(result.scan, result.playableGame));
           emit({ type: "complete", playableGame: result.playableGame });
         } catch (error) {

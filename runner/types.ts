@@ -196,4 +196,10 @@ export interface ScanResult {
   calls: RequestTrace[];
   degraded: string[];
   metrics: GenerationMetrics;
+  /**
+   * The ordered genre decision's already-computed runner-up, when it genuinely
+   * differs from the final certified genre. Null means the genre reading was
+   * unanimous and no honest alternate exists to offer.
+   */
+  alternateGenre?: string | null;
 }

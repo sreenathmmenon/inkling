@@ -1543,3 +1543,96 @@ test("HTTP rescan payload validation rejects malformed documents and remote artw
     "remote artwork in a prior document is rejected at the service boundary too",
   );
 });
+
+test("a genre reinterpretation re-certifies through P8 alone and keeps the way back", async () => {
+  const mock = rescanClient((callId) => (
+    callId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" } : {}
+  ));
+  const { runGenreReinterpretation } = await import("../runner/pipeline.js");
+  const result = await runGenreReinterpretation(
+    { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), target_genre: "runner" },
+    { safetyId: "reinterpret-user", client: mock.client, onRequest: mock.onRequest },
+  );
+  assert.deepEqual(
+    mock.order.filter((id) => id !== "P8"),
+    [],
+    "no extraction or safety re-run happens — the artwork and spec were already gated",
+  );
+  assert.ok(mock.order.includes("P8"), "the mandatory certification gate always runs");
+  assert.equal(result.gameSpec.primary_genre, "runner");
+  assert.equal(result.solvability.verdict, "ready");
+  assert.equal(result.playtestReport.reached_goal, true, "playtest evidence certifies the alternate world");
+  assert.equal(result.alternateGenre, "platformer", "the original genre stays offered as the way back");
+  assert.deepEqual(
+    result.gameSpec.entities.map((entity) => entity.id),
+    ["floor", "finish"],
+    "the child's drawn entities survive the reinterpretation unchanged",
+  );
+});
+
+test("a reinterpretation target outside the declared vocabulary or equal to the current genre is refused", async () => {
+  const { runGenreReinterpretation } = await import("../runner/pipeline.js");
+  await assert.rejects(
+    runGenreReinterpretation(
+      { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), target_genre: "tower_defense" },
+      { safetyId: "reinterpret-vocab-user", dryRun: true },
+    ),
+    /declared genre vocabulary/,
+  );
+  await assert.rejects(
+    runGenreReinterpretation(
+      { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), target_genre: "platformer" },
+      { safetyId: "reinterpret-same-user", dryRun: true },
+    ),
+    /must differ/,
+  );
+});
+
+test("the reinterpretation service returns a certified playable document with evidence and the same artwork", async () => {
+  const { reinterpretDrawingGame } = await import("../services/gen/src/drawing-service.js");
+  const { createPlayableGameDocument } = await import("../packages/runtime/src/artwork.js");
+  const previous = createPlayableGameDocument(
+    structuredClone(SHAREABLE_GAME_SPEC),
+    RESCAN_IMAGE,
+    undefined,
+    undefined,
+    undefined,
+    { alternateGenre: "maze" },
+  );
+  assert.equal(previous.alternateGenre, "maze", "the scan's ranked runner-up rides in the document");
+  const result = await reinterpretDrawingGame(
+    { previousGame: previous, targetGenre: "maze", safetyId: SERVICE_SAFETY_ID },
+    { dryRun: true },
+  );
+  const playable = result.playableGame;
+  assert.equal(playable.gameSpec.primary_genre, "maze");
+  assert.ok(playable.readinessEvidence, "the reinterpreted document carries readiness evidence");
+  assert.equal(playable.readinessEvidence?.playtestReport.reached_goal, true, "playtest evidence is present");
+  assert.equal(result.scan.solvability.verdict, "ready");
+  assert.equal(playable.alternateGenre, "platformer", "the document offers the way back to the original");
+  assert.equal(playable.artwork?.sourceDataUrl, RESCAN_IMAGE, "the child's same capture renders the new world");
+  await assert.rejects(
+    reinterpretDrawingGame(
+      { previousGame: previous, targetGenre: "platformer", safetyId: SERVICE_SAFETY_ID },
+      { dryRun: true },
+    ),
+    /must differ from the current game/,
+    "a unanimous reading offers no reinterpretation",
+  );
+});
+
+test("a document can never fabricate an alternate equal to its own genre", async () => {
+  const { createPlayableGameDocument, resolvePlayableGame } = await import("../packages/runtime/src/artwork.js");
+  const forged = createPlayableGameDocument(
+    structuredClone(SHAREABLE_GAME_SPEC),
+    RESCAN_IMAGE,
+    undefined,
+    undefined,
+    undefined,
+    { alternateGenre: "platformer" },
+  );
+  assert.equal(forged.alternateGenre, null, "an identical alternate is stored as no alternate");
+  assert.equal(resolvePlayableGame(forged).alternateGenre, undefined);
+  const external = { ...forged, alternateGenre: "platformer" };
+  assert.equal(resolvePlayableGame(external).alternateGenre, undefined, "resolution re-applies the rule to untrusted documents");
+});

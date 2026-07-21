@@ -1,4 +1,9 @@
-import { isGameSpec, runDrawingScan, runMultipageStitch } from "../../../runner/pipeline.js";
+import {
+  isGameSpec,
+  runDrawingScan,
+  runGenreReinterpretation,
+  runMultipageStitch,
+} from "../../../runner/pipeline.js";
 import type { GameSpec, RunnerOptions, ScanResult } from "../../../runner/types.js";
 import {
   createPlayableGameDocument,
@@ -51,6 +56,8 @@ interface RescanPreviousGame {
   behaviorTracks: Record<string, BehaviorMotionTrack>;
   backdrop: unknown;
   soundPack: unknown;
+  /** The prior document's inline capture, for flows that reuse the same paper. */
+  artworkSourceDataUrl: string | undefined;
 }
 
 /**
@@ -78,6 +85,7 @@ function parseRescanPreviousGame(value: unknown): RescanPreviousGame {
     behaviorTracks: resolved.behaviorTracks,
     backdrop: value.backdrop,
     soundPack: value.soundPack,
+    artworkSourceDataUrl: resolved.artwork?.sourceDataUrl,
   };
 }
 
@@ -144,6 +152,7 @@ export async function generateDrawingGame(
         }, scan.behaviorTracks, {
           backdrop: previous.backdrop ?? scan.assets.P4,
           soundPack: previous.soundPack ?? scan.assets.P5,
+          alternateGenre: scan.alternateGenre,
         }),
       };
     }
@@ -170,6 +179,7 @@ export async function generateDrawingGame(
       }, scan.behaviorTracks, {
         backdrop: previous.backdrop,
         soundPack: previous.soundPack,
+        alternateGenre: scan.alternateGenre,
       }),
     };
   }
@@ -187,6 +197,79 @@ export async function generateDrawingGame(
     }, scan.behaviorTracks, {
       backdrop: scan.assets.P4,
       soundPack: scan.assets.P5,
+      alternateGenre: scan.alternateGenre,
     }),
+  };
+}
+
+export interface DrawingReinterpretationRequest {
+  /** The prior certified playable document to replay as its alternate genre. */
+  previousGame: unknown;
+  /** The genre to replay as — the alternate the scan already computed. */
+  targetGenre: string;
+  /** Per-user privacy-preserving identifier supplied by the authenticated service boundary. */
+  safetyId: string;
+}
+
+/**
+ * One-tap reinterpretation boundary: the SAME already-gated drawing replayed
+ * as its alternate genre. No new capture exists (the artwork already passed
+ * P1 when it was first scanned) and extraction is not re-run; the re-genred
+ * world still passes the full mandatory P8 certification loop, and failure
+ * throws — an uncertified alternate is never returned.
+ */
+export async function reinterpretDrawingGame(
+  request: DrawingReinterpretationRequest,
+  options: DrawingGenerationOptions = {},
+): Promise<GeneratedDrawingGame> {
+  if (!SHA256_IDENTIFIER.test(request.safetyId)) {
+    throw new Error("safetyId must be a 64-character privacy-preserving SHA-256 hash");
+  }
+  if (typeof request.targetGenre !== "string" || !/^[a-z_]{3,24}$/.test(request.targetGenre)) {
+    throw new Error("Drawing input reinterpret genre is not a recognized genre name");
+  }
+  const previous = parseRescanPreviousGame(request.previousGame);
+  if (request.targetGenre === previous.gameSpec.primary_genre) {
+    throw new Error("Drawing input reinterpret genre must differ from the current game");
+  }
+
+  const runnerOptions: RunnerOptions = { safetyId: request.safetyId };
+  if (options.signal) runnerOptions.signal = options.signal;
+  if (options.client) runnerOptions.client = options.client;
+  if (options.dryRun !== undefined) runnerOptions.dryRun = options.dryRun;
+  if (options.offline !== undefined) runnerOptions.offline = options.offline;
+  if (options.onRequest) runnerOptions.onRequest = options.onRequest;
+  if (options.onResult) runnerOptions.onResult = options.onResult;
+
+  const scan = await runGenreReinterpretation(
+    {
+      gamespec_existing: previous.gameSpec,
+      target_genre: request.targetGenre,
+      behaviorTracks: previous.behaviorTracks,
+    },
+    runnerOptions,
+  );
+  return {
+    scan,
+    // Reached only after the alternate-genre world passed the same P8 certify
+    // loop as a first scan. The capture is unchanged, so the prior document's
+    // own inline artwork renders the world; the backdrop and sound plans carry
+    // forward for the same reason. The hero rig was fitted per-genre layout,
+    // so the deterministic puppet fallback applies, exactly as on a rescan.
+    playableGame: createPlayableGameDocument(
+      scan.gameSpec,
+      previous.artworkSourceDataUrl,
+      undefined,
+      {
+        playtestReport: scan.playtestReport,
+        solvability: scan.solvability,
+      },
+      scan.behaviorTracks,
+      {
+        backdrop: previous.backdrop,
+        soundPack: previous.soundPack,
+        alternateGenre: scan.alternateGenre,
+      },
+    ),
   };
 }

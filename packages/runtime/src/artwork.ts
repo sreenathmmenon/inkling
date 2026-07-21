@@ -49,6 +49,12 @@ export interface PlayableGameDocument {
   backdrop?: BackdropPlan | null;
   /** P5's selected packs; unknown ids degrade to the base pack. */
   soundPack?: { musicPackId: string; sfxPackId: string } | null;
+  /**
+   * The genre decision's already-computed runner-up reading of the same
+   * drawing, present only when it genuinely differs from the played genre.
+   * Powers the one-tap "play it another way" reinterpretation offer.
+   */
+  alternateGenre?: string | null;
 }
 
 export interface ReadinessEvidence {
@@ -71,6 +77,8 @@ export interface ResolvedPlayableGame {
   behaviorTracks: Record<string, BehaviorMotionTrack>;
   backdrop: BackdropPlan | undefined;
   sfxPackId: string | undefined;
+  /** Present only when a genuinely different alternate genre exists. */
+  alternateGenre: string | undefined;
 }
 
 const TOPOLOGIES = new Set<HeroRigPlan["topology"]>([
@@ -176,11 +184,12 @@ export function createPlayableGameDocument(
   heroRig?: unknown,
   readinessEvidence?: PipelineReadinessEvidence,
   behaviorTracks?: Record<string, BehaviorMotionTrack>,
-  assetPlans?: { backdrop?: unknown; soundPack?: unknown },
+  assetPlans?: { backdrop?: unknown; soundPack?: unknown; alternateGenre?: unknown },
 ): PlayableGameDocument {
   const tracks = parseBehaviorTracks(behaviorTracks);
   const backdrop = parseBackdropPlan(assetPlans?.backdrop) ?? null;
   const soundPack = parseSoundPack(assetPlans?.soundPack);
+  const alternateGenre = parseAlternateGenre(assetPlans?.alternateGenre, gameSpec.primary_genre);
   return {
     format: "inkling-playable-game-v1",
     gameSpec,
@@ -203,10 +212,22 @@ export function createPlayableGameDocument(
     behaviorTracks: Object.keys(tracks).length > 0 ? tracks : null,
     backdrop,
     soundPack,
+    alternateGenre,
   };
 }
 
 const MAX_PACK_ID_LENGTH = 40;
+
+/**
+ * An alternate genre is data, not trusted markup: it must be a short
+ * lowercase identifier and must genuinely differ from the played genre —
+ * a document can never fabricate a choice that does not exist.
+ */
+function parseAlternateGenre(value: unknown, primaryGenre: unknown): string | null {
+  if (typeof value !== "string" || !/^[a-z_]{3,24}$/.test(value)) return null;
+  if (value === primaryGenre) return null;
+  return value;
+}
 
 function parseSoundPack(value: unknown): { musicPackId: string; sfxPackId: string } | null {
   if (!isRecord(value)) return null;
@@ -289,6 +310,7 @@ export function resolvePlayableGame(value: unknown): ResolvedPlayableGame {
       behaviorTracks: {},
       backdrop: undefined,
       sfxPackId: undefined,
+      alternateGenre: undefined,
     };
   }
   const evidence = isRecord(value.readinessEvidence) ? value.readinessEvidence : undefined;
@@ -312,6 +334,7 @@ export function resolvePlayableGame(value: unknown): ResolvedPlayableGame {
     ? "related_fallback"
     : parsedOutcome;
   const soundPack = parseSoundPack(value.soundPack);
+  const primaryGenre = isRecord(value.gameSpec) ? value.gameSpec.primary_genre : undefined;
   return {
     gameSpec: value.gameSpec,
     artwork: parseArtworkManifest(value.artwork),
@@ -320,6 +343,7 @@ export function resolvePlayableGame(value: unknown): ResolvedPlayableGame {
     behaviorTracks: parseBehaviorTracks(value.behaviorTracks),
     backdrop: parseBackdropPlan(value.backdrop),
     sfxPackId: soundPack?.sfxPackId,
+    alternateGenre: parseAlternateGenre(value.alternateGenre, primaryGenre) ?? undefined,
   };
 }
 

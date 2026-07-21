@@ -745,6 +745,45 @@ class PipelineRunner {
     }
   }
 
+  /**
+   * The already-computed runner-up from whichever call carries the genre
+   * decision schema, when it genuinely differs from the final certified
+   * genre. Detection is by declared schema, matching applyStructuredResult,
+   * so pipeline.json stays the authority over which call carries the ranking.
+   */
+  private declaredAlternateGenre(state: ExecutionState, finalGenre: string): string | null {
+    for (const call of this.spec.calls) {
+      if (!call.schema?.endsWith("genre_decision.json")) continue;
+      const result = state.results[call.id];
+      if (
+        isRecord(result) &&
+        typeof result.alt_genre === "string" &&
+        result.alt_genre !== finalGenre
+      ) {
+        return result.alt_genre;
+      }
+    }
+    return null;
+  }
+
+  /**
+   * The genre vocabulary declared by the genre-decision schema. Reinterpret
+   * targets outside it are refused before any work happens.
+   */
+  private genreVocabulary(): ReadonlySet<string> {
+    for (const call of this.spec.calls) {
+      if (!call.schema?.endsWith("genre_decision.json")) continue;
+      const document = loadSchema(this.root, call);
+      const properties = isRecord(document?.schema) ? document.schema.properties : undefined;
+      const primary = isRecord(properties) ? properties.primary_genre : undefined;
+      const values = isRecord(primary) ? primary.enum : undefined;
+      if (Array.isArray(values) && values.every((value) => typeof value === "string")) {
+        return new Set(values as string[]);
+      }
+    }
+    return new Set();
+  }
+
   private async certifySolvability(
     call: PipelineCall,
     state: ExecutionState,
@@ -1059,6 +1098,7 @@ class PipelineRunner {
       calls: [...this.traces],
       degraded: [...this.degraded],
       metrics,
+      alternateGenre: this.declaredAlternateGenre(state, gameSpec.primary_genre),
     };
   }
 
@@ -1159,6 +1199,91 @@ class PipelineRunner {
       calls: [...this.traces],
       degraded: [...this.degraded],
       metrics,
+      alternateGenre: null,
+    };
+  }
+
+  /**
+   * One-tap reinterpretation: the SAME certified drawing replayed as the
+   * already-computed alternate genre. No new capture exists, so P1 has
+   * already passed for this artwork, and extraction is deliberately not
+   * re-run — the only change is the genre reading, which was ranked at scan
+   * time. The re-genred world then passes the SAME mandatory P8 certify loop
+   * as a first scan (bounded repair, recast ladder, deterministic playtest
+   * that the model can never overrule); an alternate that cannot be certified
+   * fails closed and the child keeps the game they already have.
+   */
+  async reinterpret(input: {
+    gamespec_existing: GameSpec;
+    target_genre: string;
+    behaviorTracks?: Record<string, BehaviorMotionTrack>;
+  }): Promise<ScanResult> {
+    const scanStartedAt = performance.now();
+    if (!this.genreVocabulary().has(input.target_genre)) {
+      throw new Error(`Reinterpret target ${input.target_genre} is outside the declared genre vocabulary`);
+    }
+    const sourceGenre = input.gamespec_existing.primary_genre;
+    if (input.target_genre === sourceGenre) {
+      throw new Error("Reinterpret target must differ from the current genre");
+    }
+    const gameSpec = normalizeNullableGameSpec(clone(input.gamespec_existing));
+    gameSpec.primary_genre = input.target_genre;
+    gameSpec.mood ??= "genre-base";
+    const state: ExecutionState = {
+      gamespec: gameSpec,
+      results: { P2: gameSpec },
+    };
+
+    // Only certified tracks whose entity still carries an animatable dynamic
+    // contract under the new reading keep moving — the same survivorship rule
+    // a rescan applies, so stale motion never replays into the new genre.
+    const behaviorTracks: Record<string, BehaviorMotionTrack> = {};
+    for (const [entityId, track] of Object.entries(input.behaviorTracks ?? {})) {
+      const survivor = gameSpec.entities.find((entity) => entity.id === entityId);
+      if (
+        survivor &&
+        DYNAMIC_BEHAVIORS.has(survivor.behavior) &&
+        TRACK_ANIMATABLE_ROLES.has(survivor.role)
+      ) {
+        behaviorTracks[entityId] = track;
+      }
+    }
+
+    const behaviorPatches: BehaviorPatch[] = [];
+    const behaviorFallbacks: Record<string, "static"> = {};
+    const certified = await this.certifySolvability(this.call("P8"), state, {
+      gameSpec,
+      extractionResultId: "P2",
+      behaviorPatches,
+      behaviorFallbacks,
+      behaviorTracks,
+    });
+
+    const metrics: GenerationMetrics = {
+      totalDurationMs: performance.now() - scanStartedAt,
+      calls: [...this.callMetrics],
+      p8Iterations: certified.iterationsUsed,
+      safetyRecast: certified.safetyRecast,
+      objectiveFallback: certified.objectiveFallback,
+      recastRung: certified.recastRung,
+      finalGenre: certified.gameSpec.primary_genre,
+      degradedCount: this.degraded.length,
+    };
+    return {
+      gameSpec: certified.gameSpec,
+      assets: {},
+      behaviorPatches,
+      behaviorFallbacks,
+      behaviorTracks,
+      playtestReport: certified.playtestReport,
+      solvability: certified.solvability,
+      calls: [...this.traces],
+      degraded: [...this.degraded],
+      metrics,
+      // The way back is the world the child already certified and played, so
+      // it stays offered only while the reinterpreted genre genuinely differs
+      // (the recast ladder may have collapsed the alternate onto the original).
+      alternateGenre: certified.gameSpec.primary_genre === sourceGenre ? null : sourceGenre,
     };
   }
 }
@@ -1219,6 +1344,24 @@ export async function runMultipageStitch(
 ): Promise<ScanResult> {
   const runner = new PipelineRunner(options);
   return runner.rescan(input);
+}
+
+/**
+ * Replays an already-certified drawing as its alternate genre through the
+ * same mandatory P8 certification gate. Extraction is not re-run — the
+ * alternate was computed and ranked at scan time — and no uncertified world
+ * can be returned: certification failure throws instead of degrading.
+ */
+export async function runGenreReinterpretation(
+  input: {
+    gamespec_existing: GameSpec;
+    target_genre: string;
+    behaviorTracks?: Record<string, BehaviorMotionTrack>;
+  },
+  options: RunnerOptions,
+): Promise<ScanResult> {
+  const runner = new PipelineRunner(options);
+  return runner.reinterpret(input);
 }
 
 export async function runShareModeration(

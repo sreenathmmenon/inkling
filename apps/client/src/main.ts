@@ -30,11 +30,26 @@ import {
   appendCorrection,
   assumptionChips,
   interpretationNoteText,
+  reinterpretArrivedMessage,
+  reinterpretFailedMessage,
+  reinterpretOfferLabel,
+  reinterpretReturnMessage,
+  reinterpretWorkingMessage,
   rescanGrowthNotice,
   rescanInviteMessage,
   safeOfferInvitation,
   type CertificationOutcome,
 } from "./interpretation-status.js";
+import {
+  activeReinterpretationVariant,
+  beginReinterpretationRequest,
+  createReinterpretation,
+  offeredGenre,
+  reinterpretationArrived,
+  reinterpretationFailed,
+  toggleReinterpretation,
+  type ReinterpretationMachine,
+} from "./reinterpretation.js";
 import { carriedCollectibleIds } from "../../../packages/runtime/src/progress-preservation.js";
 import { freshPlayerState, shouldShowAssist } from "./player-status.js";
 import { attachSoundFeedback, resolveSfxPackId } from "./sound-feedback.js";
@@ -95,6 +110,7 @@ const assumptionChipList = requireElement<HTMLElement>("#assumption-chips");
 const playSafeVersion = requireElement<HTMLButtonElement>("#play-safe-version");
 const tryNewPicture = requireElement<HTMLButtonElement>("#try-new-picture");
 const rescanPaper = requireElement<HTMLButtonElement>("#rescan-paper");
+const playOtherWay = requireElement<HTMLButtonElement>("#play-other-way");
 const rescanPaperOffer = requireElement<HTMLButtonElement>("#rescan-paper-offer");
 const capturePanel = requireElement<HTMLElement>("#capture-panel");
 const playStage = requireElement<HTMLElement>("#play-stage");
@@ -143,6 +159,11 @@ let lastCertification: CertificationOutcome = "not_applicable";
 // The physical rescan loop: previousGame is the certified document the child
 // is growing, collectedIds the bonuses they had found when they tapped rescan.
 let rescanContext: { previousGame: unknown; collectedIds: string[] } | undefined;
+// One-tap reinterpretation: the same drawing offered as the alternate genre
+// the pipeline already computed and ranked. Null whenever no genuine
+// alternate exists, so the control can never present a fake choice.
+let reinterpretation: ReinterpretationMachine | null = null;
+let reinterpretSequence = 0;
 // Bonus ids the deterministic carry rule admitted for the current world; the
 // scene pre-collects them at create so a rescan feels like growth, not reset.
 let activeCarriedCollectibles: readonly string[] = [];
@@ -347,6 +368,7 @@ async function play(spec: unknown): Promise<void> {
   controlsHint.hidden = false;
   accessibleControls.hidden = false;
   postPlayActions.hidden = false;
+  syncReinterpretControl();
   const playable = resolvePlayableGame(spec);
   const plan = createPlatformerPlan(playable.gameSpec, playable.behaviorTracks);
   const objective = createObjectiveContract(plan);
@@ -442,6 +464,128 @@ async function play(spec: unknown): Promise<void> {
   motionDelight.gameRevealed();
   enterPlayMode();
 }
+
+/**
+ * Renders the one-tap reinterpretation control from the current machine.
+ * Hidden whenever no genuine certified alternate exists or can be offered;
+ * busy (still focusable, announced) while the alternate is being rebuilt.
+ */
+function syncReinterpretControl(): void {
+  const label = reinterpretation ? reinterpretOfferLabel(offeredGenre(reinterpretation)) : null;
+  if (!reinterpretation || label === null) {
+    playOtherWay.hidden = true;
+    playOtherWay.disabled = false;
+    playOtherWay.removeAttribute("aria-busy");
+    return;
+  }
+  playOtherWay.hidden = false;
+  const requesting = reinterpretation.phase === "requesting";
+  playOtherWay.disabled = requesting;
+  if (requesting) {
+    playOtherWay.setAttribute("aria-busy", "true");
+    playOtherWay.textContent = "Rebuilding your game…";
+  } else {
+    playOtherWay.removeAttribute("aria-busy");
+    playOtherWay.textContent = label;
+  }
+}
+
+/** The played genre of a resolved document, for the reinterpretation machine. */
+function playedGenreOf(playable: ReturnType<typeof resolvePlayableGame>): string | undefined {
+  const spec = playable.gameSpec as GameSpec | undefined;
+  return typeof spec?.primary_genre === "string" ? spec.primary_genre : undefined;
+}
+
+/**
+ * The one-tap toggle between the two certified ways of playing the same
+ * drawing. The first tap is one server round-trip that re-certifies the
+ * alternate genre through the same gates as a first scan; both versions are
+ * then cached, so every later tap swaps instantly in either direction.
+ */
+async function requestReinterpretation(): Promise<void> {
+  if (!reinterpretation || reinterpretation.phase === "requesting") return;
+  if (reinterpretation.alternate) {
+    reinterpretation = toggleReinterpretation(reinterpretation);
+    const variant = activeReinterpretationVariant(reinterpretation);
+    currentSpec = variant.document;
+    lastCertification = variant.certification;
+    activeCarriedCollectibles = [];
+    void play(currentSpec);
+    saveGame.disabled = false;
+    showCaptureStatus(
+      reinterpretation.active === "alternate" ? reinterpretArrivedMessage() : reinterpretReturnMessage(),
+    );
+    syncReinterpretControl();
+    return;
+  }
+  const machine = reinterpretation;
+  const token = ++reinterpretSequence;
+  reinterpretation = beginReinterpretationRequest(machine);
+  syncReinterpretControl();
+  showCaptureStatus(reinterpretWorkingMessage());
+  try {
+    const requestId = newRequestId();
+    const response = await fetch("/api/games/drawing", {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "text/event-stream" },
+      body: JSON.stringify({
+        request_id: requestId,
+        reinterpret_to: offeredGenre(machine),
+        previous_game: machine.original.document,
+      }),
+    });
+    if (token !== reinterpretSequence) return;
+    if (!response.ok) throw new Error(generationErrorMessage());
+    let arrived: unknown;
+    if (response.headers.get("content-type")?.startsWith("text/event-stream")) {
+      // The reinterpret wait keeps the current game playable, so the stream's
+      // stage events update no capture-flow progress panel here.
+      arrived = await readGenerationStream(
+        response,
+        () => token === reinterpretSequence,
+        requestId,
+        () => undefined,
+      );
+    } else {
+      const result = await response.json() as { requestId?: string; playableGame?: unknown };
+      if (result.requestId !== requestId) throw new Error(generationErrorMessage());
+      arrived = result.playableGame;
+    }
+    if (token !== reinterpretSequence) return;
+    if (!arrived) throw new Error(generationErrorMessage());
+    const certified = await certifyGeneratedGame(arrived);
+    if (token !== reinterpretSequence) return;
+    const next = reinterpretationArrived(
+      machine,
+      { document: certified.value, certification: certified.certification },
+      playedGenreOf(resolvePlayableGame(certified.value)),
+    );
+    reinterpretation = next;
+    if (!next) {
+      // Certification collapsed the alternate onto the same kind of game, so
+      // there is no honest second version; the offer disappears with a reason.
+      showCaptureStatus(reinterpretFailedMessage());
+      status.textContent = reinterpretFailedMessage();
+      syncReinterpretControl();
+      return;
+    }
+    currentSpec = certified.value;
+    lastCertification = certified.certification;
+    activeCarriedCollectibles = [];
+    void play(currentSpec);
+    saveGame.disabled = false;
+    showCaptureStatus(reinterpretArrivedMessage());
+    syncReinterpretControl();
+  } catch {
+    if (token !== reinterpretSequence) return;
+    reinterpretation = reinterpretationFailed(machine);
+    showCaptureStatus(reinterpretFailedMessage());
+    status.textContent = reinterpretFailedMessage();
+    syncReinterpretControl();
+  }
+}
+
+playOtherWay.addEventListener("click", () => void requestReinterpretation());
 
 /**
  * Renders the model's child-readable guesses as correctable chips. A chip tap
@@ -646,6 +790,9 @@ function startFreshDrawingSession(
   pendingPlayableGame = undefined;
   pendingCorrections = [];
   rescanContext = undefined;
+  reinterpretSequence += 1;
+  reinterpretation = null;
+  syncReinterpretControl();
   activeCarriedCollectibles = [];
   collectedIdsThisPlay.clear();
   lastCertification = "not_applicable";
@@ -770,6 +917,7 @@ async function readGenerationStream(
   response: Response,
   isCurrent: () => boolean,
   expectedRequestId: string,
+  onStage: (stage: GenerationStage) => void = showGenerationStage,
 ): Promise<unknown> {
   if (!response.body) throw new Error(generationErrorMessage());
   const reader = response.body.getReader();
@@ -797,7 +945,7 @@ async function readGenerationStream(
         if (event.requestId !== expectedRequestId) throw new Error(generationErrorMessage());
         if (event.type === "progress" && event.stage) {
           if (!isCurrent()) throw new DOMException("Generation cancelled", "AbortError");
-          showGenerationStage(event.stage);
+          onStage(event.stage);
           continue;
         }
         if (event.type === "error") throw new Error(generationErrorMessage(event.error));
@@ -821,6 +969,14 @@ fileInput.addEventListener("change", async () => {
     currentSpec = JSON.parse(await file.text()) as unknown;
     rescanContext = undefined;
     activeCarriedCollectibles = [];
+    // A saved document carries its alternate reading with it, so the one-tap
+    // offer survives save/load — and stays hidden when none genuinely exists.
+    const loaded = resolvePlayableGame(currentSpec);
+    reinterpretSequence += 1;
+    reinterpretation = createReinterpretation(playedGenreOf(loaded), loaded.alternateGenre, {
+      document: currentSpec,
+      certification: lastCertification,
+    });
     play(currentSpec);
     saveGame.disabled = false;
   } catch (error) {
@@ -930,6 +1086,11 @@ async function runGeneration(): Promise<void> {
   const rescan = rescanContext;
   safeOfferPanel.hidden = true;
   pendingPlayableGame = undefined;
+  // A new generation obsoletes the previous world's reinterpretation pair
+  // and cancels any reinterpret round-trip still in flight.
+  reinterpretSequence += 1;
+  reinterpretation = null;
+  syncReinterpretControl();
   activeGeneration = { controller, sequence };
   makeGame.disabled = true;
   makeGame.textContent = "Making game…";
@@ -980,6 +1141,15 @@ async function runGeneration(): Promise<void> {
     currentSpec = certified.value;
     lastCertification = certified.certification;
     const playable = resolvePlayableGame(currentSpec);
+    // Offer the one-tap alternate reading only for a world the child can
+    // actually play now — never alongside the safe-offer decision panel.
+    reinterpretation = playable.readinessOutcome === "needs_recast"
+      ? null
+      : createReinterpretation(playedGenreOf(playable), playable.alternateGenre, {
+        document: currentSpec,
+        certification: lastCertification,
+      });
+    syncReinterpretControl();
     // The rescan context is consumed by this completed generation: later
     // retries or chip fixes re-derive from the retained new capture, which
     // now shows the whole changed paper.

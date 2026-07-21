@@ -6,6 +6,11 @@ import {
   assumptionChips,
   certificationNotice,
   interpretationNoteText,
+  reinterpretArrivedMessage,
+  reinterpretFailedMessage,
+  reinterpretOfferLabel,
+  reinterpretReturnMessage,
+  reinterpretWorkingMessage,
   rescanGrowthNotice,
   rescanInviteMessage,
   safeOfferInvitation,
@@ -128,4 +133,33 @@ test("the rescan invitation and growth notices stay child-safe and honest", () =
     assert.equal(INTERNAL_TERMS.test(copy), false, `rescan copy leaks internal terms: ${copy}`);
     assert.ok(copy.length <= 160, "copy stays short enough for a child to read");
   }
+});
+
+test("reinterpretation copy is child-safe, short, and honest about what happens", () => {
+  const labels = ["platformer", "maze", "runner", "slingshot"].map((genre) => {
+    const label = reinterpretOfferLabel(genre);
+    assert.ok(label, `${genre} must have an offer label`);
+    return label as string;
+  });
+  assert.equal(new Set(labels).size, 4, "each offered genre reads as a distinct kind of game");
+  assert.equal(
+    reinterpretOfferLabel("tower_defense"),
+    null,
+    "an unnamed genre is never offered rather than shown with internal vocabulary",
+  );
+  const messages = [
+    ...labels,
+    reinterpretWorkingMessage(),
+    reinterpretArrivedMessage(),
+    reinterpretReturnMessage(),
+    reinterpretFailedMessage(),
+  ];
+  for (const copy of messages) {
+    assert.equal(INTERNAL_TERMS.test(copy), false, `reinterpret copy leaks internal terms: ${copy}`);
+    assert.equal(/genre|reinterpret|certif|gate/i.test(copy), false, `reinterpret copy leaks jargon: ${copy}`);
+    assert.ok(copy.length <= 90, `reinterpret copy too long for a child: ${copy}`);
+    assert.ok(copy.trim().length > 0);
+  }
+  assert.match(reinterpretWorkingMessage(), /test/i, "the wait copy says the new version is really tested");
+  assert.match(reinterpretFailedMessage(), /stayed/i, "failure says plainly the game did not change");
 });

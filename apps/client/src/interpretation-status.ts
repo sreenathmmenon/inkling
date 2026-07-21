@@ -135,6 +135,48 @@ export function rescanGrowthNotice(carriedCount: number, previouslyCollectedCoun
   return "Your world grew! Go see what changed.";
 }
 
+/**
+ * Child-readable names for the genres the one-tap reinterpretation can offer.
+ * Only genres named here are ever offered — an unknown alternate is honestly
+ * not a choice the child can make.
+ */
+const GENRE_NOUNS: Record<string, string> = {
+  platformer: "jumping adventure",
+  maze: "maze",
+  runner: "running dash",
+  slingshot: "slingshot game",
+};
+
+/**
+ * Label for the one-tap "play the same drawing another way" control, or null
+ * when the offered genre has no child-readable name and must stay hidden.
+ */
+export function reinterpretOfferLabel(offeredGenre: string): string | null {
+  const noun = GENRE_NOUNS[offeredGenre];
+  if (!noun) return null;
+  return `Play it as a ${noun}!`;
+}
+
+/** Honest status while the alternate version is rebuilt and tested. */
+export function reinterpretWorkingMessage(): string {
+  return "Rebuilding your same drawing as a new kind of game and testing it now.";
+}
+
+/** Announced when the certified alternate version starts playing. */
+export function reinterpretArrivedMessage(): string {
+  return "Same drawing, new adventure! Tap the switch button to go back any time.";
+}
+
+/** Announced when the child taps back to the version they played first. */
+export function reinterpretReturnMessage(): string {
+  return "Back to the first way you played it!";
+}
+
+/** Honest, gentle line when the alternate version could not be made ready. */
+export function reinterpretFailedMessage(): string {
+  return "That version is not ready, so your game stayed just as it was.";
+}
+
 const MAX_CORRECTIONS = 6;
 const MAX_CORRECTION_LENGTH = 240;
 

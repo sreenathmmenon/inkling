@@ -124,6 +124,7 @@ let game: Phaser.Game | undefined;
 let playSequence = 0;
 let playerModule: typeof import("../../../packages/runtime/src/platformer.js") | undefined;
 let playerModulePromise: Promise<typeof import("../../../packages/runtime/src/platformer.js")> | undefined;
+let playerLoadAttempt = 0;
 let preparedDrawing: PreparedDrawing | undefined;
 let sourceDrawingFile: File | undefined;
 let preparationSequence = 0;
@@ -207,11 +208,14 @@ const STAGES: Array<{ id: GenerationStage; title: string; detail: string }> = [
 function loadPlayer(): Promise<typeof import("../../../packages/runtime/src/platformer.js")> {
   if (playerModule) return Promise.resolve(playerModule);
   if (playerModulePromise) return playerModulePromise;
-  // One module identity: a network-failed dynamic import is retriable with
-  // the same specifier (failed fetches are not committed to the module map),
-  // so a child recovers in place by tapping Play again when connectivity
-  // returns — without bundling a duplicate copy of the player.
-  playerModulePromise = import("../../../packages/runtime/src/platformer.js").then((loaded) => {
+  const load = playerLoadAttempt++ === 0
+    ? import("../../../packages/runtime/src/platformer.js")
+    // A failed module fetch is cached for the lifetime of the document. The
+    // retry identity lets a child recover in place when connectivity returns;
+    // its duplicate chunk is the deliberate price of that recovery.
+    // @ts-expect-error Vite treats this query as a distinct retry module.
+    : import("../../../packages/runtime/src/platformer.js?retry");
+  playerModulePromise = load.then((loaded) => {
     playerModule = loaded;
     return loaded;
   }).catch((error: unknown) => {

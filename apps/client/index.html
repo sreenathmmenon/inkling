@@ -46,7 +46,9 @@
             <label class="file-label primary-action choose-action" for="drawing-file">
               <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7.5A2.5 2.5 0 0 1 6.5 5h2l1.2-1.5h4.6L15.5 5h2A2.5 2.5 0 0 1 20 7.5v9a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5v-9Z" /><circle cx="12" cy="12" r="3.4" /></svg>
               Take or choose a drawing
-              <input id="drawing-file" type="file" accept="image/gif,image/jpeg,image/png,image/webp" capture="environment" />
+              <!-- No capture attribute: the OS chooser offers camera AND photo
+                   library, so an already-taken photo of the paper works too. -->
+              <input id="drawing-file" type="file" accept="image/gif,image/jpeg,image/png,image/webp" />
             </label>
             <button id="make-game" class="primary-action make-action" type="button" disabled>
               Make my game

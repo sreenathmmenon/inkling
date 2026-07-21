@@ -518,18 +518,31 @@ export function createPlatformerPlan(
     };
 
   const drawnMazeWalls = platforms.filter((platform) => platform.id !== safetyFloor.id);
-  const mazeTopologyFallback = contract.id === "maze" && !mazeTopologyIsFinishable({
-    hero,
-    goal,
-    walls: drawnMazeWalls,
-    doors,
-    hazards,
-    collectibles,
-    requiredCollectibleIds: [...new Set(requiredCollectibleIds)],
-    relationships,
-    collectAll: goalKind === "collect_all",
-    colliderScale: contract.colliderScale,
-  });
+  // Children regularly draw the maze-runner larger than the corridors, and the
+  // drawing sets the maze's scale. The hero's planned size therefore shrinks in
+  // fixed deterministic steps until the drawn topology admits a route; a maze
+  // that no reasonable size can finish is honestly sealed. Geometry-only: no
+  // drawing subject, filename, or model verdict participates.
+  const mazeHeroCandidates = [1, 0.85, 0.72, 0.6, 0.5].map((scale) => (scale === 1 ? hero : {
+    ...hero,
+    width: Math.max(34, Math.round(hero.width * scale)),
+    height: Math.max(34, Math.round(hero.height * scale)),
+  }));
+  const fittedMazeHero = contract.id === "maze"
+    ? mazeHeroCandidates.find((candidate) => mazeTopologyIsFinishable({
+      hero: candidate,
+      goal,
+      walls: drawnMazeWalls,
+      doors,
+      hazards,
+      collectibles,
+      requiredCollectibleIds: [...new Set(requiredCollectibleIds)],
+      relationships,
+      collectAll: goalKind === "collect_all",
+      colliderScale: contract.colliderScale,
+    }))
+    : hero;
+  const mazeTopologyFallback = contract.id === "maze" && fittedMazeHero === undefined;
 
   return {
     title: spec.hero.name,
@@ -540,7 +553,7 @@ export function createPlatformerPlan(
     lives: clamp(Math.round(spec.rules.lives || 3), 1, 9),
     goalKind,
     modifiers,
-    hero,
+    hero: fittedMazeHero ?? hero,
     platforms,
     doors,
     waterVolumes,

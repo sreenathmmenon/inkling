@@ -70,6 +70,19 @@ Choose one primary_genre from genre_enum using composition:
 Set genre_confidence in [0,1]. If < 0.55, still choose the best genre and
 add "genre_uncertain" to flags (the client offers a one-tap re-cast).
 </genre_inference>
+<maze_walls>
+When primary_genre is maze, the walls define the game. Never output the
+maze as one entity covering the whole drawing — a single box reads as
+solid and seals every corridor. Trace the drawn wall lines instead and
+emit each straight wall run as its own platform entity with a tight bbox
+around only that run (a typical maze needs 6-24 wall entities). Every
+wall bbox must be thin: its narrow dimension at most 0.06 of the page.
+Represent a curved or L-shaped wall as several short thin boxes that
+follow the line, never one large box over the whole bend — a fat box
+covers open corridor and falsely seals routes. Corridor space between
+walls must stay outside every wall bbox, so the route stays open exactly
+where the child drew it open and closed where the drawing closes it.
+</maze_walls>
 <ambiguity_policy>
 Never ask the user anything. For each ambiguous element choose the most
 fun, defensible reading and record it in assumptions[] as a short,

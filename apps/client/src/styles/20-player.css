@@ -96,8 +96,10 @@ body.play-mode.touch-controls.game-won #accessible-controls,
 body.play-mode.touch-controls.game-lost #accessible-controls,
 body.play-mode.touch-controls.player-error #accessible-controls { display: none; }
 
-/* Assumption chips: the model's guesses, correctable by one tap. */
-#assumption-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 0; padding: 0; list-style: none; }
+/* Assumption chips: the model's guesses, correctable by one tap. They span the
+   full toolbar width as their own grid row so long generated copy never
+   squeezes beside the toolbar actions. */
+#assumption-chips { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 0; padding: 0; list-style: none; grid-column: 1 / -1; }
 #assumption-chips li { display: contents; }
 .assumption-chip { min-height: 44px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: #fff; font: inherit; font-size: .82rem; line-height: 1.25; color: var(--ink-soft); cursor: pointer; text-align: left; }
 .assumption-chip:focus-visible { outline: 3px solid var(--violet); outline-offset: 2px; }

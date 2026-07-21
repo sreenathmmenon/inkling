@@ -64,6 +64,11 @@
   #objective-title { font-size: 1.16rem; }
   #objective-detail { max-width: 34ch; margin-top: 3px; font-size: .78rem; line-height: 1.3; }
   #interpretation-note { max-width: 33ch; padding: 5px 8px; font-size: .7rem; }
+  /* Interpretation chips collapse to one swipeable row on narrow screens so the
+     toolbar keeps a bounded height and never pushes the canvas or the controls
+     out of the first viewport, no matter how many guesses were generated. */
+  #assumption-chips { flex-wrap: nowrap; overflow-x: auto; -webkit-overflow-scrolling: touch; padding: 2px 2px 6px; scroll-snap-type: x proximity; scrollbar-width: thin; }
+  .assumption-chip { flex: 0 0 auto; max-width: min(72vw, 290px); scroll-snap-align: start; }
   .new-drawing-action { min-width: 48px; min-height: 48px; padding: 0; font-size: 0; }
   .new-drawing-action svg { width: 21px; }
   body.game-won .new-drawing-action { padding: 0 11px; font-size: .72rem; }

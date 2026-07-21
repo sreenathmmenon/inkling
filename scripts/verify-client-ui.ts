@@ -127,7 +127,7 @@ try {
         focusStolen: document.activeElement !== document.body,
       };
     });
-    assert.equal(sampleContract.count, 3, `sample game row must offer exactly three games: ${JSON.stringify(sampleContract)}`);
+    assert.equal(sampleContract.count, 2, `sample game row must offer exactly the shipped samples: ${JSON.stringify(sampleContract)}`);
     assert.ok(sampleContract.geometry.every((box) => box.width >= 48 && box.height >= 48), `sample game targets are too small at ${viewport.width}x${viewport.height}: ${JSON.stringify(sampleContract.geometry)}`);
     assert.ok(sampleContract.names.every((name) => name.length > 0 && name.split(/\s+/).length <= 5), `sample game names are missing or too long: ${JSON.stringify(sampleContract.names)}`);
     assert.ok(sampleContract.types.every((type) => type === "button"), "sample game buttons must not submit anything");
@@ -142,7 +142,7 @@ try {
   // shipped with the build are genuinely playable, not just present.
   const samplePlay = await browser.newPage({ viewport: { width: 390, height: 844 } });
   await samplePlay.goto(baseUrl);
-  await samplePlay.locator('#sample-games .sample-game[data-sample="rocket"]').click();
+  await samplePlay.locator('#sample-games .sample-game[data-sample="caterpillar"]').click();
   await samplePlay.waitForSelector("body.play-mode", { timeout: 45_000 });
   await samplePlay.waitForFunction(
     () => document.querySelector("#game-status")?.getAttribute("data-game-state") === "playing",

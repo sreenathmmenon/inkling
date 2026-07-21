@@ -1747,9 +1747,17 @@ class PlatformerScene extends Phaser.Scene {
         })
         .map((decoration) => decoration.id),
     );
+    // Surfaces never move and repaint their own strokes in place, so they
+    // stay in the backdrop — erasing them punched band-colored holes in the
+    // page. Only entities that MOVE or DISAPPEAR (hero, hazards, pickups,
+    // doors) are erased, so nothing ever shows twice or lingers after use.
+    const surfaceIds = new Set([
+      ...this.plan.platforms.map((platform) => platform.id),
+      ...this.plan.waterVolumes.map((water) => water.id),
+    ]);
     const entityRects: NormalizedBounds[] = [];
     for (const [entityId, crop] of Object.entries(this.artwork.entityCrops)) {
-      if (!sceneryIds.has(entityId)) entityRects.push(crop);
+      if (!sceneryIds.has(entityId) && !surfaceIds.has(entityId)) entityRects.push(crop);
     }
     this.eraseSourceRects(texture, entityRects, source.width, source.height);
     texture.refresh();

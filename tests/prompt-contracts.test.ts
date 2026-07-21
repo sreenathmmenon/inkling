@@ -109,3 +109,39 @@ test("every declared prompt file exists and is non-trivial", () => {
     assert.ok(text.trim().length > 80, `${call.id} prompt must not be hollow`);
   }
 });
+
+test("every prompt's task framing agrees with its declared invocation", () => {
+  // Fan-out calls are invoked once per item; their prompts must frame the
+  // task per-entity — the batch framing on P7 burned entire session budgets
+  // on cross-entity modules before this was checked.
+  for (const call of spec.calls) {
+    const text = prompt(call.id);
+    if (call.fan_out_over) {
+      assert.match(text, /exactly ONE behavior module for the single entity/, `${call.id} must be framed per-item`);
+      assert.match(text, /Never write modules for any other entity/, `${call.id} must forbid cross-item output`);
+    }
+    // A "Return {...}" promise in a schema-bearing prompt may only name
+    // fields the strict schema actually accepts (closed objects reject the
+    // rest, so a promised-but-forbidden field misleads the model).
+    if (call.schema) {
+      const document = JSON.parse(loadText(root, call.schema)) as {
+        schema: { properties?: Record<string, unknown> };
+      };
+      const properties = new Set(Object.keys(document.schema.properties ?? {}));
+      const promises = text.match(/Return\s*\{([^}]+)\}/g) ?? [];
+      for (const promise of promises) {
+        for (const field of promise.matchAll(/(?:\{|,)\s*(\w+)\s*[:?]/g)) {
+          const name = field[1];
+          if (!name) continue;
+          assert.ok(
+            properties.has(name),
+            `${call.id} promises "${name}" which its strict schema does not accept`,
+          );
+        }
+      }
+    }
+  }
+  assert.doesNotMatch(prompt("P10"), /change_summary/, "P10 must not promise fields its closed schema forbids");
+  assert.match(prompt("P9"), /spec_diff_json/, "P9 must name the serialized field the schema requires");
+  assert.doesNotMatch(prompt("P1"), /cropping/, "P1 must not promise escalation behavior the runner does not perform");
+});

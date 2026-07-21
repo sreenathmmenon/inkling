@@ -19,5 +19,5 @@ Do not describe the content.
 </on_block>
 <success_criteria>
 verdict in {"allow","block","uncertain"}; on uncertain, the caller re-runs
-this at effort low with tighter cropping.
+this once at effort low with the same image.
 </success_criteria>

@@ -5,6 +5,7 @@ import { extname, resolve } from "node:path";
 
 import { generateDrawingGame } from "../services/gen/src/drawing-service.js";
 import type { RequestTrace } from "../runner/types.js";
+import { trackPeakOffset } from "../packages/runtime/src/behavior-track.js";
 import {
   collectDrawingFiles,
   contentHash,
@@ -190,6 +191,12 @@ async function runCase(file: DrawingFile): Promise<DrawingCaseResult> {
       safetyRecast: metrics.safetyRecast,
       objectiveFallback: metrics.objectiveFallback,
       recastRung: metrics.recastRung,
+      trackPeaks: Object.fromEntries(
+        Object.entries(generated.scan.behaviorTracks).map(([entityId, track]) => [
+          entityId,
+          Math.round(trackPeakOffset(track.offsets) * 10) / 10,
+        ]),
+      ),
       calls: metrics.calls,
       degraded: generated.scan.degraded.map(safeError),
       ...(extractedBehaviors !== undefined ? { extractedBehaviors } : {}),

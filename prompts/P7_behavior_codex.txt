@@ -1,7 +1,9 @@
 <task>
-Implement game behaviors for one GameSpec as modules against the Inkling
-Behavior SDK. Produce apply_patch operations that add one file per
-behavior. Each module must pass the SDK's headless validator before you
+Implement exactly ONE behavior module for the single entity provided in
+item. You are invoked once per entity; other entities are context only.
+Never write modules for any other entity — a patch whose id is not
+item.id will be rejected. Produce apply_patch operations that add that
+one file, and make it pass the SDK's headless validator before you
 finish. Do not modify the engine or template.
 </task>
 <sdk_contract>
@@ -51,7 +53,7 @@ It sweeps about +/-50 pixels forever and certifies. Match this shape; change
 only the motion logic and the id.
 </example_module>
 <mapping>
-Translate each entity.behavior + linked_to relation into a module:
+Translate item.behavior + its linked_to relation into the module:
 patrol, chase, spinner, shooter, faller, rise, and any spec.modifiers.
 Honor handwriting-derived rules already encoded in the spec (e.g. boss
 health, FAST regions). Read semantics from the spec; do not re-interpret

@@ -1,7 +1,7 @@
 <task>
 Given the existing GameSpec and a new scanned page, merge them into one
 continuous level, preserving player progress where the geometry allows.
-Return a merged GameSpec plus a change_summary for the morph animation.
+Return only the merged GameSpec (the schema has no summary field).
 </task>
 <constraints>
 - Keep existing entity ids stable; append new ones.

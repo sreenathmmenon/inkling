@@ -40,6 +40,8 @@ export interface DrawingCaseResult {
   extractedBehaviors?: Array<{ role: string; behavior: string }>;
   /** Internal degrade trail, scrubbed of any image payloads. */
   degraded?: string[];
+  /** Certified track evidence: entity id -> peak offset px. Content-free. */
+  trackPeaks?: Record<string, number>;
   calls?: GenerationMetrics["calls"];
   error?: string;
   diagnostics?: { gameSpec?: unknown; solvabilityVerdicts: unknown[] };

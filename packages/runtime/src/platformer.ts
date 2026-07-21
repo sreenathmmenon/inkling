@@ -1753,8 +1753,9 @@ class PlatformerScene extends Phaser.Scene {
     this.add
       .image(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, key)
       .setDisplaySize(WORLD_WIDTH, WORLD_HEIGHT)
+      // Full strength: dimming the page greys the child's white paper through
+      // the palette bands beneath. Entities still win by depth, not by fade.
       .setDepth(-4)
-      .setAlpha(0.88)
       .setData("inklingPresentation", "page-backdrop");
   }
 

@@ -210,8 +210,9 @@ try {
   const pageBackdrops = artworkImages.filter((image) => image.presentation === "page-backdrop");
   assert.ok(pageBackdrops.length <= 1, "at most one page backdrop may render");
   for (const backdrop of pageBackdrops) {
+    // Depth, not fade, keeps the backdrop behind entity art: dimming it greys
+    // the child's white paper through the palette bands beneath.
     assert.ok((backdrop.depth ?? 0) < 0, "the page backdrop must sit behind every entity");
-    assert.ok((backdrop.alpha ?? 1) <= 0.9, "the page backdrop must stay softer than entity art");
   }
   for (const image of artworkImages) {
     if (image.presentation === "page-backdrop") continue;

@@ -1,10 +1,14 @@
 <task>
-Given the existing GameSpec and a new scanned page, merge them into one
-continuous level, preserving player progress where the geometry allows.
+Given the existing GameSpec and a new scan of the child's changed paper (the
+same page edited, or an added page), merge them into one continuous level,
+preserving player progress where the geometry allows.
 Return only the merged GameSpec (the schema has no summary field).
 </task>
 <constraints>
-- Keep existing entity ids stable; append new ones.
+- Entities still present on the paper keep their existing ids unchanged.
+- New drawings become new entities with new ids, appended after existing ones.
+- Marks the child erased are removed from the merged spec: an erased wall
+  opens a gap. Never keep an entity the paper no longer shows.
 - Resolve the seam (how page B connects to page A) as a traversable link.
 - Do not restyle or move existing entities beyond the seam join.
 </constraints>

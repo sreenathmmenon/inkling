@@ -1110,3 +1110,278 @@ test("share moderation cannot be reached without passing P8 evidence", async () 
     /production-runtime replay receipt/,
   );
 });
+
+const RESCAN_IMAGE = "data:image/png;base64,cGFnZS10d28=";
+
+function rescanClient(respond: (callId: string) => unknown): {
+  client: ResponsesClient;
+  order: string[];
+  onRequest: (trace: { callId: string }) => void;
+} {
+  const order: string[] = [];
+  let activeCallId = "";
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        return {
+          id: `mock-${activeCallId}`,
+          output_text: JSON.stringify(respond(activeCallId)),
+          output: [],
+        };
+      },
+    },
+  };
+  return {
+    client,
+    order,
+    onRequest(trace) {
+      activeCallId = trace.callId;
+      order.push(trace.callId);
+    },
+  };
+}
+
+test("a rescan stitch runs P1 first and gates the merged world through the full P8 loop", async () => {
+  const mock = rescanClient((callId) => (
+    callId === "P1" ? { verdict: "allow", reason_code: "none" }
+      : callId === "P10" ? SHAREABLE_GAME_SPEC
+      : callId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" }
+      : {}
+  ));
+  const result = await runMultipageStitch(
+    { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), image_new: RESCAN_IMAGE },
+    { safetyId: "rescan-gate-user", client: mock.client, onRequest: mock.onRequest },
+  );
+  assert.deepEqual(mock.order, ["P1", "P10", "P8"], "the rescan path runs exactly the ordered gates");
+  assert.equal(result.solvability.verdict, "ready");
+  assert.equal(result.playtestReport.reached_goal, true);
+  assert.equal(result.metrics.p8Iterations, 1);
+  assert.equal(result.metrics.recastRung, null);
+  assert.deepEqual(result.gameSpec.entities.map((entity) => entity.id), ["floor", "finish"]);
+});
+
+test("a blocked rescan capture stops before any stitch call", async () => {
+  const mock = rescanClient((callId) => (
+    callId === "P1" ? { verdict: "block", reason_code: "personal_data" } : {}
+  ));
+  await assert.rejects(
+    runMultipageStitch(
+      { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), image_new: RESCAN_IMAGE },
+      { safetyId: "rescan-blocked-user", client: mock.client, onRequest: mock.onRequest },
+    ),
+    (error: unknown) => error instanceof PipelineBlocked && error.callId === "P1",
+  );
+  assert.deepEqual(mock.order, ["P1"], "a blocked capture never reaches the stitch or the gate");
+});
+
+test("a stitched world that fails the playtest is laddered through the same recast gate as a first scan", async () => {
+  assert.equal(runPlaytest(BLOCKED_GAME_SPEC).reached_goal, false);
+  const mock = rescanClient((callId) => (
+    callId === "P1" ? { verdict: "allow", reason_code: "none" }
+      : callId === "P10" ? BLOCKED_GAME_SPEC
+      : callId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" }
+      : {}
+  ));
+  const result = await runMultipageStitch(
+    { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), image_new: RESCAN_IMAGE },
+    { safetyId: "rescan-ladder-user", client: mock.client, onRequest: mock.onRequest },
+  );
+  assert.ok(result.degraded.some((entry) => entry.startsWith("P8:false_ready:")));
+  assert.ok(result.degraded.includes("P8:recast_ladder:objective_fallback"));
+  assert.equal(result.metrics.recastRung, "objective_fallback");
+  assert.equal(result.playtestReport.reached_goal, true, "the adopted rung is re-certified by the deterministic playtest");
+  assert.equal(
+    result.gameSpec.entities.find((entity) => entity.id === "door")?.role,
+    "door",
+    "the drawn door keeps its role instead of becoming scenery",
+  );
+});
+
+test("a rescan the model never certifies exhausts the gate and fails closed", async () => {
+  const mock = rescanClient((callId) => (
+    callId === "P1" ? { verdict: "allow", reason_code: "none" }
+      : callId === "P10" ? SHAREABLE_GAME_SPEC
+      : callId === "P8" ? { verdict: "repair", repairs: null, fallback: null }
+      : {}
+  ));
+  await assert.rejects(
+    runMultipageStitch(
+      { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), image_new: RESCAN_IMAGE },
+      { safetyId: "rescan-exhaust-user", client: mock.client, onRequest: mock.onRequest },
+    ),
+    SolvabilityError,
+  );
+  assert.equal(
+    mock.order.filter((callId) => callId === "P8").length,
+    4,
+    "all four declared P8 attempts run before fail-closed exhaustion",
+  );
+});
+
+test("an invalid stitched result fails closed without substituting a fallback world", async () => {
+  const mock = rescanClient((callId) => (
+    callId === "P1" ? { verdict: "allow", reason_code: "none" }
+      : callId === "P10" ? { nonsense: true }
+      : {}
+  ));
+  await assert.rejects(
+    runMultipageStitch(
+      { gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC), image_new: RESCAN_IMAGE },
+      { safetyId: "rescan-shape-user", client: mock.client, onRequest: mock.onRequest },
+    ),
+    ModelOutputError,
+  );
+  assert.equal(mock.order.includes("P8"), false, "no gate ever certifies a malformed stitched spec");
+});
+
+test("stale behavior tracks are pruned to entities that survive the merge", async () => {
+  const merged = structuredClone(SHAREABLE_GAME_SPEC);
+  merged.entities.push({
+    id: "walker",
+    role: "enemy",
+    bbox: [0.1, 0.1, 0.18, 0.2],
+    behavior: "patrol",
+    linked_to: null,
+    style_ref: "source",
+  });
+  const track = (entityId: string) => ({
+    format: "inkling-behavior-track-v1" as const,
+    entityId,
+    dt: 1 / 60,
+    offsets: [[12, 0]] as Array<[number, number]>,
+  });
+  const mock = rescanClient((callId) => (
+    callId === "P1" ? { verdict: "allow", reason_code: "none" }
+      : callId === "P10" ? merged
+      : callId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" }
+      : {}
+  ));
+  const result = await runMultipageStitch(
+    {
+      gamespec_existing: structuredClone(SHAREABLE_GAME_SPEC),
+      image_new: RESCAN_IMAGE,
+      behaviorTracks: { walker: track("walker"), ghost: track("ghost") },
+    },
+    { safetyId: "rescan-track-user", client: mock.client, onRequest: mock.onRequest },
+  );
+  assert.deepEqual(
+    Object.keys(result.behaviorTracks),
+    ["walker"],
+    "only tracks whose entity survived the merge stay certified",
+  );
+  assert.equal(result.playtestReport.reached_goal, true);
+});
+
+const RESCAN_PREVIOUS_GAME = {
+  format: "inkling-playable-game-v1",
+  gameSpec: SHAREABLE_GAME_SPEC,
+  artwork: null,
+  readinessEvidence: null,
+};
+
+test("HTTP rescan accepts the prior document, streams coarse stages, and re-gates the merged world", async () => {
+  const order: string[] = [];
+  const qualityRecords: unknown[] = [];
+  const handler = createDrawingGenerationStreamHandler({
+    dryRun: true,
+    resolveSafetyId() {
+      return SERVICE_SAFETY_ID;
+    },
+    onRequest(trace) {
+      order.push(trace.callId);
+    },
+    onGenerationRecord(record) {
+      qualityRecords.push(record);
+    },
+  });
+  const response = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      image: "data:image/png;base64,aGVsbG8=",
+      request_id: REQUEST_ID,
+      previous_game: RESCAN_PREVIOUS_GAME,
+    }),
+  }));
+  assert.equal(response.status, 200);
+  const events = (await response.text()).trim().split("\n\n").map((line) => (
+    JSON.parse(line.slice("data: ".length)) as {
+      type: string;
+      stage?: string;
+      playableGame?: { format?: string; gameSpec?: unknown; artwork?: unknown };
+    }
+  ));
+  assert.deepEqual(order, ["P1", "P10", "P8"], "the rescan generation runs only the ordered gates");
+  assert.ok(events.some((event) => event.stage === "understanding"), "P10 reports the same coarse vocabulary");
+  assert.ok(events.some((event) => event.stage === "testing"));
+  assert.equal(events.some((event) => event.stage === "animating"), false);
+  const complete = events.at(-1);
+  assert.equal(complete?.type, "complete");
+  assert.equal(complete?.playableGame?.format, "inkling-playable-game-v1");
+  assert.ok(complete?.playableGame?.artwork, "the new capture becomes the artwork source");
+  assert.equal(qualityRecords.length, 1);
+  assert.equal((qualityRecords[0] as Record<string, unknown>).outcome, "playable");
+});
+
+test("HTTP rescan payload validation rejects malformed documents and remote artwork", async () => {
+  const handler = createDrawingGenerationHandler({
+    dryRun: true,
+    resolveSafetyId() {
+      return SERVICE_SAFETY_ID;
+    },
+  });
+  const post = (previousGame: unknown) => handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      image: "data:image/png;base64,aGVsbG8=",
+      request_id: REQUEST_ID,
+      previous_game: previousGame,
+    }),
+  }));
+
+  for (const malformed of [
+    "not-a-document",
+    42,
+    { format: "not-a-playable-game" },
+    { format: "inkling-playable-game-v1", gameSpec: { primary_genre: "platformer" } },
+    {
+      format: "inkling-playable-game-v1",
+      gameSpec: SHAREABLE_GAME_SPEC,
+      artwork: {
+        format: "inkling-artwork-v1",
+        sourceDataUrl: "https://remote.example/drawing.png",
+        entityCrops: {},
+      },
+    },
+  ]) {
+    const response = await post(malformed);
+    assert.equal(response.status, 400, `previous_game ${JSON.stringify(malformed).slice(0, 60)} must be rejected`);
+    const body = await response.json() as { error?: string };
+    assert.equal(body.error, "invalid_drawing_request");
+  }
+
+  const accepted = await post(RESCAN_PREVIOUS_GAME);
+  assert.equal(accepted.status, 201, "a valid self-contained document is accepted");
+
+  await assert.rejects(
+    generateDrawingGame(
+      {
+        image: "data:image/png;base64,aGVsbG8=",
+        safetyId: SERVICE_SAFETY_ID,
+        previousGame: {
+          format: "inkling-playable-game-v1",
+          gameSpec: SHAREABLE_GAME_SPEC,
+          artwork: {
+            format: "inkling-artwork-v1",
+            sourceDataUrl: "https://remote.example/drawing.png",
+            entityCrops: {},
+          },
+        },
+      },
+      { dryRun: true },
+    ),
+    /inline image data URL/,
+    "remote artwork in a prior document is rejected at the service boundary too",
+  );
+});

@@ -1,9 +1,12 @@
-import { runDrawingScan } from "../../../runner/pipeline.js";
-import type { RunnerOptions, ScanResult } from "../../../runner/types.js";
+import { isGameSpec, runDrawingScan, runMultipageStitch } from "../../../runner/pipeline.js";
+import type { GameSpec, RunnerOptions, ScanResult } from "../../../runner/types.js";
 import {
   createPlayableGameDocument,
+  isInlineArtworkDataUrl,
+  resolvePlayableGame,
   type PlayableGameDocument,
 } from "../../../packages/runtime/src/artwork.js";
+import type { BehaviorMotionTrack } from "../../../packages/runtime/src/behavior-track.js";
 
 const INLINE_IMAGE = /^data:image\/(?:gif|jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/i;
 const SHA256_IDENTIFIER = /^[a-f0-9]{64}$/i;
@@ -15,6 +18,12 @@ export interface DrawingGenerationRequest {
   /** Per-user privacy-preserving identifier supplied by the authenticated service boundary. */
   safetyId: string;
   context?: unknown;
+  /**
+   * The prior playable document for a rescan of the child's changed paper.
+   * When present, the image is treated as a new capture to stitch onto the
+   * existing world; the merged spec still passes every ordered gate.
+   */
+  previousGame?: unknown;
 }
 
 export interface DrawingGenerationOptions {
@@ -30,6 +39,45 @@ export interface DrawingGenerationOptions {
 export interface GeneratedDrawingGame {
   scan: ScanResult;
   playableGame: PlayableGameDocument;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+interface RescanPreviousGame {
+  gameSpec: GameSpec;
+  behaviorTracks: Record<string, BehaviorMotionTrack>;
+  backdrop: unknown;
+  soundPack: unknown;
+}
+
+/**
+ * A rescan may only grow an already-earned world. The prior document is
+ * re-validated here like any other untrusted input, and remote artwork is
+ * rejected outright: playable documents are self-contained and network-free
+ * by contract. Every failure message starts with "Drawing input" so the HTTP
+ * boundary reports it as an invalid request, never a service fault.
+ */
+function parseRescanPreviousGame(value: unknown): RescanPreviousGame {
+  if (!isRecord(value) || value.format !== "inkling-playable-game-v1") {
+    throw new Error("Drawing input previous_game must be an inkling-playable-game-v1 document");
+  }
+  if (value.artwork !== undefined && value.artwork !== null) {
+    if (!isRecord(value.artwork) || !isInlineArtworkDataUrl(value.artwork.sourceDataUrl)) {
+      throw new Error("Drawing input previous_game artwork must be an inline image data URL");
+    }
+  }
+  const resolved = resolvePlayableGame(value);
+  if (!isGameSpec(resolved.gameSpec)) {
+    throw new Error("Drawing input previous_game does not carry a valid GameSpec");
+  }
+  return {
+    gameSpec: resolved.gameSpec,
+    behaviorTracks: resolved.behaviorTracks,
+    backdrop: value.backdrop,
+    soundPack: value.soundPack,
+  };
 }
 
 function inlineImageBytes(dataUrl: string): number | undefined {
@@ -72,6 +120,36 @@ export async function generateDrawingGame(
   if (options.offline !== undefined) runnerOptions.offline = options.offline;
   if (options.onRequest) runnerOptions.onRequest = options.onRequest;
   if (options.onResult) runnerOptions.onResult = options.onResult;
+
+  if (request.previousGame !== undefined) {
+    const previous = parseRescanPreviousGame(request.previousGame);
+    const scan = await runMultipageStitch(
+      {
+        gamespec_existing: previous.gameSpec,
+        image_new: request.image,
+        behaviorTracks: previous.behaviorTracks,
+      },
+      runnerOptions,
+    );
+    return {
+      scan,
+      // Reached only after the rescan passed P1, strict stitched-spec
+      // validation, and the same P8 certify loop as a first scan. The new
+      // capture becomes the artwork source — the child photographed the
+      // changed paper — so the prior hero rig, which was fitted to the old
+      // capture's coordinates, is deliberately dropped in favor of the
+      // deterministic puppet fallback. The prior backdrop and sound plans
+      // carry forward so the world grows instead of changing character.
+      playableGame: createPlayableGameDocument(scan.gameSpec, request.image, undefined, {
+        playtestReport: scan.playtestReport,
+        solvability: scan.solvability,
+      }, scan.behaviorTracks, {
+        backdrop: previous.backdrop,
+        soundPack: previous.soundPack,
+      }),
+    };
+  }
+
   const scan = await runDrawingScan(
     { image: request.image, context: request.context ?? {} },
     runnerOptions,

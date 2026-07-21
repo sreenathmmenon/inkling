@@ -155,7 +155,7 @@ function fallbackGameSpec(): GameSpec {
   };
 }
 
-function isGameSpec(value: unknown): value is GameSpec {
+export function isGameSpec(value: unknown): value is GameSpec {
   if (!isRecord(value)) return false;
   return (
     typeof value.primary_genre === "string" &&
@@ -1030,6 +1030,100 @@ class PipelineRunner {
     if (isGameSpec(base.gamespec)) state.gamespec = base.gamespec;
     return this.structured(this.call(callId), state);
   }
+
+  /**
+   * The physical rescan loop: the child edits their paper and rescans it.
+   * The merged world passes the SAME ordered gates as a first scan — P1 on
+   * the new capture, strict schema plus shape validation on the stitched
+   * GameSpec, then the full P8 certify loop (bounded repair, recast ladder,
+   * deterministic playtest that the model can never overrule). There is
+   * deliberately no fallback-spec substitution on this path: a rescan that
+   * cannot be gated fails closed, and the child keeps their previous,
+   * already-certified game instead of a generic replacement world.
+   */
+  async rescan(input: {
+    gamespec_existing: GameSpec;
+    image_new: string;
+    behaviorTracks?: Record<string, BehaviorMotionTrack>;
+  }): Promise<ScanResult> {
+    const scanStartedAt = performance.now();
+    const state: ExecutionState = {
+      image: input.image_new,
+      image_new: input.image_new,
+      gamespec_existing: input.gamespec_existing,
+      new_page_scanned: true,
+      results: {},
+    };
+
+    // P1 runs on the changed paper before any generation, exactly as it does
+    // for a first scan; an unresolved or blocking verdict stops everything.
+    const safety = this.call("P1");
+    const safetyVerdict = await this.structured(safety, state);
+    state.results[safety.id] = safetyVerdict;
+    if (safety.blocks_pipeline_on && gateBlocks(safety.blocks_pipeline_on, safetyVerdict)) {
+      throw new PipelineBlocked(safety.id, safetyVerdict);
+    }
+
+    const stitch = this.call("P10");
+    const merged = await this.structured(stitch, state);
+    if (!isGameSpec(merged)) {
+      throw new ModelOutputError(stitch.id, "invalid stitched GameSpec shape");
+    }
+    let gameSpec = normalizeNullableGameSpec(clone(merged));
+    gameSpec.mood ??= "genre-base";
+    state.results[stitch.id] = gameSpec;
+    state.results.P2 = gameSpec;
+    state.gamespec = gameSpec;
+
+    // Only certified tracks whose entity survived the merge with the same
+    // animatable dynamic contract keep moving. Everything else is dropped
+    // with its entity so stale motion can never replay into the grown world.
+    const behaviorTracks: Record<string, BehaviorMotionTrack> = {};
+    for (const [entityId, track] of Object.entries(input.behaviorTracks ?? {})) {
+      const survivor = gameSpec.entities.find((entity) => entity.id === entityId);
+      if (
+        survivor &&
+        DYNAMIC_BEHAVIORS.has(survivor.behavior) &&
+        TRACK_ANIMATABLE_ROLES.has(survivor.role)
+      ) {
+        behaviorTracks[entityId] = track;
+      }
+    }
+
+    const behaviorPatches: BehaviorPatch[] = [];
+    const behaviorFallbacks: Record<string, "static"> = {};
+    const certified = await this.certifySolvability(this.call("P8"), state, {
+      gameSpec,
+      extractionResultId: stitch.id,
+      behaviorPatches,
+      behaviorFallbacks,
+      behaviorTracks,
+    });
+    gameSpec = certified.gameSpec;
+
+    const metrics: GenerationMetrics = {
+      totalDurationMs: performance.now() - scanStartedAt,
+      calls: [...this.callMetrics],
+      p8Iterations: certified.iterationsUsed,
+      safetyRecast: certified.safetyRecast,
+      objectiveFallback: certified.objectiveFallback,
+      recastRung: certified.recastRung,
+      finalGenre: gameSpec.primary_genre,
+      degradedCount: this.degraded.length,
+    };
+    return {
+      gameSpec,
+      assets: {},
+      behaviorPatches,
+      behaviorFallbacks,
+      behaviorTracks,
+      playtestReport: certified.playtestReport,
+      solvability: certified.solvability,
+      calls: [...this.traces],
+      degraded: [...this.degraded],
+      metrics,
+    };
+  }
 }
 
 export async function runDrawingScan(
@@ -1073,12 +1167,21 @@ export async function runVoiceEdit(
   return { ...parsed, patches: behavior.patches, fallback: behavior.fallback ? "static" : undefined };
 }
 
+/**
+ * Stitches a rescanned/added page onto an existing certified world through
+ * every ordered gate. The result is a full ScanResult — never raw P10 output —
+ * so no playable document can be produced from an ungated stitched spec.
+ */
 export async function runMultipageStitch(
-  input: { gamespec_existing: GameSpec; image_new: string; new_page_scanned?: boolean },
+  input: {
+    gamespec_existing: GameSpec;
+    image_new: string;
+    behaviorTracks?: Record<string, BehaviorMotionTrack>;
+  },
   options: RunnerOptions,
-): Promise<unknown> {
+): Promise<ScanResult> {
   const runner = new PipelineRunner(options);
-  return runner.single("P10", { ...input, new_page_scanned: input.new_page_scanned ?? true });
+  return runner.rescan(input);
 }
 
 export async function runShareModeration(

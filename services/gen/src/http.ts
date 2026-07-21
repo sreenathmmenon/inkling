@@ -62,7 +62,9 @@ function publicError(error: unknown): NonNullable<DrawingGenerationProgressEvent
 
 function stageForCall(callId: string): NonNullable<DrawingGenerationProgressEvent["stage"]> {
   if (callId === "P1") return "checking";
-  if (callId === "P0_calibrate" || callId === "P2" || callId === "P2_photo" || callId === "P6") {
+  // P10 merges the rescanned paper into the existing world — for the child,
+  // that is still "understanding" their drawing, in the same coarse vocabulary.
+  if (callId === "P0_calibrate" || callId === "P2" || callId === "P2_photo" || callId === "P6" || callId === "P10") {
     return "understanding";
   }
   if (callId === "P3" || callId === "P4" || callId === "P5" || callId === "P7") return "animating";
@@ -76,7 +78,13 @@ async function requestPayload(
   request: Request,
   options: DrawingGenerationHttpOptions,
 ): Promise<
-  | { image: string; safetyId: string; requestId: string; corrections?: string[] }
+  | {
+    image: string;
+    safetyId: string;
+    requestId: string;
+    corrections?: string[];
+    previousGame?: Record<string, unknown>;
+  }
   | Response
 > {
   if (request.method !== "POST") return json(405, { error: "method_not_allowed" });
@@ -117,6 +125,21 @@ async function requestPayload(
     corrections = candidate as string[];
   }
 
+  // A rescan carries the prior playable document so the child's world can
+  // grow instead of restarting. Only self-contained v1 documents pass this
+  // boundary; deep validation (GameSpec shape, inline-only artwork) happens
+  // at the service layer before any model call.
+  let previousGame: Record<string, unknown> | undefined;
+  if (payload.previous_game !== undefined) {
+    if (
+      !isRecord(payload.previous_game) ||
+      payload.previous_game.format !== "inkling-playable-game-v1"
+    ) {
+      return json(400, { error: "invalid_drawing_request" });
+    }
+    previousGame = payload.previous_game;
+  }
+
   const safetyId = await options.resolveSafetyId(request);
   if (!safetyId) return json(401, { error: "missing_session" });
   return {
@@ -124,6 +147,7 @@ async function requestPayload(
     safetyId,
     requestId: payload.request_id,
     ...(corrections ? { corrections } : {}),
+    ...(previousGame ? { previousGame } : {}),
   };
 }
 
@@ -142,12 +166,14 @@ export function createDrawingGenerationHandler(
     try {
       const result = await generateDrawingGame(
         // An anonymous child flow sends only the prepared image plus, at most,
-        // its own echoed-back guesses to correct. Deliberately do not forward
-        // arbitrary browser metadata into model prompts.
+        // its own echoed-back guesses to correct and its own prior playable
+        // document to grow. Deliberately do not forward arbitrary browser
+        // metadata into model prompts.
         {
           image: payload.image,
           safetyId: payload.safetyId,
           ...(payload.corrections ? { context: { corrections: payload.corrections } } : {}),
+          ...(payload.previousGame ? { previousGame: payload.previousGame } : {}),
         },
         { ...options, signal: request.signal },
       );
@@ -213,6 +239,7 @@ export function createDrawingGenerationStreamHandler(
             image: payload.image,
             safetyId: payload.safetyId,
             ...(payload.corrections ? { context: { corrections: payload.corrections } } : {}),
+            ...(payload.previousGame ? { previousGame: payload.previousGame } : {}),
           }, {
             ...options,
             signal: streamAbort.signal,

@@ -181,20 +181,27 @@ function surfaceTop(entity: PlannedEntity): number {
   return entity.y - entity.height / 2;
 }
 
-function snapOntoSurface(
+function chooseSupportSurface(
   entity: PlannedEntity,
-  platforms: PlannedEntity[],
-): PlannedEntity {
+  platforms: readonly PlannedEntity[],
+): PlannedEntity | undefined {
   const candidates = platforms.filter(
     (platform) =>
       entity.x >= platform.x - platform.width / 2 &&
       entity.x <= platform.x + platform.width / 2,
   );
   const desiredBottom = entity.y + entity.height / 2;
-  const surface = candidates.sort(
+  return candidates.sort(
     (left, right) =>
       Math.abs(surfaceTop(left) - desiredBottom) - Math.abs(surfaceTop(right) - desiredBottom),
   )[0];
+}
+
+function snapOntoSurface(
+  entity: PlannedEntity,
+  platforms: PlannedEntity[],
+): PlannedEntity {
+  const surface = chooseSupportSurface(entity, platforms);
   if (!surface) return entity;
   return { ...entity, y: surfaceTop(surface) - entity.height / 2 - 2 };
 }
@@ -404,22 +411,36 @@ export function createPlatformerPlan(
   // movement honest (the run happens on the child's trail, not the safety
   // floor) and the trace validator's drawn-support rule satisfiable.
   const drawnSupports = platforms.filter((platform) => platform.artworkSource === "drawing");
-  const heroOverSupport = drawnSupports.some((platform) =>
-    rawHero.x >= platform.x - platform.width / 2 &&
-    rawHero.x <= platform.x + platform.width / 2,
-  );
   const routeStart = [...drawnSupports].sort((left, right) =>
     (left.x - left.width / 2) - (right.x - right.width / 2))[0];
-  const routeStartHero = contract.movement === "auto_ground" && !heroOverSupport && routeStart
-    ? {
-      ...rawHero,
-      x: clamp(
-        routeStart.x - routeStart.width / 2 + rawHero.width / 2,
-        rawHero.width / 2,
-        WORLD_WIDTH - rawHero.width / 2,
-      ),
+  // Whether the hero starts on drawn support is decided by the same
+  // nearest-surface rule the snap applies — never by x-overlap alone. A
+  // drawn hero whose x crosses a strip can still snap to the synthetic
+  // safety floor, and a few pixels of extraction jitter in the hero bbox
+  // must not flip the run between the child's trail and the floor. If the
+  // hero would not start on drawn support, it starts on the drawn route:
+  // over a strip, drop onto that strip; otherwise relocate to the leftmost
+  // strip's left edge. Deterministic, geometry-only, and P8 still certifies
+  // the resulting route.
+  let routeStartHero = rawHero;
+  if (contract.movement === "auto_ground" && routeStart) {
+    const support = chooseSupportSurface(rawHero, platforms);
+    if (support?.artworkSource !== "drawing") {
+      const drawnBelow = chooseSupportSurface(rawHero, drawnSupports);
+      const target = drawnBelow ?? routeStart;
+      routeStartHero = {
+        ...rawHero,
+        x: drawnBelow
+          ? rawHero.x
+          : clamp(
+            routeStart.x - routeStart.width / 2 + rawHero.width / 2,
+            rawHero.width / 2,
+            WORLD_WIDTH - rawHero.width / 2,
+          ),
+        y: surfaceTop(target) - rawHero.height / 2 - 2,
+      };
     }
-    : rawHero;
+  }
   const surfaceHero = usesFreeMovement ? routeStartHero : snapOntoSurface(routeStartHero, platforms);
 
   const targetId = spec.goal.target_id ?? entities.find((entity) => entity.role === "goal")?.id;

@@ -873,6 +873,23 @@ test("a drawn trail keeps the runner automatic and starts the run on the route",
   surfaceless.entities = surfaceless.entities.filter((entity) => entity.id !== "trail");
   const downgraded = createPlatformerPlan(surfaceless);
   assert.equal(downgraded.contract.movement, "free", "no drawn surface at all still downgrades honestly");
+
+  // Extraction jitter class: the hero's x crosses the trail but its drawn
+  // bbox sits nearer the synthetic safety floor. Nearest-surface snapping
+  // alone would start the run on the floor, and a few pixels of hero-bbox
+  // jitter would flip drawn-support faithfulness run to run. An automatic
+  // runner must start on drawn support whenever any exists.
+  const heroNearFloor = structuredClone(trailRunner);
+  heroNearFloor.hero = { ...heroNearFloor.hero, bbox: [0.4, 0.8, 0.47, 0.95] };
+  const floorBiased = createPlatformerPlan(heroNearFloor);
+  assert.equal(floorBiased.contract.movement, "auto_ground");
+  const trailStrip = floorBiased.platforms.find((platform) => platform.id === "trail");
+  assert.ok(trailStrip);
+  assert.equal(
+    floorBiased.hero.y + floorBiased.hero.height / 2,
+    trailStrip.y - trailStrip.height / 2 - 2,
+    "an automatic runner over its trail starts on the trail, not the safety floor",
+  );
 });
 
 test("declared modifiers are mechanically real and gate faithfulness honestly", () => {

@@ -1729,12 +1729,24 @@ class PlatformerScene extends Phaser.Scene {
     const texture = this.textures.createCanvas(key, source.width, source.height);
     if (!texture) return;
     texture.context.drawImage(source, 0, 0);
+    // Only pure scenery survives in the backdrop: a page-scale DECORATION
+    // (skyline, sea) is context, but the hero and every gameplay entity are
+    // erased at ANY size — a drawn rocket the child pilots must never also
+    // stand frozen in the background beside its moving self.
     const PAGE_CONTEXT_AREA = 0.16;
+    const sceneryIds = new Set(
+      this.plan.decorations
+        .filter((decoration) => {
+          const crop = this.artwork?.entityCrops[decoration.id];
+          if (!crop) return false;
+          const area = Math.max(0, crop[2] - crop[0]) * Math.max(0, crop[3] - crop[1]);
+          return area >= PAGE_CONTEXT_AREA;
+        })
+        .map((decoration) => decoration.id),
+    );
     const entityRects: NormalizedBounds[] = [];
-    for (const crop of Object.values(this.artwork.entityCrops)) {
-      const [cropLeft, cropTop, cropRight, cropBottom] = crop;
-      const area = Math.max(0, cropRight - cropLeft) * Math.max(0, cropBottom - cropTop);
-      if (area < PAGE_CONTEXT_AREA) entityRects.push(crop);
+    for (const [entityId, crop] of Object.entries(this.artwork.entityCrops)) {
+      if (!sceneryIds.has(entityId)) entityRects.push(crop);
     }
     this.eraseSourceRects(texture, entityRects, source.width, source.height);
     texture.refresh();

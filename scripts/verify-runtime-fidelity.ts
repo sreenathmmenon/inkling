@@ -120,6 +120,7 @@ interface ProbedObject {
   displayWidth: number;
   displayHeight: number;
   alpha: number;
+  depth?: number;
   fillAlpha: number | null;
   visible: boolean;
 }
@@ -167,6 +168,7 @@ try {
         displayWidth?: number;
         displayHeight?: number;
         alpha: number;
+        depth?: number;
         fillAlpha?: number;
         visible: boolean;
         getData?: (key: string) => unknown;
@@ -185,6 +187,7 @@ try {
         displayWidth: object.displayWidth ?? 0,
         displayHeight: object.displayHeight ?? 0,
         alpha: object.alpha,
+        depth: object.depth ?? 0,
         fillAlpha: typeof object.fillAlpha === "number" ? object.fillAlpha : null,
         visible: object.visible,
       };
@@ -194,13 +197,24 @@ try {
   const artworkImages = objects.filter((object) => (
     object.type === "Image" &&
     typeof object.textureKey === "string" &&
-    (object.textureKey.startsWith("inkling-art-crop-") || object.textureKey === "inkling-original-art")
+    (object.textureKey.startsWith("inkling-art-crop-") || object.textureKey.startsWith("inkling-original-art"))
   ));
   assert.ok(artworkImages.length >= 10, "the corpus world must render child artwork");
 
   // --- No stale-position source overlay -------------------------------------
+  // Exactly one deliberate exception: the page backdrop — the child's whole
+  // page as scenery, tagged, behind every entity (negative depth), capped
+  // alpha, with all self-rendering entity regions erased. Anything else at
+  // page scale is still a repaint bug.
   const worldArea = WORLD_WIDTH * WORLD_HEIGHT;
+  const pageBackdrops = artworkImages.filter((image) => image.presentation === "page-backdrop");
+  assert.ok(pageBackdrops.length <= 1, "at most one page backdrop may render");
+  for (const backdrop of pageBackdrops) {
+    assert.ok((backdrop.depth ?? 0) < 0, "the page backdrop must sit behind every entity");
+    assert.ok((backdrop.alpha ?? 1) <= 0.9, "the page backdrop must stay softer than entity art");
+  }
   for (const image of artworkImages) {
+    if (image.presentation === "page-backdrop") continue;
     assert.ok(
       image.displayWidth * image.displayHeight < worldArea * 0.45,
       `artwork ${image.entityId ?? image.textureKey} repaints the source page ` +

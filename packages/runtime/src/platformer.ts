@@ -162,6 +162,7 @@ class PlatformerScene extends Phaser.Scene {
   private projectiles!: Phaser.Physics.Arcade.Group;
   private hud!: Phaser.GameObjects.Text;
   private goalGuide: Phaser.GameObjects.Text | undefined;
+  private goalPointer: Phaser.GameObjects.Triangle | undefined;
   private message!: Phaser.GameObjects.Text;
   private recoveryGuide: Phaser.GameObjects.Text | undefined;
   private controls: Controls = {};
@@ -334,9 +335,12 @@ class PlatformerScene extends Phaser.Scene {
         .setDepth(-5)
         .setScrollFactor(layer.scrollFactor, 1);
     }
-    // Scenes are composed from isolated original-art crops. Repainting the
-    // complete photo behind them creates ghost entities that remain after a
-    // collectible disappears and makes repeated crops look like photo tiles.
+    // The child's whole page is the world's scenery: rendered once, aligned
+    // to world coordinates, with every self-rendering entity's region erased
+    // (feathered, alpha-only) so no stroke ever exists twice and a collected
+    // item leaves no ghost. Page-scale context drawings — skylines, seas —
+    // finally stay visible instead of leaving a gray void.
+    this.addPageBackdrop();
     if (this.presentation === "standalone") {
       this.add
         .text(24, 18, this.plan.title, {
@@ -580,6 +584,13 @@ class PlatformerScene extends Phaser.Scene {
       if (!this.reducedMotion) {
         this.tweens.add({ targets: goalCue, alpha: 0.5, duration: 900, yoyo: true, repeat: -1 });
       }
+      // A child should never wonder where to go: a small chevron floats above
+      // the hero pointing at the goal, and retires once the goal is near.
+      this.goalPointer = this.add
+        .triangle(this.hero.x, this.hero.y - 40, 0, 0, 0, 14, 18, 7, INKLING_CUE.violet, 0.85)
+        .setOrigin(0.5, 0.5)
+        .setDepth(30)
+        .setData("inklingPresentation", "mechanic-cue");
       const goalLabel = boundedCueAnchor(
         this.plan.goal.x,
         this.plan.goal.y - this.plan.goal.height / 2,
@@ -771,6 +782,20 @@ class PlatformerScene extends Phaser.Scene {
       this.goalGuide
         .setVisible(!visible)
         .setText(this.plan.goal.x < this.hero.x ? "←  Goal" : "Goal  →");
+    }
+    if (this.goalPointer) {
+      const goalDistance = Phaser.Math.Distance.Between(
+        this.hero.x, this.hero.y, this.plan.goal.x, this.plan.goal.y,
+      );
+      const pointing = this.status === "playing" && goalDistance > 170;
+      this.goalPointer.setVisible(pointing);
+      if (pointing) {
+        this.goalPointer
+          .setPosition(this.hero.x, this.hero.y - this.plan.hero.height / 2 - 26)
+          .setRotation(Phaser.Math.Angle.Between(
+            this.hero.x, this.hero.y, this.plan.goal.x, this.plan.goal.y,
+          ));
+      }
     }
     if (this.elapsedMs >= this.invulnerableUntil) this.hero.setAlpha(1);
 
@@ -1663,6 +1688,79 @@ class PlatformerScene extends Phaser.Scene {
         Math.min(rect.right, width) - Math.max(rect.left, 0) >= 2 &&
         Math.min(rect.bottom, height) - Math.max(rect.top, 0) >= 2
       ));
+    if (rects.length === 0) return;
+    const pixels = texture.context.getImageData(0, 0, width, height);
+    const feather = 5;
+    for (const rect of rects) {
+      const spanLeft = Math.max(0, Math.floor(rect.left));
+      const spanTop = Math.max(0, Math.floor(rect.top));
+      const spanRight = Math.min(width, Math.ceil(rect.right));
+      const spanBottom = Math.min(height, Math.ceil(rect.bottom));
+      for (let y = spanTop; y < spanBottom; y += 1) {
+        for (let x = spanLeft; x < spanRight; x += 1) {
+          const inset = Math.min(x - rect.left, rect.right - 1 - x, y - rect.top, rect.bottom - 1 - y);
+          if (inset < 0) continue;
+          const eased = Math.min(1, inset / feather);
+          const keep = 1 - eased * eased * (3 - 2 * eased);
+          const alphaOffset = (y * width + x) * 4 + 3;
+          pixels.data[alphaOffset] = Math.round((pixels.data[alphaOffset] ?? 0) * keep);
+        }
+      }
+    }
+    texture.context.putImageData(pixels, 0, 0);
+  }
+
+  /**
+   * The child's page as the world's scenery. Every crop small enough to be a
+   * self-rendering entity (below the page-context threshold) is feather-erased
+   * so its strokes appear only on the moving entity; what remains — skies,
+   * skylines, seas, scenery — is the drawing the child expects to see behind
+   * their game. Alignment is exact because the world is the page's coordinate
+   * space scaled to 960x540.
+   */
+  private addPageBackdrop(): void {
+    if (!this.artwork || !this.textures.exists(this.artworkTextureKey)) return;
+    const source = this.textures.get(this.artworkTextureKey).getSourceImage() as
+      | HTMLImageElement
+      | HTMLCanvasElement;
+    if (!source.width || !source.height) return;
+    const key = `${this.artworkTextureKey}--page-backdrop`;
+    if (this.textures.exists(key)) this.textures.remove(key);
+    const texture = this.textures.createCanvas(key, source.width, source.height);
+    if (!texture) return;
+    texture.context.drawImage(source, 0, 0);
+    const PAGE_CONTEXT_AREA = 0.16;
+    const entityRects: NormalizedBounds[] = [];
+    for (const crop of Object.values(this.artwork.entityCrops)) {
+      const [cropLeft, cropTop, cropRight, cropBottom] = crop;
+      const area = Math.max(0, cropRight - cropLeft) * Math.max(0, cropBottom - cropTop);
+      if (area < PAGE_CONTEXT_AREA) entityRects.push(crop);
+    }
+    this.eraseSourceRects(texture, entityRects, source.width, source.height);
+    texture.refresh();
+    this.add
+      .image(WORLD_WIDTH / 2, WORLD_HEIGHT / 2, key)
+      .setDisplaySize(WORLD_WIDTH, WORLD_HEIGHT)
+      .setDepth(-4)
+      .setAlpha(0.88)
+      .setData("inklingPresentation", "page-backdrop");
+  }
+
+  /** Feathered alpha-only erasure of normalized source rects from a canvas texture. */
+  private eraseSourceRects(
+    texture: Phaser.Textures.CanvasTexture,
+    sourceRects: NormalizedBounds[],
+    width: number,
+    height: number,
+  ): void {
+    const rects = sourceRects
+      .map(([rectLeft, rectTop, rectRight, rectBottom]) => ({
+        left: rectLeft * width,
+        top: rectTop * height,
+        right: rectRight * width,
+        bottom: rectBottom * height,
+      }))
+      .filter((rect) => rect.right - rect.left >= 2 && rect.bottom - rect.top >= 2);
     if (rects.length === 0) return;
     const pixels = texture.context.getImageData(0, 0, width, height);
     const feather = 5;

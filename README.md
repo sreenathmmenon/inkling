@@ -11,6 +11,13 @@ receives a game they can't win.
 
 Built for OpenAI Build Week with **Codex** and **GPT-5.6**.
 
+<p align="center">
+  <img src="docs/media/play-start.png" width="290" alt="A scanned bunny drawing playing as a platformer: the crayon bunny stands on a drawn grass ledge while a carrot collectible glows ahead">
+  &nbsp;&nbsp;&nbsp;
+  <img src="docs/media/play-goal.png" width="290" alt="The same game near the goal: the bunny has collected five of six drawn items and approaches the hand-drawn door marked Goal">
+</p>
+<p align="center"><em>A real scan: the bunny, carrots, clouds, and goal door are the child's actual crayon marks, cut straight out of the photo.</em></p>
+
 ---
 
 ## Try it
@@ -76,6 +83,17 @@ a single loop over that spec: it resolves dependencies, fans out
 Outputs plus a per-user `safety_identifier` to every request. Model and effort
 come **only** from the spec — to change routing you edit data, not code.
 
+## Every game is provably winnable
+
+Nothing is more deflating for a kid than a game that can't be won, so
+finishability is enforced, not hoped for. Before each P8 iteration, a
+fixed-step simulation plays the game start to finish using the *same* world
+dimensions, gravity, jump, collision plan, hazards, lives, collectibles, goal
+trigger, and survival timer as the real Phaser player. If the goal can't be
+reached, bounded repairs are applied — a platform nudged, a gap closed — and
+the game is replayed until P8 rules it ready or the iteration limit is hit.
+Generated games carry that play-test evidence with them.
+
 ## How GPT-5.6 is used
 
 Every reasoning step in the product runs on GPT-5.6, using the three variants
@@ -111,13 +129,14 @@ Three GPT-5.6 techniques carry the product:
 Codex shows up twice — once to build the system, and once inside it:
 
 **1. Codex built the runner.** The repo carries its own build instruction in
-[`.goal`](.goal):
+[`.goal`](.goal) — hand it to the Codex CLI:
 
 ```bash
-codex --goal .goal --model gpt-5.2-codex --effort high
+codex exec "$(cat .goal)"
 ```
 
-Codex reads `.goal`, uses `spec/pipeline.json` as its checklist, materializes
+(The original build ran on `gpt-5.2-codex` at high reasoning effort.) Codex
+reads `.goal`, uses `spec/pipeline.json` as its checklist, materializes
 every prompt (`prompts/*.txt`) and schema (`spec/schemas/*.json`) from the
 Prompt & Model Engineering Spec PDF, wires `runner/pipeline.ts`, and runs the
 self-verification suite before declaring itself done.
@@ -130,17 +149,6 @@ are validated statically, then simulated in a Node permission sandbox with no
 network, no filesystem writes, no child processes, and no inherited
 environment. A module that fails any check falls back to a static behavior and
 is never installed.
-
-## Every game is provably winnable
-
-Nothing is more deflating for a kid than a game that can't be won, so
-finishability is enforced, not hoped for. Before each P8 iteration, a
-fixed-step simulation plays the game start to finish using the *same* world
-dimensions, gravity, jump, collision plan, hazards, lives, collectibles, goal
-trigger, and survival timer as the real Phaser player. If the goal can't be
-reached, bounded repairs are applied — a platform nudged, a gap closed — and
-the game is replayed until P8 rules it ready or the iteration limit is hit.
-Generated games carry that play-test evidence with them.
 
 ## Kid-safe by design
 
@@ -184,13 +192,16 @@ network access.
 ## Verify
 
 ```bash
-python runner/extract_from_pdf.py --pdf docs/Inkling-Spec.pdf --spec spec/pipeline.json
 npm install
 npm run verify
 ```
 
-`npm run verify` is self-contained from a fresh clone (the drawing corpus is
-tracked in `fixtures/validation-drawings/round-1/`) and starts with
+`npm run verify` is self-contained from a fresh clone: the prompts, schemas,
+and the drawing corpus (`fixtures/validation-drawings/round-1/`) are all
+tracked in the repo. (`runner/extract_from_pdf.py` exists to regenerate
+`prompts/` and `spec/schemas/` from the Prompt & Model Engineering Spec PDF,
+which is not distributed publicly — you never need it to run or verify the
+project.) The chain starts with
 `npm run typecheck`. Several files in the chain are **intentional review
 gates** — each protects a product invariant; a legitimate redesign changes
 *how* the property is asserted, never *whether*:

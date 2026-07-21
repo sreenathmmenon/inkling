@@ -7,6 +7,7 @@ import type { Responses } from "openai/resources/responses/responses";
 import {
   assertRequestMatchesSpec,
   createDeterministicSafetyRecast,
+  ModelCallError,
   ModelOutputError,
   PipelineBlocked,
   runMultipageStitch,
@@ -698,6 +699,185 @@ test("streaming generation exposes only coarse pipeline stages before its playab
   const serialized = JSON.stringify(record);
   assert.equal(serialized.includes("data:image"), false, "no drawing content in operator records");
   assert.equal(serialized.includes(SERVICE_SAFETY_ID), false, "no identity in operator records");
+});
+
+test("a transport-class model failure is retried once and the generation proceeds", async () => {
+  let activeCallId = "";
+  const createCalls: Record<string, number> = {};
+  let p1TransportBlips = 0;
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        const callId = activeCallId;
+        createCalls[callId] = (createCalls[callId] ?? 0) + 1;
+        if (callId === "P1" && p1TransportBlips === 0) {
+          p1TransportBlips += 1;
+          throw Object.assign(new Error("read ECONNRESET"), { code: "ECONNRESET" });
+        }
+        const value = callId === "P1"
+          ? { verdict: "allow", reason_code: "none" }
+          : callId === "P0_calibrate"
+            ? { complexity: "simple" }
+            : callId === "P2"
+              ? SHAREABLE_GAME_SPEC
+              : callId === "P3"
+                ? { topology: "blob", tier: "squash_stretch_puppet", joints: [], animations: ["idle"], style_ref: null }
+                : callId === "P4"
+                  ? { layers: [{ source: "source-page", parallax: 0.5 }] }
+                  : callId === "P5"
+                    ? { music_pack_id: "base", sfx_pack_id: "base" }
+                    : callId === "P6"
+                      ? { primary_genre: "platformer", alt_genre: "runner", rationale_for_log: "test" }
+                      : callId === "P8"
+                        ? { verdict: "ready", repairs: [], fallback: "none" }
+                        : {};
+        return { id: `mock-${callId}`, output_text: JSON.stringify(value), output: [] };
+      },
+    },
+  };
+
+  const result = await runPipeline(
+    { image: "data:image/png;base64,dHJhbnNwb3J0LXJldHJ5" },
+    {
+      safetyId: "transport-retry-user",
+      client,
+      transportRetryBackoffMs: 1,
+      onRequest(trace) {
+        activeCallId = trace.callId;
+      },
+    },
+  );
+  assert.equal(createCalls.P1, 2, "the transport blip gets exactly one retry");
+  assert.equal(result.solvability.verdict, "ready");
+  assert.equal(result.playtestReport.reached_goal, true);
+  assert.ok(
+    result.degraded.includes("P1:transport_retry:transport_error"),
+    "the spent retry is recorded as an enum-only breadcrumb",
+  );
+  assert.deepEqual(
+    result.metrics.calls.filter((call) => call.callId === "P1").map((call) => call.attempt),
+    [1, 2],
+    "both physical dispatches are timed and traceable",
+  );
+});
+
+test("a 4xx API contract error is never retried and names its stage", async () => {
+  let created = 0;
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        created += 1;
+        throw Object.assign(
+          new Error("400 Unsupported value: 'low' is not supported with this model"),
+          { status: 400 },
+        );
+      },
+    },
+  };
+  await assert.rejects(
+    runPipeline(
+      { image: "data:image/png;base64,Y29udHJhY3QtNDAw" },
+      { safetyId: "contract-error-user", client, transportRetryBackoffMs: 1 },
+    ),
+    (error: unknown) => {
+      assert.ok(error instanceof ModelCallError, "dispatch failures surface stage-coded");
+      assert.equal(error.callId, "P1");
+      assert.equal(error.reason, "provider_4xx");
+      assert.equal(error.retryAttempted, false);
+      return true;
+    },
+  );
+  assert.equal(created, 1, "a contract error follows the declared fail path with no retry");
+});
+
+test("a second consecutive transport failure keeps the existing coded error and records stage, reason, and retry", async () => {
+  let created = 0;
+  const qualityRecords: unknown[] = [];
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        created += 1;
+        throw Object.assign(
+          new Error("connect ECONNREFUSED 10.0.0.1:443 while scanning a secret cat"),
+          { code: "ECONNREFUSED" },
+        );
+      },
+    },
+  };
+  const handler = createDrawingGenerationStreamHandler({
+    client,
+    transportRetryBackoffMs: 1,
+    resolveSafetyId() {
+      return SERVICE_SAFETY_ID;
+    },
+    onGenerationRecord(record) {
+      qualityRecords.push(record);
+    },
+  });
+  const response = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", request_id: REQUEST_ID }),
+  }));
+  assert.equal(response.status, 200);
+  const events = (await response.text()).trim().split("\n\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => JSON.parse(line.slice("data: ".length)) as { type: string; error?: string });
+  assert.equal(created, 2, "the second consecutive transport failure ends the attempt");
+  assert.equal(events.at(-1)?.type, "error");
+  assert.equal(events.at(-1)?.error, "generation_unavailable", "the child-facing coded error is unchanged");
+
+  assert.equal(qualityRecords.length, 1);
+  const record = qualityRecords[0] as Record<string, unknown>;
+  assert.equal(record.outcome, "failed");
+  assert.equal(record.failureCode, "generation_unavailable");
+  assert.equal(record.failureStage, "P1", "the failed record names the failing stage");
+  assert.equal(record.failureReason, "transport_error", "the failed record carries an enum-only reason");
+  assert.equal(record.retryAttempted, true, "the failed record says the retry was spent");
+  const serialized = JSON.stringify(record);
+  assert.equal(serialized.includes("secret cat"), false, "no free-text error content leaks into the record");
+  assert.equal(serialized.includes("10.0.0.1"), false, "no transport addresses leak into the record");
+  assert.equal(serialized.includes(SERVICE_SAFETY_ID), false, "no identity leaks into the record");
+});
+
+test("a safety-blocked generation records its stage and the schema-enum reason code only", async () => {
+  const qualityRecords: unknown[] = [];
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        return {
+          id: "mock-P1-block",
+          output_text: JSON.stringify({ verdict: "block", reason_code: "face_detected" }),
+          output: [],
+        };
+      },
+    },
+  };
+  const handler = createDrawingGenerationStreamHandler({
+    client,
+    resolveSafetyId() {
+      return SERVICE_SAFETY_ID;
+    },
+    onGenerationRecord(record) {
+      qualityRecords.push(record);
+    },
+  });
+  const response = await handler(new Request("https://inkling.test/api/games/drawing", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", request_id: REQUEST_ID }),
+  }));
+  assert.equal(response.status, 200);
+  const events = (await response.text()).trim().split("\n\n")
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => JSON.parse(line.slice("data: ".length)) as { type: string; error?: string });
+  assert.equal(events.at(-1)?.error, "drawing_not_approved");
+  const record = qualityRecords[0] as Record<string, unknown>;
+  assert.equal(record.outcome, "failed");
+  assert.equal(record.failureCode, "drawing_not_approved");
+  assert.equal(record.failureStage, "P1");
+  assert.equal(record.failureReason, "blocked_face_detected");
+  assert.equal(record.retryAttempted, false, "a safety verdict is never retried");
 });
 
 test("every few-shot example satisfies the strict contract it teaches", () => {

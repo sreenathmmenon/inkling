@@ -256,6 +256,7 @@ export function createDrawingGenerationStreamHandler(
           recordQuality(buildFailedQualityRecord(
             publicError(error),
             performance.now() - generationStartedAt,
+            error,
           ));
           if (!streamAbort.signal.aborted) {
             try {

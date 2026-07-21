@@ -1,4 +1,4 @@
-import OpenAI from "openai";
+import OpenAI, { APIConnectionError, APIUserAbortError } from "openai";
 import type { Responses } from "openai/resources/responses/responses";
 
 import { validateBehaviorOperation } from "../packages/sdk/src/validator.js";
@@ -68,6 +68,83 @@ const DYNAMIC_BEHAVIORS = new Set([
 
 function clone<T>(value: T): T {
   return JSON.parse(JSON.stringify(value)) as T;
+}
+
+/**
+ * Enum-only classification of a failed model dispatch. Names never carry
+ * provider text, model output, or drawing content — they are safe to log in
+ * quality records. Only "transport_error" and "provider_5xx" are retryable.
+ */
+export type ModelCallFailureReason =
+  | "transport_error"
+  | "provider_5xx"
+  | "provider_4xx"
+  | "deadline_exceeded"
+  | "aborted"
+  | "call_failed";
+
+/** Backoff before the single transport-class retry of a model call. */
+const TRANSPORT_RETRY_BACKOFF_MS = 2_000;
+
+/** Node/undici network failure codes: reset, refusal, socket timeout, DNS. */
+const TRANSPORT_ERROR_CODES = new Set([
+  "ECONNRESET",
+  "ECONNREFUSED",
+  "ECONNABORTED",
+  "EPIPE",
+  "ETIMEDOUT",
+  "EAI_AGAIN",
+  "ENOTFOUND",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "UND_ERR_SOCKET",
+  "UND_ERR_HEADERS_TIMEOUT",
+  "UND_ERR_BODY_TIMEOUT",
+]);
+
+function transportCodeInCauseChain(error: unknown, depth = 0): boolean {
+  if (depth > 4 || typeof error !== "object" || error === null) return false;
+  const { code, cause } = error as { code?: unknown; cause?: unknown };
+  if (typeof code === "string" && TRANSPORT_ERROR_CODES.has(code)) return true;
+  return transportCodeInCauseChain(cause, depth + 1);
+}
+
+function httpStatusOf(error: unknown): number | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  const { status } = error as { status?: unknown };
+  return typeof status === "number" ? status : undefined;
+}
+
+/**
+ * Classifies one failed dispatch. Aborts (deadline, disconnect) are checked
+ * first so a cancellation can never masquerade as a retryable blip; a numeric
+ * HTTP status splits provider errors into 5xx (retryable infrastructure) and
+ * 4xx (API contract — the spec's declared fail path, never retried); what
+ * remains is transport-class only when it carries a known network error code,
+ * is the SDK's own connection failure, or is undici's "fetch failed".
+ */
+export function classifyModelCallFailure(
+  error: unknown,
+  signal?: AbortSignal,
+): ModelCallFailureReason {
+  if (signal?.aborted || error instanceof APIUserAbortError ||
+    (error instanceof Error && error.name === "AbortError")) {
+    const reason = signal?.reason;
+    return reason instanceof Error && reason.message === "generation_deadline_exceeded"
+      ? "deadline_exceeded"
+      : "aborted";
+  }
+  const status = httpStatusOf(error);
+  if (status !== undefined) {
+    if (status >= 500) return "provider_5xx";
+    if (status >= 400) return "provider_4xx";
+    return "call_failed";
+  }
+  if (error instanceof APIConnectionError) return "transport_error";
+  if (transportCodeInCauseChain(error)) return "transport_error";
+  if (error instanceof TypeError && error.message === "fetch failed") return "transport_error";
+  return "call_failed";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -497,16 +574,79 @@ class PipelineRunner {
     return request;
   }
 
+  /**
+   * ONE bounded retry, transport class only. A connection reset/refusal,
+   * socket timeout, DNS failure, or provider 5xx gets a single short backoff
+   * and one more identical dispatch — pure infrastructure resilience, still
+   * bounded by the caller's overall generation deadline. Everything the spec
+   * declares meaning for is deliberately NOT retried here: 4xx API contract
+   * errors, aborts, schema-validation failures, and safety verdicts keep
+   * their declared escalation/fail paths unchanged. A dispatch failure always
+   * surfaces as a ModelCallError naming the stage and an enum-only reason.
+   */
   private async send(
     call: PipelineCall,
     request: Responses.ResponseCreateParamsNonStreaming,
     modelAlias = call.model,
   ): Promise<ResponseLike> {
     assertRequestMatchesSpec(this.spec, call, request, modelAlias);
-    const attempt = (this.attempts.get(call.id) ?? 0) + 1;
-    this.attempts.set(call.id, attempt);
     const effort = request.reasoning?.effort;
     if (!effort) throw new Error(`${call.id} missing reasoning effort`);
+    try {
+      return await this.dispatch(call, request, effort);
+    } catch (error) {
+      const reason = classifyModelCallFailure(error, this.options.signal);
+      // Cancellation is the caller's own act, not a call failure: the abort
+      // reason (deadline, disconnect) propagates unchanged, exactly as before.
+      if (reason === "deadline_exceeded" || reason === "aborted") throw error;
+      if (reason !== "transport_error" && reason !== "provider_5xx") {
+        throw new ModelCallError(call.id, reason, false, error);
+      }
+      // Enum-only breadcrumb: a scan that succeeds after the retry still
+      // records that the provider blipped, for operator-side aggregation.
+      this.degraded.push(`${call.id}:transport_retry:${reason}`);
+      try {
+        await this.transportRetryDelay();
+        return await this.dispatch(call, request, effort);
+      } catch (retryError) {
+        const retryReason = classifyModelCallFailure(retryError, this.options.signal);
+        if (retryReason === "deadline_exceeded" || retryReason === "aborted") throw retryError;
+        throw new ModelCallError(call.id, retryReason, true, retryError);
+      }
+    }
+  }
+
+  /** Sleeps the retry backoff, waking immediately if the deadline aborts. */
+  private transportRetryDelay(): Promise<void> {
+    const backoffMs = this.options.transportRetryBackoffMs ?? TRANSPORT_RETRY_BACKOFF_MS;
+    const signal = this.options.signal;
+    return new Promise((resolveDelay, rejectDelay) => {
+      const onAbort = (): void => {
+        clearTimeout(timer);
+        rejectDelay(signal?.reason instanceof Error ? signal.reason : new Error("aborted"));
+      };
+      const timer = setTimeout(() => {
+        signal?.removeEventListener("abort", onAbort);
+        resolveDelay();
+      }, backoffMs);
+      if (signal) {
+        if (signal.aborted) {
+          onAbort();
+          return;
+        }
+        signal.addEventListener("abort", onAbort, { once: true });
+      }
+    });
+  }
+
+  /** One physical Responses API dispatch, traced and timed like before. */
+  private async dispatch(
+    call: PipelineCall,
+    request: Responses.ResponseCreateParamsNonStreaming,
+    effort: RequestTrace["effort"],
+  ): Promise<ResponseLike> {
+    const attempt = (this.attempts.get(call.id) ?? 0) + 1;
+    this.attempts.set(call.id, attempt);
     const trace: RequestTrace = {
       callId: call.id,
       callName: call.name,
@@ -903,6 +1043,7 @@ class PipelineRunner {
         throw new SolvabilityError(
           `${call.id} could not construct a locally finishable world; ` +
           `headless blocker: ${playtestReport.first_blocker ?? "none"}`,
+          call.id,
         );
       }
     }
@@ -921,6 +1062,7 @@ class PipelineRunner {
       throw new SolvabilityError(
         `${call.id} exhausted its repair loop before ready; ` +
         `headless blocker: ${playtestReport?.first_blocker ?? "none"}`,
+        call.id,
       );
     }
     if (!solvabilityPassed) {
@@ -1374,7 +1516,7 @@ export async function runShareModeration(
   options: RunnerOptions,
 ): Promise<unknown> {
   if (input.solvability.verdict !== "ready" || !input.playtestReport.reached_goal) {
-    throw new SolvabilityError("P11 cannot run before a passing P8 playtest gate");
+    throw new SolvabilityError("P11 cannot run before a passing P8 playtest gate", "P11");
   }
   const runner = new PipelineRunner(options);
   const call = runner.call("P11");
@@ -1422,8 +1564,29 @@ export class ModelOutputError extends Error {
   }
 }
 
+/**
+ * A model call that failed at the API boundary. Carries the pipeline stage
+ * and an enum-only failure class — never provider text or content — plus
+ * whether the one bounded transport retry was spent before failing. The
+ * original error stays attached as `cause` for local debugging only.
+ */
+export class ModelCallError extends Error {
+  constructor(
+    public readonly callId: string,
+    public readonly reason: ModelCallFailureReason,
+    public readonly retryAttempted: boolean,
+    cause?: unknown,
+  ) {
+    super(
+      `${callId}: model call failed (${reason}${retryAttempted ? ", after one transport retry" : ""})`,
+      cause === undefined ? undefined : { cause },
+    );
+    this.name = "ModelCallError";
+  }
+}
+
 export class SolvabilityError extends Error {
-  constructor(message: string) {
+  constructor(message: string, public readonly callId: string = "P8") {
     super(message);
     this.name = "SolvabilityError";
   }

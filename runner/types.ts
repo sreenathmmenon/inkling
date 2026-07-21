@@ -104,6 +104,12 @@ export interface RunnerOptions {
   offline?: boolean;
   client?: ResponsesClient;
   dryRun?: boolean;
+  /**
+   * Backoff before the single transport-class retry of a model call, in
+   * milliseconds. Infrastructure knob only (tests, deployments); it never
+   * changes which failures are retried. Defaults to 2s.
+   */
+  transportRetryBackoffMs?: number;
   onRequest?: (
     trace: RequestTrace,
     request: Responses.ResponseCreateParamsNonStreaming,

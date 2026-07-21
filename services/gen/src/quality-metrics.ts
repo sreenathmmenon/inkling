@@ -1,3 +1,9 @@
+import {
+  ModelCallError,
+  ModelOutputError,
+  PipelineBlocked,
+  SolvabilityError,
+} from "../../../runner/pipeline.js";
 import type { GenerationMetrics, ScanResult } from "../../../runner/types.js";
 import type { PlayableGameDocument } from "../../../packages/runtime/src/artwork.js";
 
@@ -11,6 +17,17 @@ import type { PlayableGameDocument } from "../../../packages/runtime/src/artwork
 export interface GenerationQualityRecord {
   outcome: "playable" | "failed";
   failureCode?: string;
+  /** Pipeline stage whose failure ended a failed generation, e.g. "P1". */
+  failureStage?: string;
+  /**
+   * Enum-only failure class (transport_error, provider_5xx, provider_4xx,
+   * deadline_exceeded, aborted, invalid_model_output, not_solvable,
+   * call_failed, unclassified) or a schema-enum gate code prefixed
+   * "blocked_". Never free text, never model output, never content.
+   */
+  failureReason?: string;
+  /** True when the one bounded transport retry was spent before failing. */
+  retryAttempted?: boolean;
   totalDurationMs: number;
   finalGenre?: string;
   playContractOutcome?: string;
@@ -43,15 +60,67 @@ export function buildPlayableQualityRecord(
   };
 }
 
+/** Gate reason codes are schema enums; anything else is refused as content. */
+const ENUM_REASON_CODE = /^[a-z][a-z0-9_]{0,63}$/;
+
+/**
+ * Derives the failing stage, an enum-only coded reason, and whether the one
+ * bounded transport retry was spent — from the typed pipeline errors only.
+ * Free-text messages are never copied into the record, so no model output or
+ * drawing content can leak through this path.
+ */
+function describeFailureCause(
+  cause: unknown,
+): Pick<GenerationQualityRecord, "failureStage" | "failureReason" | "retryAttempted"> {
+  if (cause instanceof PipelineBlocked) {
+    const verdict = cause.verdict as Record<string, unknown> | null;
+    const reasonCode = verdict !== null && typeof verdict === "object" &&
+      typeof verdict.reason_code === "string" && ENUM_REASON_CODE.test(verdict.reason_code)
+      ? `blocked_${verdict.reason_code}`
+      : "blocked";
+    return { failureStage: cause.callId, failureReason: reasonCode, retryAttempted: false };
+  }
+  if (cause instanceof ModelCallError) {
+    return {
+      failureStage: cause.callId,
+      failureReason: cause.reason,
+      retryAttempted: cause.retryAttempted,
+    };
+  }
+  if (cause instanceof ModelOutputError) {
+    return { failureStage: cause.callId, failureReason: "invalid_model_output", retryAttempted: false };
+  }
+  if (cause instanceof SolvabilityError) {
+    return { failureStage: cause.callId, failureReason: "not_solvable", retryAttempted: false };
+  }
+  // Aborts propagate as the runner's own coded abort reasons, unwrapped.
+  if (cause instanceof Error) {
+    if (cause.message === "generation_deadline_exceeded") {
+      return { failureReason: "deadline_exceeded", retryAttempted: false };
+    }
+    if (
+      cause.name === "AbortError" ||
+      cause.message === "client_disconnected" ||
+      cause.message === "generation_stream_cancelled" ||
+      cause.message === "generation_stream_closed"
+    ) {
+      return { failureReason: "aborted", retryAttempted: false };
+    }
+  }
+  return { failureReason: "unclassified", retryAttempted: false };
+}
+
 export function buildFailedQualityRecord(
   failureCode: string,
   totalDurationMs: number,
+  cause?: unknown,
 ): GenerationQualityRecord {
   return {
     outcome: "failed",
     failureCode,
     totalDurationMs,
     certification: "not_measured",
+    ...describeFailureCause(cause),
   };
 }
 

@@ -40,6 +40,8 @@ export interface DrawingGenerationOptions {
   onResult?: RunnerOptions["onResult"];
   maxImageBytes?: number;
   signal?: AbortSignal;
+  /** Backoff before the single transport-class model-call retry (tests/deployments). */
+  transportRetryBackoffMs?: RunnerOptions["transportRetryBackoffMs"];
 }
 
 export interface GeneratedDrawingGame {
@@ -129,6 +131,9 @@ export async function generateDrawingGame(
   if (options.offline !== undefined) runnerOptions.offline = options.offline;
   if (options.onRequest) runnerOptions.onRequest = options.onRequest;
   if (options.onResult) runnerOptions.onResult = options.onResult;
+  if (options.transportRetryBackoffMs !== undefined) {
+    runnerOptions.transportRetryBackoffMs = options.transportRetryBackoffMs;
+  }
 
   if (request.previousGame !== undefined) {
     const previous = parseRescanPreviousGame(request.previousGame);
@@ -240,6 +245,9 @@ export async function reinterpretDrawingGame(
   if (options.offline !== undefined) runnerOptions.offline = options.offline;
   if (options.onRequest) runnerOptions.onRequest = options.onRequest;
   if (options.onResult) runnerOptions.onResult = options.onResult;
+  if (options.transportRetryBackoffMs !== undefined) {
+    runnerOptions.transportRetryBackoffMs = options.transportRetryBackoffMs;
+  }
 
   const scan = await runGenreReinterpretation(
     {

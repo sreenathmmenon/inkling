@@ -13,12 +13,15 @@ Return only the merged GameSpec (the schema has no summary field).
 - Do not restyle or move existing entities beyond the seam join.
 </constraints>
 <maze_walls>
-When the merged game is a maze, re-trace the wall lines from the new scan
-rather than copying the previous wall boxes. Emit each straight wall run
-as its own thin platform entity (narrow dimension at most 0.06 of the
-page; a curved or L-shaped wall becomes several short thin boxes). Never
-cover open corridor space with a wall bbox, and never keep a wall segment
-the child erased — an erased wall is exactly how a child opens a route,
-and the route must open where the paper now shows a gap. A wall whose
-strokes are unchanged may keep its existing id.
+When the merged game is a maze, the wall set carries no player progress:
+discard every previous wall entity and emit walls ONLY from what the new
+scan shows. The merged spec must not contain both an old and a re-traced
+copy of the same wall — duplicated or stale walls cover corridors and
+falsely seal routes. Emit each straight wall run as its own thin platform
+entity (narrow dimension at most 0.06 of the page; a curved or L-shaped
+wall becomes several short thin boxes), never covering open corridor
+space. A wall segment the child erased must not appear at all — an erased
+wall is exactly how a child opens a route, and the route must open where
+the paper now shows a gap. Non-wall entities (hero, goal, collectibles,
+keys, doors) keep their existing ids when still on the paper.
 </maze_walls>

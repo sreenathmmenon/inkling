@@ -7,6 +7,10 @@ import {
 import { mazeTopologyIsFinishable } from "./maze-topology.js";
 import { WORLD_HEIGHT, WORLD_WIDTH } from "./world-geometry.js";
 import { isP8SyntheticEntityId } from "./synthetic-entity.js";
+import {
+  TRACK_ANIMATABLE_ROLES,
+  type BehaviorMotionTrack,
+} from "./behavior-track.js";
 
 export { WORLD_HEIGHT, WORLD_WIDTH } from "./world-geometry.js";
 
@@ -31,6 +35,8 @@ export interface PlannedEntity {
   y: number;
   width: number;
   height: number;
+  /** Certified sandbox motion; present only for animatable dynamic roles. */
+  track?: BehaviorMotionTrack;
 }
 
 export interface PlatformerPlan {
@@ -266,7 +272,10 @@ function normalizedArea(value: unknown): number {
  * Converts normalized GameSpec geometry into a deterministic fixed-size physics plan.
  * Invalid or incomplete input falls back to a complete, playable platformer.
  */
-export function createPlatformerPlan(input: unknown): PlatformerPlan {
+export function createPlatformerPlan(
+  input: unknown,
+  behaviorTracks?: Record<string, BehaviorMotionTrack>,
+): PlatformerPlan {
   const spec = asGameSpec(input);
   const modifiers = Array.isArray(spec.rules.modifiers) ? [...spec.rules.modifiers] : [];
   const contract = contractForSpec(spec);
@@ -368,7 +377,20 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
           maxWidth: 88,
           maxHeight: 64,
         }, entity.artworkSource);
-      return usesFreeMovement ? hazard : snapOntoSurface(hazard, platforms);
+      const settled = usesFreeMovement ? hazard : snapOntoSurface(hazard, platforms);
+      // Certified motion applies only to animatable roles, only for drawn
+      // entities, and only when the track's id matches — anything else moves
+      // nothing and stays exactly as deterministic as before.
+      const track = behaviorTracks?.[settled.id];
+      if (
+        track &&
+        track.entityId === settled.id &&
+        TRACK_ANIMATABLE_ROLES.has(settled.role) &&
+        settled.artworkSource === "drawing"
+      ) {
+        return { ...settled, track };
+      }
+      return settled;
     });
   const hero = usesFreeMovement
     ? safeFreeSpawn(surfaceHero, hazards, contract.colliderScale)
@@ -398,8 +420,13 @@ export function createPlatformerPlan(input: unknown): PlatformerPlan {
   const goalKind = spec.goal.kind === "collect_all" && collectibles.length === 0
     ? "reach_goal"
     : spec.goal.kind || "reach_goal";
+  // reach_goal means reach the goal: drawn collectibles are bonus, never
+  // gating. Only collect_all makes gathering the objective, and only drawn
+  // key->door relationships gate progress (physically, at the door). One
+  // gem scribbled into an unreachable corner must never make a level
+  // unwinnable — the schema keeps the two goal kinds distinct on purpose.
   const relationshipKeyIds = relationships.map((relationship) => relationship.keyId);
-  const requiredCollectibleIds = goalKind === "collect_all" || goalKind === "reach_goal"
+  const requiredCollectibleIds = goalKind === "collect_all"
     ? collectibles.map((collectible) => collectible.id)
     : relationshipKeyIds;
 

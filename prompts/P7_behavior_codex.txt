@@ -6,11 +6,50 @@ finish. Do not modify the engine or template.
 </task>
 <sdk_contract>
 - Register via defineBehavior({ id, onSpawn, onUpdate(dt, ctx), onCollide(other, ctx) }).
+onUpdate is required; onSpawn and onCollide are optional.
+- id must be EXACTLY the bound entity's id from the GameSpec (the entity.id
+you were given, e.g. "snake_1") — never the behavior name.
+- Create each module as a single flat file at behaviors/<entity_id>.js or
+behaviors/<entity_id>.ts. No subdirectories, no other paths.
+- Write plain JavaScript only — no TypeScript annotations, even in .ts files.
+The only allowed import, on a single line:
+import { defineBehavior } from "@inkling/sdk";
+- Coordinate system: the world is 960x540 pixels, origin top-left, +x right,
++y down. Every distance is world pixels.
+- ctx.velocity(vx, vy) sets a persistent velocity in pixels per second until
+the next call. ctx.move(dx, dy) applies an immediate displacement in pixels
+this frame. A patrol typically sweeps +/-40-120 px/s. Displacement is
+clamped to +/-480 in x and +/-270 in y from the entity's placed position.
+- Timing: onUpdate runs 60 times per second with dt exactly 1/60. ctx.time
+is elapsed seconds. The certifier simulates the first 30 seconds (1800
+frames) and the game loops that recorded motion forever — design cyclic
+motion that looks right when repeated.
+- Motion must be visible: a peak displacement under 12 pixels is rejected as
+static. Only motion (move/velocity) reaches the shipped game today; do not
+gate motion on onCollide, damage, or external state — the certifier drives
+onUpdate only.
+- Determinism: no wall-clock, no Math.random, no timers. Use ctx.rng()
+(seeded, returns [0,1)) and ctx.time only.
 - Allowed ctx APIs: move, velocity, spawnProjectile, playSfx(pack-id),
 setState, damage, win, lose.
 - Forbidden: DOM, network, storage, timers other than ctx.time, globals,
 imports outside the SDK. (Runs in a no-network sandboxed worker.)
 </sdk_contract>
+<example_module>
+A complete, correct patrol module for an entity whose id is "snake_1":
+
+import { defineBehavior } from "@inkling/sdk";
+
+defineBehavior({
+  id: "snake_1",
+  onUpdate(dt, ctx) {
+    ctx.velocity(Math.sin(ctx.time * 1.6) * 80, 0);
+  },
+});
+
+It sweeps about +/-50 pixels forever and certifies. Match this shape; change
+only the motion logic and the id.
+</example_module>
 <mapping>
 Translate each entity.behavior + linked_to relation into a module:
 patrol, chase, spinner, shooter, faller, rise, and any spec.modifiers.

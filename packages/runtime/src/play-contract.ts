@@ -280,7 +280,20 @@ function structuralBlockers(spec: GameSpec, plan: PlatformerPlan): string[] {
  * It never reads names, filenames, or drawing nouns. Only the schema's genre,
  * goal, role, behavior, links, and rule contracts influence the result.
  */
-export function createPlayContract(gameSpec: GameSpec): PlayContract {
+export interface PlayContractEvidence {
+  /**
+   * Entities whose declared dynamic behavior produced a certified sandbox
+   * motion track. dynamic_entity_behavior counts as supported only when
+   * EVERY dynamic-declared entity is certified — one uncertified entity that
+   * would stand still makes a "faithful" claim a lie.
+   */
+  certifiedDynamicEntityIds?: readonly string[];
+}
+
+export function createPlayContract(
+  gameSpec: GameSpec,
+  evidence?: PlayContractEvidence,
+): PlayContract {
   const plan = createPlatformerPlan(gameSpec);
   const required = requiredForGenre(gameSpec, plan);
   requiredForGoal(gameSpec, required);
@@ -292,6 +305,18 @@ export function createPlayContract(gameSpec: GameSpec): PlayContract {
       ? LANE_A_RUNNER_CAPABILITY_PROFILE
       : LANE_A_CAPABILITY_PROFILE;
   const available = new Set(capabilityProfile.capabilities);
+  if (required.includes("dynamic_entity_behavior")) {
+    const certified = new Set(evidence?.certifiedDynamicEntityIds ?? []);
+    const dynamicEntities = gameSpec.entities.filter(
+      (entity) => entity.behavior !== "static" && entity.behavior !== "none",
+    );
+    if (
+      dynamicEntities.length > 0 &&
+      dynamicEntities.every((entity) => certified.has(entity.id))
+    ) {
+      available.add("dynamic_entity_behavior");
+    }
+  }
   const supportedCapabilities = required.filter((capability) => available.has(capability));
   const unsupportedCapabilities = required.filter((capability) => !available.has(capability));
   const blockers = structuralBlockers(gameSpec, plan);

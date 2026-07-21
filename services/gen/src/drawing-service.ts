@@ -82,6 +82,9 @@ export async function generateDrawingGame(
     playableGame: createPlayableGameDocument(scan.gameSpec, request.image, scan.assets.P3, {
       playtestReport: scan.playtestReport,
       solvability: scan.solvability,
+    }, scan.behaviorTracks, {
+      backdrop: scan.assets.P4,
+      soundPack: scan.assets.P5,
     }),
   };
 }

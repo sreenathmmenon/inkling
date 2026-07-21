@@ -144,8 +144,13 @@ test("120 schema-driven customer worlds stay deterministic, bounded, and finisha
       ));
       assert.deepEqual(
         firstPlan.requiredCollectibleIds,
-        declaredInteractions.map((entity) => entity.id),
-        `scenario ${index}: reach-goal omitted a semantic interaction`,
+        [],
+        `scenario ${index}: reach-goal must gate on nothing but the goal`,
+      );
+      assert.ok(
+        declaredInteractions.every((entity) =>
+          firstPlan.collectibles.some((planned) => planned.id === entity.id)),
+        `scenario ${index}: bonus pickups must stay collectible`,
       );
     }
 
@@ -164,8 +169,8 @@ test("120 schema-driven customer worlds stay deterministic, bounded, and finisha
       assert.ok(entity.width > 0 && entity.height > 0, `scenario ${index}/${entity.id}: empty geometry`);
     }
 
-    const firstReport = runPlaytest(gameSpec, 42);
-    const secondReport = runPlaytest(gameSpec, 42);
+    const firstReport = runPlaytest(gameSpec, undefined, 42);
+    const secondReport = runPlaytest(gameSpec, undefined, 42);
     assert.deepEqual(firstReport, secondReport, `scenario ${index}: P8 is not deterministic`);
     assert.equal(
       firstReport.reached_goal,

@@ -131,7 +131,7 @@ test("Lane A preserves lives and categorizes platformer interactions", () => {
   assert.equal(plan.lives, 7);
   assert.deepEqual(plan.hazards.map((entity) => entity.id), ["spike"]);
   assert.deepEqual(plan.collectibles.map((entity) => entity.id), ["star"]);
-  assert.deepEqual(plan.requiredCollectibleIds, ["star"]);
+  assert.deepEqual(plan.requiredCollectibleIds, [], "reach_goal never gates on bonus collectibles");
   assert.equal(plan.goal.id, "flag");
   assert.equal(plan.goal.styleRef, "flag-strokes");
 });
@@ -451,7 +451,7 @@ test("first-use coaching derives only from engine contracts and objective geomet
   };
   const ground = createCoachingContract(createPlatformerPlan(base));
   assert.equal(ground.firstControl, "right");
-  assert.equal(ground.objectiveLabel, "FIND");
+  assert.equal(ground.objectiveLabel, "FINISH", "reach coaching points at the finish, not at bonus items");
 
   const collectAll = structuredClone(base);
   collectAll.goal = { kind: "collect_all", target_id: null };
@@ -514,11 +514,11 @@ test("objective copy and counters stay truthful without guessing drawing nouns",
     palette: ["#ffffff"], assumptions: [], flags: [],
   });
   assert.deepEqual(createObjectiveContract(reachPlan), {
-    headline: "Find the drawn items",
-    instruction: "Find the drawn item, then reach the finish.",
-    counterLabel: "Found",
-    requiredTotal: 1,
-    optionalTotal: 0,
+    headline: "Reach the finish",
+    instruction: "Reach the marked finish. Drawn items are a bonus.",
+    counterLabel: "Bonus",
+    requiredTotal: 0,
+    optionalTotal: 1,
     finishRequired: true,
   });
 
@@ -531,7 +531,7 @@ test("objective copy and counters stay truthful without guessing drawing nouns",
   assert.doesNotMatch(JSON.stringify(collectObjective), /star|carrot|rocket|collectible/i);
 });
 
-test("reach-goal interaction contract requires every semantic item without inspecting nouns", () => {
+test("reach means reach: pickups are bonus, collect_all gathers, keys gate", () => {
   const spec: GameSpec = {
     primary_genre: "roller", genre_confidence: 1, mood: null,
     hero: { id: "hero", name: "Hero", bbox: [0.05, 0.45, 0.15, 0.6], style_ref: "source" },
@@ -552,15 +552,28 @@ test("reach-goal interaction contract requires every semantic item without inspe
   const first = createPlatformerPlan(spec);
   const second = createPlatformerPlan(spec);
   assert.deepEqual(first.requiredCollectibleIds, second.requiredCollectibleIds);
-  assert.deepEqual(first.requiredCollectibleIds, [
-    "near_route_1",
-    "large_detour",
-    "near_route_2",
-    "near_route_3",
-    "detour_2",
-    "detour_3",
-  ]);
-  assert.equal(createObjectiveContract(first).requiredTotal, 6);
+  assert.deepEqual(first.requiredCollectibleIds, [], "reach_goal gates on nothing but the goal");
+  assert.equal(first.collectibles.length, 6, "bonus pickups stay collectible");
+  const reachObjective = createObjectiveContract(first);
+  assert.equal(reachObjective.requiredTotal, 0);
+  assert.equal(reachObjective.optionalTotal, 6);
+  assert.equal(reachObjective.counterLabel, "Bonus");
+
+  const gatherEverything = structuredClone(spec);
+  gatherEverything.goal = { kind: "collect_all", target_id: null };
+  const collectPlan = createPlatformerPlan(gatherEverything);
+  assert.deepEqual(collectPlan.requiredCollectibleIds, [
+    "near_route_1", "large_detour", "near_route_2", "near_route_3", "detour_2", "detour_3",
+  ], "collect_all still requires every drawn pickup");
+  assert.equal(createObjectiveContract(collectPlan).requiredTotal, 6);
+
+  const keyGated = structuredClone(spec);
+  keyGated.entities.find((entity) => entity.id === "detour_2")!.linked_to = "route_door";
+  keyGated.entities.push({
+    id: "route_door", role: "door", bbox: [0.8, 0.4, 0.84, 0.6], behavior: "static", linked_to: null, style_ref: "source",
+  });
+  const keyPlan = createPlatformerPlan(keyGated);
+  assert.deepEqual(keyPlan.requiredCollectibleIds, ["detour_2"], "a drawn key with a drawn door still gates");
 });
 
 test("an empty collect-all contract falls back to a reachable finish instead of a dead end", () => {

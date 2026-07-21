@@ -12,6 +12,10 @@ import {
   type InputFrame,
 } from "../../../packages/runtime/src/input-frame.js";
 import { findMazeRoute } from "../../../packages/runtime/src/maze-topology.js";
+import {
+  trackOffsetAt,
+  type BehaviorMotionTrack,
+} from "../../../packages/runtime/src/behavior-track.js";
 import type { GameSpec, PlaytestReport } from "../../../runner/types.js";
 
 const DEFAULT_SEED = 0x1a2b3c4d;
@@ -172,12 +176,20 @@ function routeAroundHazards(
  * collectibles, goal trigger, and survival timer used by the Phaser player.
  * It deliberately has no wall-clock, network, or model dependency.
  */
+/** A tracked hazard's true position at a simulation frame. */
+function hazardAtFrame(hazard: PlannedEntity, frame: number): PlannedEntity {
+  if (!hazard.track) return hazard;
+  const [offsetX, offsetY] = trackOffsetAt(hazard.track, frame);
+  return { ...hazard, x: hazard.x + offsetX, y: hazard.y + offsetY };
+}
+
 function executePlaytest(
   gameSpec: GameSpec,
   seed: number,
   inputFrames?: InputFrame[],
+  behaviorTracks?: Record<string, BehaviorMotionTrack>,
 ): PlaytestReport {
-  const plan = createPlatformerPlan(gameSpec);
+  const plan = createPlatformerPlan(gameSpec, behaviorTracks);
   const dt = PLATFORMER_PHYSICS.fixedStepSeconds;
   const maxFrames = Math.round(PLATFORMER_PHYSICS.maxPlaytestSeconds / dt);
   const usesFreeMovement = plan.contract.movement === "free" || plan.contract.movement === "launch";
@@ -465,7 +477,9 @@ function executePlaytest(
     recordInput();
 
     if (elapsedMs >= invulnerableUntil) {
-      const hazard = plan.hazards.find((item) => overlapsHazard(body, heroWidth, heroHeight, item));
+      const hazard = plan.hazards.find((item) =>
+        overlapsHazard(body, heroWidth, heroHeight, hazardAtFrame(item, frame)),
+      );
       if (hazard) {
         visited.add(hazard.id);
         lives -= 1;
@@ -578,9 +592,10 @@ function executePlaytest(
 
 export function runPlaytest(
   gameSpec: GameSpec,
+  behaviorTracks?: Record<string, BehaviorMotionTrack>,
   seed = DEFAULT_SEED,
 ): PlaytestReport {
-  return executePlaytest(gameSpec, seed);
+  return executePlaytest(gameSpec, seed, undefined, behaviorTracks);
 }
 
 export interface PlaytestTraceResult {
@@ -591,10 +606,14 @@ export interface PlaytestTraceResult {
 /** Produces the deterministic policy trace that must be replayed by Phaser. */
 export function runPlaytestWithTrace(
   gameSpec: GameSpec,
+  behaviorTracks?: Record<string, BehaviorMotionTrack>,
   seed = DEFAULT_SEED,
 ): PlaytestTraceResult {
   const inputFrames: InputFrame[] = [];
-  return { report: executePlaytest(gameSpec, seed, inputFrames), inputFrames };
+  return {
+    report: executePlaytest(gameSpec, seed, inputFrames, behaviorTracks),
+    inputFrames,
+  };
 }
 
 interface Repair {

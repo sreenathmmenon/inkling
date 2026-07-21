@@ -5,6 +5,14 @@ import {
   type PlayContractOutcome,
 } from "./play-contract.js";
 import type { RuntimeTraceReport } from "./runtime-events.js";
+import {
+  parseBehaviorTracks,
+  type BehaviorMotionTrack,
+} from "./behavior-track.js";
+import {
+  parseBackdropPlan,
+  type BackdropPlan,
+} from "./backdrop-contract.js";
 
 export type NormalizedBounds = [number, number, number, number];
 
@@ -35,6 +43,12 @@ export interface PlayableGameDocument {
   gameSpec: GameSpec;
   artwork: ArtworkManifest | null;
   readinessEvidence: ReadinessEvidence | null;
+  /** Certified sandbox motion per entity; data only, never module source. */
+  behaviorTracks?: Record<string, BehaviorMotionTrack> | null;
+  /** P4's parallax plan; colors always come from the child's page. */
+  backdrop?: BackdropPlan | null;
+  /** P5's selected packs; unknown ids degrade to the base pack. */
+  soundPack?: { musicPackId: string; sfxPackId: string } | null;
 }
 
 export interface ReadinessEvidence {
@@ -54,6 +68,9 @@ export interface ResolvedPlayableGame {
   artwork: ArtworkManifest | undefined;
   readinessOutcome: PlayContractOutcome | undefined;
   playContract: PlayContract | undefined;
+  behaviorTracks: Record<string, BehaviorMotionTrack>;
+  backdrop: BackdropPlan | undefined;
+  sfxPackId: string | undefined;
 }
 
 const TOPOLOGIES = new Set<HeroRigPlan["topology"]>([
@@ -158,7 +175,12 @@ export function createPlayableGameDocument(
   sourceDataUrl?: string,
   heroRig?: unknown,
   readinessEvidence?: PipelineReadinessEvidence,
+  behaviorTracks?: Record<string, BehaviorMotionTrack>,
+  assetPlans?: { backdrop?: unknown; soundPack?: unknown },
 ): PlayableGameDocument {
+  const tracks = parseBehaviorTracks(behaviorTracks);
+  const backdrop = parseBackdropPlan(assetPlans?.backdrop) ?? null;
+  const soundPack = parseSoundPack(assetPlans?.soundPack);
   return {
     format: "inkling-playable-game-v1",
     gameSpec,
@@ -166,11 +188,31 @@ export function createPlayableGameDocument(
     readinessEvidence: readinessEvidence
       ? {
         ...readinessEvidence,
-        playContract: createPlayContract(gameSpec),
+        playContract: createPlayContract(gameSpec, {
+          certifiedDynamicEntityIds: Object.keys(tracks),
+        }),
         runtimeTraceReport: null,
       }
       : null,
+    behaviorTracks: Object.keys(tracks).length > 0 ? tracks : null,
+    backdrop,
+    soundPack,
   };
+}
+
+const MAX_PACK_ID_LENGTH = 40;
+
+function parseSoundPack(value: unknown): { musicPackId: string; sfxPackId: string } | null {
+  if (!isRecord(value)) return null;
+  const music = value.musicPackId ?? value.music_pack_id;
+  const sfx = value.sfxPackId ?? value.sfx_pack_id;
+  if (
+    typeof music !== "string" || music.length === 0 || music.length > MAX_PACK_ID_LENGTH ||
+    typeof sfx !== "string" || sfx.length === 0 || sfx.length > MAX_PACK_ID_LENGTH
+  ) {
+    return null;
+  }
+  return { musicPackId: music, sfxPackId: sfx };
 }
 
 export function parseHeroRigPlan(value: unknown): HeroRigPlan | undefined {
@@ -238,6 +280,9 @@ export function resolvePlayableGame(value: unknown): ResolvedPlayableGame {
       artwork: undefined,
       readinessOutcome: undefined,
       playContract: undefined,
+      behaviorTracks: {},
+      backdrop: undefined,
+      sfxPackId: undefined,
     };
   }
   const evidence = isRecord(value.readinessEvidence) ? value.readinessEvidence : undefined;
@@ -260,11 +305,15 @@ export function resolvePlayableGame(value: unknown): ResolvedPlayableGame {
   const readinessOutcome = parsedOutcome === "faithful_ready" && !runtimeReceiptMatches
     ? "related_fallback"
     : parsedOutcome;
+  const soundPack = parseSoundPack(value.soundPack);
   return {
     gameSpec: value.gameSpec,
     artwork: parseArtworkManifest(value.artwork),
     readinessOutcome,
     playContract: playContract as unknown as PlayContract | undefined,
+    behaviorTracks: parseBehaviorTracks(value.behaviorTracks),
+    backdrop: parseBackdropPlan(value.backdrop),
+    sfxPackId: soundPack?.sfxPackId,
   };
 }
 

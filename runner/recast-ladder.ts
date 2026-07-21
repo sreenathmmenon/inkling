@@ -56,8 +56,15 @@ function blockerEntityId(report: PlaytestReport, prefix: string): string | undef
 
 function unreachedRequiredTargets(spec: GameSpec, report: PlaytestReport): GameSpec["entities"] {
   const visited = new Set(report.visited);
+  // Only interactions that actually gate the declared goal are "required":
+  // every pickup for collect_all, but for reach_goal only keys (which gate
+  // physically at their doors) — bonus collectibles never block a win, so
+  // they are never ladder targets.
+  const gatingRoles = spec.goal.kind === "collect_all"
+    ? PICKUP_ROLES
+    : new Set(["key"]);
   const pickups = spec.entities.filter(
-    (entity) => PICKUP_ROLES.has(entity.role) && !visited.has(entity.id),
+    (entity) => gatingRoles.has(entity.role) && !visited.has(entity.id),
   );
   if (pickups.length > 0) return pickups;
   const goalTarget = spec.entities.find(
@@ -143,6 +150,10 @@ function pickupReliefCandidate(
   source: GameSpec,
   report: PlaytestReport,
 ): GameSpec | null {
+  // Bonus collectibles never gate reach_goal, so there is nothing to
+  // relieve there; relief exists for collect_all worlds whose declared
+  // objective genuinely cannot be completed.
+  if (source.goal.kind !== "collect_all") return null;
   const visited = new Set(report.visited);
   const unreached = source.entities.filter(
     (entity) => PICKUP_ROLES.has(entity.role) && !visited.has(entity.id),

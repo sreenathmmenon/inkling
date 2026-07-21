@@ -5,6 +5,7 @@ import test from "node:test";
 import type { Responses } from "openai/resources/responses/responses";
 
 import {
+  assertRequestMatchesSpec,
   createDeterministicSafetyRecast,
   ModelOutputError,
   PipelineBlocked,
@@ -776,6 +777,180 @@ test("the loader refuses spec changes that would weaken gates, loops, or orderin
   const laneEscape = structuredClone(raw);
   callIn(laneEscape, "P10")["validator"] = "headless_sdk_validator";
   assert.throws(() => validatePipelineSpec(laneEscape), /lane B/);
+});
+
+test("per-model verbosity is declared, applied, and fails loudly on drift even in dry-run", async () => {
+  const verbosities = new Map<string, unknown>();
+  await runPipeline(
+    { image: "data:image/png;base64,dmVyYm9zaXR5" },
+    {
+      safetyId: "verbosity-user",
+      dryRun: true,
+      onRequest(trace, request) {
+        verbosities.set(trace.callId, request.text?.verbosity);
+      },
+    },
+  );
+  assert.equal(verbosities.get("P7"), "medium", "codex only accepts medium verbosity");
+  assert.equal(verbosities.get("P2"), "low", "non-codex calls keep the declared global");
+  assert.equal(verbosities.get("P8"), "low");
+
+  const p7 = spec.calls.find((call) => call.id === "P7");
+  assert.ok(p7);
+  assert.throws(
+    () => assertRequestMatchesSpec(spec, p7, {
+      model: spec.models[p7.model] ?? "",
+      input: [],
+      reasoning: { effort: "medium" },
+      text: { verbosity: "low" },
+      safety_identifier: "drift-check",
+    } as Parameters<typeof assertRequestMatchesSpec>[2]),
+    /verbosity/,
+    "an undeclared per-call verbosity is rejected before any request is sent",
+  );
+});
+
+test("a thrown P7 session follows the declared escalation instead of bypassing it", async () => {
+  const dynamicSpec = structuredClone(SHAREABLE_GAME_SPEC);
+  dynamicSpec.entities.push({
+    id: "walker",
+    role: "enemy",
+    bbox: [0.05, 0.05, 0.12, 0.12],
+    behavior: "patrol",
+    linked_to: null,
+    style_ref: "source",
+  });
+  let activeCallId = "";
+  const p7Efforts: unknown[] = [];
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        if (activeCallId === "P7") {
+          if (p7Efforts.length === 1) {
+            throw new Error("400 Unsupported value: simulated transport rejection");
+          }
+          return { id: "mock-P7", output: [] };
+        }
+        const value = activeCallId === "P1" ? { verdict: "allow", reason_code: "none" }
+          : activeCallId === "P0_calibrate" ? { complexity: "simple" }
+          : activeCallId === "P2" ? dynamicSpec
+          : activeCallId === "P3" ? { topology: "blob", tier: "squash_stretch_puppet", joints: [], animations: ["idle"], style_ref: null }
+          : activeCallId === "P4" ? { layers: [{ source: "source-page", parallax: 0.5 }] }
+          : activeCallId === "P5" ? { music_pack_id: "base", sfx_pack_id: "base" }
+          : activeCallId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" }
+          : {};
+        return { id: `mock-${activeCallId}`, output_text: JSON.stringify(value), output: [] };
+      },
+    },
+  };
+  const result = await runPipeline(
+    { image: "data:image/png;base64,dGhyb3du" },
+    {
+      safetyId: "p7-thrown-user",
+      client,
+      onRequest(trace, request) {
+        activeCallId = trace.callId;
+        if (trace.callId === "P7") p7Efforts.push(request.reasoning?.effort);
+      },
+    },
+  );
+  assert.deepEqual(p7Efforts, ["medium", "high"], "the error path escalates exactly like a fruitless one");
+  assert.ok(result.degraded.some((entry) => entry.startsWith("P7:walker:first_attempt:")));
+  assert.equal(result.behaviorFallbacks["walker"], "static");
+  assert.deepEqual(result.behaviorTracks, {});
+});
+
+test("behavior sessions are spent only on roles the runtime can animate", async () => {
+  const wasteful = structuredClone(SHAREABLE_GAME_SPEC);
+  wasteful.entities.push(
+    { id: "fish", role: "collectible", bbox: [0.3, 0.3, 0.36, 0.36], behavior: "patrol", linked_to: null, style_ref: "source" },
+    { id: "bubble", role: "decoration", bbox: [0.4, 0.2, 0.44, 0.24], behavior: "rise", linked_to: null, style_ref: "source" },
+    { id: "walker", role: "enemy", bbox: [0.05, 0.05, 0.12, 0.12], behavior: "patrol", linked_to: null, style_ref: "source" },
+  );
+  let activeCallId = "";
+  const p7Entities: string[] = [];
+  const client: ResponsesClient = {
+    responses: {
+      async create(request) {
+        if (activeCallId === "P7") {
+          p7Entities.push(JSON.stringify(request.input));
+          return { id: "mock-P7", output: [] };
+        }
+        const value = activeCallId === "P1" ? { verdict: "allow", reason_code: "none" }
+          : activeCallId === "P0_calibrate" ? { complexity: "simple" }
+          : activeCallId === "P2" ? wasteful
+          : activeCallId === "P3" ? { topology: "blob", tier: "squash_stretch_puppet", joints: [], animations: ["idle"], style_ref: null }
+          : activeCallId === "P4" ? { layers: [{ source: "source-page", parallax: 0.5 }] }
+          : activeCallId === "P5" ? { music_pack_id: "base", sfx_pack_id: "base" }
+          : activeCallId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" }
+          : {};
+        return { id: `mock-${activeCallId}`, output_text: JSON.stringify(value), output: [] };
+      },
+    },
+  };
+  await runPipeline(
+    { image: "data:image/png;base64,cm9sZWZpbHRlcg==" },
+    { safetyId: "role-filter-user", client, onRequest(trace) { activeCallId = trace.callId; } },
+  );
+  const sessionEntityIds = p7Entities.map(
+    (sessionInput) => sessionInput.match(/\\"item\\":\{\\"id\\":\\"(\w+)\\"/)?.[1] ?? "unmatched",
+  );
+  assert.deepEqual(
+    [...new Set(sessionEntityIds)],
+    ["walker"],
+    "patrolling collectibles and rising decorations never consume a session",
+  );
+});
+
+test("a runaway behavior session stops at the scan budget and keeps certified work", async () => {
+  const dynamicSpec = structuredClone(SHAREABLE_GAME_SPEC);
+  for (let index = 0; index < 6; index += 1) {
+    dynamicSpec.entities.push({
+      id: `walker_${index}`,
+      role: "enemy",
+      bbox: [0.05 + index * 0.02, 0.05, 0.1 + index * 0.02, 0.1],
+      behavior: "patrol",
+      linked_to: null,
+      style_ref: "source",
+    });
+  }
+  let activeCallId = "";
+  let p7Calls = 0;
+  const client: ResponsesClient = {
+    responses: {
+      async create() {
+        if (activeCallId === "P7") {
+          p7Calls += 1;
+          // A model that never stops proposing rejected patches.
+          return {
+            id: `mock-P7-${p7Calls}`,
+            output: [{
+              type: "apply_patch_call",
+              call_id: `patch-${p7Calls}`,
+              operation: { type: "delete_file", path: "behaviors/x.ts" },
+            } as unknown as Responses.ResponseOutputItem],
+          };
+        }
+        const value = activeCallId === "P1" ? { verdict: "allow", reason_code: "none" }
+          : activeCallId === "P0_calibrate" ? { complexity: "simple" }
+          : activeCallId === "P2" ? dynamicSpec
+          : activeCallId === "P3" ? { topology: "blob", tier: "squash_stretch_puppet", joints: [], animations: ["idle"], style_ref: null }
+          : activeCallId === "P4" ? { layers: [{ source: "source-page", parallax: 0.5 }] }
+          : activeCallId === "P5" ? { music_pack_id: "base", sfx_pack_id: "base" }
+          : activeCallId === "P8" ? { verdict: "ready", repairs: [], fallback: "none" }
+          : {};
+        return { id: `mock-${activeCallId}`, output_text: JSON.stringify(value), output: [] };
+      },
+    },
+  };
+  const result = await runPipeline(
+    { image: "data:image/png;base64,YnVkZ2V0" },
+    { safetyId: "p7-budget-user", client, onRequest(trace) { activeCallId = trace.callId; } },
+  );
+  assert.ok(p7Calls <= 24, `the scan-wide budget bounds the spend (used ${p7Calls})`);
+  assert.ok(result.degraded.some((entry) => entry.endsWith("behavior_budget_exhausted")));
+  assert.equal(Object.keys(result.behaviorFallbacks).length, 6, "all runaway entities degrade to static");
+  assert.equal(result.playtestReport.reached_goal, true, "the game still certifies and plays");
 });
 
 test("P7 escalates to its declared effort once before an entity falls back to static", async () => {

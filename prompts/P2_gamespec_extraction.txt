@@ -36,6 +36,20 @@ Handwritten words are game parameters, applied literally:
 - a name -> entity display name
 If a word is unreadable, ignore it silently.
 </text_rules>
+<goal_rules>
+Choose goal.kind by drawn intent:
+- reach_goal when a finish marker exists (flag, X, "END", trophy, home).
+Collectibles in a reach_goal world are BONUS: the player can win without
+them. Do not switch to collect_all just because items exist.
+- collect_all only when gathering everything IS the point: no finish
+marker, or text like "get all" / "collect the stars".
+- survive when the drawing implies enduring with no finish and no
+gatherable set.
+- defeat_boss when text or composition marks a boss to beat.
+Keys are the gating mechanism in every goal kind: a key linked to a door
+blocks the way until picked up. Use key+door for "must get this", never a
+collectible.
+</goal_rules>
 <genre_inference>
 Choose one primary_genre from genre_enum using composition:
 - side-view with horizontal platforms -> platformer

@@ -14,7 +14,37 @@ interface ToneVoice {
 export interface SoundFeedbackController {
   handleRuntimeEvent(event: RuntimeEvent): void;
   isMuted(): boolean;
+  /** Selects the P5-chosen SFX pack; unknown ids keep the base pack. */
+  setPack(packId: unknown): void;
   destroy(): void;
+}
+
+/**
+ * The registered SFX pack list P5 selects from. Every pack is a bounded
+ * deterministic transform of the base voices: same events, same shortness,
+ * same quietness rules — only the timbre shifts with the drawing's mood.
+ */
+export type SfxPackId = "base" | "bright" | "gentle" | "spooky" | "adventure" | "watery";
+
+const SFX_PACK_TRANSFORMS: Record<SfxPackId, {
+  frequency: number;
+  gain: number;
+  wave?: OscillatorType;
+}> = {
+  base: { frequency: 1, gain: 1 },
+  bright: { frequency: 1.22, gain: 0.95 },
+  gentle: { frequency: 0.95, gain: 0.7, wave: "sine" },
+  spooky: { frequency: 0.78, gain: 0.85, wave: "triangle" },
+  adventure: { frequency: 0.88, gain: 0.9, wave: "triangle" },
+  watery: { frequency: 0.92, gain: 0.85, wave: "sine" },
+};
+
+export const SFX_PACK_IDS = Object.keys(SFX_PACK_TRANSFORMS) as SfxPackId[];
+
+export function resolveSfxPackId(value: unknown): SfxPackId {
+  if (typeof value !== "string") return "base";
+  const candidate = value.trim().toLowerCase();
+  return (SFX_PACK_IDS as string[]).includes(candidate) ? candidate as SfxPackId : "base";
 }
 
 interface SoundFeedbackOptions {
@@ -29,7 +59,23 @@ interface SoundFeedbackOptions {
  * Short synthesized cues are local, deterministic, and require no download.
  * Their timing is presentation-only and never feeds back into the game loop.
  */
-export function soundVoicesFor(kind: RuntimeEventKind): readonly ToneVoice[] {
+export function soundVoicesFor(
+  kind: RuntimeEventKind,
+  pack: SfxPackId = "base",
+): readonly ToneVoice[] {
+  const transform = SFX_PACK_TRANSFORMS[pack] ?? SFX_PACK_TRANSFORMS.base;
+  return baseVoicesFor(kind).map((voice) => ({
+    ...voice,
+    frequency: Math.round(voice.frequency * transform.frequency),
+    ...(voice.endFrequency !== undefined
+      ? { endFrequency: Math.round(voice.endFrequency * transform.frequency) }
+      : {}),
+    gain: Number((voice.gain * transform.gain).toFixed(4)),
+    wave: transform.wave ?? voice.wave,
+  }));
+}
+
+function baseVoicesFor(kind: RuntimeEventKind): readonly ToneVoice[] {
   switch (kind) {
     case "pickup":
       return [
@@ -196,11 +242,12 @@ export function attachSoundFeedback(options: SoundFeedbackOptions): SoundFeedbac
   };
   options.button.addEventListener("click", toggleSound);
   renderPreference();
+  let activePack: SfxPackId = "base";
 
   return {
     handleRuntimeEvent(event): void {
       if (muted || !gestureSeen) return;
-      const voices = soundVoicesFor(event.kind);
+      const voices = soundVoicesFor(event.kind, activePack);
       if (!voices.length) return;
       const activeContext = ensureContext();
       if (!activeContext || activeContext.state !== "running") return;
@@ -211,6 +258,9 @@ export function attachSoundFeedback(options: SoundFeedbackOptions): SoundFeedbac
       }
     },
     isMuted: () => muted,
+    setPack(packId): void {
+      activePack = resolveSfxPackId(packId);
+    },
     destroy(): void {
       options.button.removeEventListener("click", toggleSound);
       for (const type of ["pointerdown", "touchstart", "keydown", "click"]) {

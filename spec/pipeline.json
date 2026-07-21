@@ -6,6 +6,7 @@
     "reasoning_mode_live": "standard",
     "reasoning_mode_offline": "pro",
     "text_verbosity_json": "low",
+    "text_verbosity_by_model": {"codex": "medium"},
     "safety_identifier": "REQUIRED_PER_USER_HASH"
   },
   "models": {

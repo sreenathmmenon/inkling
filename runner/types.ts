@@ -55,6 +55,8 @@ export interface PipelineSpec {
     reasoning_mode_live: string;
     reasoning_mode_offline: string;
     text_verbosity_json: "low" | "medium" | "high";
+    /** Per-model-alias overrides for APIs that reject the global verbosity. */
+    text_verbosity_by_model?: Record<string, "low" | "medium" | "high">;
     safety_identifier: string;
   };
   models: Record<string, string>;
@@ -180,6 +182,8 @@ export interface ScanResult {
   assets: Record<string, unknown>;
   behaviorPatches: BehaviorPatch[];
   behaviorFallbacks: Record<string, "static">;
+  /** Certified sandbox motion per entity — the data the runtime executes. */
+  behaviorTracks: Record<string, import("../packages/runtime/src/behavior-track.js").BehaviorMotionTrack>;
   playtestReport: PlaytestReport;
   solvability: JsonObject;
   calls: RequestTrace[];

@@ -5,12 +5,21 @@ import { join } from "node:path";
 import type { Responses } from "openai/resources/responses/responses";
 
 import type { BehaviorPatch } from "../../../runner/types.js";
+import {
+  isBehaviorMotionTrack,
+  type BehaviorMotionTrack,
+} from "../../../packages/runtime/src/behavior-track.js";
 
 export interface BehaviorValidation {
   valid: boolean;
   fallback: "static";
   errors: string[];
   patch?: BehaviorPatch;
+  /**
+   * The bounded motion the module produced in the sandbox simulation. This
+   * data — never the module source — is what the runtime executes.
+   */
+  track?: BehaviorMotionTrack;
 }
 
 const ALLOWED_IMPORTS = new Set([
@@ -65,10 +74,11 @@ function staticErrors(source: string, expectedEntityId: string): string[] {
   if (!/\bonUpdate\s*[:(]/.test(source)) {
     errors.push("missing_onUpdate");
   }
-  const literalId = source.match(/\bid\s*:\s*["']([^"']+)["']/)?.[1];
-  if (literalId && literalId !== expectedEntityId) {
-    errors.push(`entity_id_mismatch:${literalId}`);
-  }
+  // The entity-id binding is deliberately NOT checked lexically: modules
+  // legitimately nest other id-like literals (state names, animation keys)
+  // that no regex can distinguish from the registration. The sandbox is the
+  // enforcement point — it runs the module and fails closed unless
+  // behavior.id equals the expected entity, which a source string can't spoof.
   return [...new Set(errors)];
 }
 
@@ -82,8 +92,13 @@ function sandboxWorkerPath(): string {
   return found;
 }
 
-function runSandbox(source: string, expectedEntityId: string): Promise<string[]> {
-  return new Promise((resolve) => {
+interface SandboxOutcome {
+  errors: string[];
+  track?: BehaviorMotionTrack;
+}
+
+function runSandbox(source: string, expectedEntityId: string): Promise<SandboxOutcome> {
+  return new Promise<SandboxOutcome>((resolve) => {
     let worker: ReturnType<typeof spawn>;
     try {
       const path = sandboxWorkerPath();
@@ -93,12 +108,12 @@ function runSandbox(source: string, expectedEntityId: string): Promise<string[]>
         { env: {}, stdio: ["pipe", "pipe", "pipe"] },
       );
     } catch (error) {
-      resolve([`sandbox_start:${String(error)}`]);
+      resolve({ errors: [`sandbox_start:${String(error)}`] });
       return;
     }
     if (!worker.stdin || !worker.stdout || !worker.stderr) {
       worker.kill("SIGKILL");
-      resolve(["sandbox_stdio_unavailable"]);
+      resolve({ errors: ["sandbox_stdio_unavailable"] });
       return;
     }
 
@@ -106,8 +121,8 @@ function runSandbox(source: string, expectedEntityId: string): Promise<string[]>
     let stderr = "";
     const timer = setTimeout(() => {
       worker.kill("SIGKILL");
-      resolve(["sandbox_timeout"]);
-    }, 2_000);
+      resolve({ errors: ["sandbox_timeout"] });
+    }, 4_000);
     timer.unref();
 
     worker.stdout.on("data", (chunk: Buffer) => {
@@ -118,16 +133,29 @@ function runSandbox(source: string, expectedEntityId: string): Promise<string[]>
     });
     worker.once("error", (error) => {
       clearTimeout(timer);
-      resolve([`sandbox_error:${error.message}`]);
+      resolve({ errors: [`sandbox_error:${error.message}`] });
     });
     worker.once("close", (code) => {
       clearTimeout(timer);
       try {
-        const result = JSON.parse(stdout) as { valid: boolean; errors?: string[] };
-        if (code === 0 && result.valid) resolve([]);
-        else resolve(result.errors ?? [`sandbox_exit:${String(code)}`, stderr.trim()]);
+        const result = JSON.parse(stdout) as {
+          valid: boolean;
+          errors?: string[];
+          track?: unknown;
+        };
+        if (code === 0 && result.valid) {
+          // The track is re-validated here even though the worker produced
+          // it: defense in depth against a compromised or truncated worker
+          // response ever shipping unbounded motion data.
+          const track = isBehaviorMotionTrack(result.track) && result.track.entityId === expectedEntityId
+            ? result.track
+            : undefined;
+          resolve(track ? { errors: [], track } : { errors: [] });
+          return;
+        }
+        resolve({ errors: result.errors ?? [`sandbox_exit:${String(code)}`, stderr.trim()] });
       } catch {
-        resolve([`sandbox_invalid_output:${stderr.trim() || stdout.trim()}`]);
+        resolve({ errors: [`sandbox_invalid_output:${stderr.trim() || stdout.trim()}`] });
       }
     });
     worker.stdin.end(JSON.stringify({ source, expectedEntityId, seed: 1337 }));
@@ -151,19 +179,26 @@ export async function validateBehaviorOperation(
       return {
         valid: false,
         fallback: "static",
-        errors: [`invalid_behavior_path:${operation.path}`],
+        // Model-facing feedback: state the accepted shape so the session
+        // converges instead of probing path conventions round after round.
+        errors: [
+          `invalid_behavior_path:${operation.path}:must match behaviors/<name>.js or behaviors/<name>.ts with no directories`,
+        ],
       };
     }
     const source = sourceFromDiff(operation.diff);
     const errors = staticErrors(source, expectedEntityId);
     if (errors.length > 0) return { valid: false, fallback: "static", errors };
-    errors.push(...(await runSandbox(source, expectedEntityId)));
-    if (errors.length > 0) return { valid: false, fallback: "static", errors };
+    const sandbox = await runSandbox(source, expectedEntityId);
+    if (sandbox.errors.length > 0) {
+      return { valid: false, fallback: "static", errors: sandbox.errors };
+    }
     return {
       valid: true,
       fallback: "static",
       errors: [],
       patch: { entityId: expectedEntityId, operation, source },
+      ...(sandbox.track ? { track: sandbox.track } : {}),
     };
   } catch (error) {
     return {

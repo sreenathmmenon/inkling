@@ -70,8 +70,15 @@ test("real-runtime trace evidence rejects a finish that bypasses required drawn 
   const withDrawnItem: GameSpec = structuredClone(gameSpec);
   withDrawnItem.entities.splice(1, 0, {
     id: "drawn_item",
-    role: "collectible",
+    role: "key",
     bbox: [0.42, 0.6, 0.47, 0.68],
+    behavior: "static",
+    linked_to: "drawn_door",
+    style_ref: "source",
+  }, {
+    id: "drawn_door",
+    role: "door",
+    bbox: [0.6, 0.45, 0.66, 0.72],
     behavior: "static",
     linked_to: null,
     style_ref: "source",

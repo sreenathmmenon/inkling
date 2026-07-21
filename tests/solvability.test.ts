@@ -38,8 +38,8 @@ function fixture(): GameSpec {
 
 test("Lane A playtest uses the same deterministic physics contract as the player", () => {
   const game = fixture();
-  const first = runPlaytest(game, 42);
-  const second = runPlaytest(game, 42);
+  const first = runPlaytest(game, undefined, 42);
+  const second = runPlaytest(game, undefined, 42);
   assert.deepEqual(first, second);
   assert.equal(first.reached_goal, true);
   assert.ok(first.time_to_win !== null && first.time_to_win > 0);
@@ -56,8 +56,8 @@ test("Lane A playtest uses the same deterministic physics contract as the player
 });
 
 test("analytic playtest emits shared InputFrames for production Phaser replay", () => {
-  const first = runPlaytestWithTrace(fixture(), 42);
-  const second = runPlaytestWithTrace(fixture(), 42);
+  const first = runPlaytestWithTrace(fixture(), undefined, 42);
+  const second = runPlaytestWithTrace(fixture(), undefined, 42);
   assert.deepEqual(first, second);
   assert.equal(first.report.reached_goal, true);
   assert.equal(first.inputFrames[0]?.format, "inkling-input-frame-v1");
@@ -76,7 +76,7 @@ test("Lane A normalizes a repeated spawn hazard into a safe, finishable start", 
     behavior: "static",
     style_ref: "source",
   });
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
   assert.equal(report.visited.includes("spawn_hazard"), false);
 });
@@ -88,7 +88,7 @@ test("Lane A solver uses the no-gravity free-movement contract for roller games"
   game.entities[0]!.bbox = [0.72, 0.72, 0.82, 0.84];
   game.rules.modifiers = [];
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true);
   assert.ok(report.time_to_win !== null && report.time_to_win > 0);
   assert.equal(report.visited.includes("lane_a_safety_floor"), false);
@@ -104,7 +104,7 @@ test("free-movement P8 routes around hazards instead of exhausting lives", () =>
   ];
   game.goal = { kind: "reach_goal", target_id: "goal" };
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
   assert.equal(report.visited.includes("rock"), false);
 });
@@ -119,8 +119,8 @@ test("maze P8 follows the same clearance-aware wall route as production", () => 
   ];
   game.goal = { kind: "reach_goal", target_id: "goal" };
 
-  const first = runPlaytestWithTrace(game, 42);
-  const second = runPlaytestWithTrace(game, 42);
+  const first = runPlaytestWithTrace(game, undefined, 42);
+  const second = runPlaytestWithTrace(game, undefined, 42);
   assert.deepEqual(first, second);
   assert.equal(first.report.reached_goal, true, first.report.first_blocker ?? "no report");
   assert.equal(first.report.visited.includes("wall"), false);
@@ -143,7 +143,7 @@ test("collect-all wins on the last collectible just like the Phaser player", () 
   game.goal = { kind: "collect_all", target_id: null };
   game.rules.modifiers = [];
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true);
   assert.ok(report.visited.includes("star_1"));
 });
@@ -156,7 +156,7 @@ test("ground-mode P8 routes through required collectibles before finishing", () 
   ];
   game.goal = { kind: "collect_all", target_id: null };
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
   assert.ok(report.visited.includes("item_1"));
   assert.ok(report.visited.includes("item_2"));
@@ -171,7 +171,7 @@ test("reach-goal P8 cannot bypass every semantic collectible", () => {
   ];
   game.goal = { kind: "reach_goal", target_id: "finish" };
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
   assert.ok(report.visited.includes("drawn_item"));
   assert.ok(report.visited.indexOf("drawn_item") < report.visited.indexOf("finish"));
@@ -187,7 +187,7 @@ test("P8 collects an explicit key before crossing its linked door", () => {
   ];
   game.goal = { kind: "reach_goal", target_id: "finish" };
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
 
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
   assert.ok(report.visited.includes("key"));
@@ -203,7 +203,7 @@ test("ground-mode P8 walks off a high platform when the goal is below", () => {
   ];
   game.goal = { kind: "reach_goal", target_id: "goal" };
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
 });
 
@@ -219,7 +219,7 @@ test("ground reach-goal routing targets the playable trigger instead of climbing
   ];
   game.goal = { kind: "reach_goal", target_id: "goal" };
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
 
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
 });
@@ -234,7 +234,7 @@ test("ground-mode P8 jumps a hazard waiting below the end of a drawn ledge", () 
   ];
   game.goal = { kind: "reach_goal", target_id: "goal" };
 
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
 
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
   assert.equal(report.visited.includes("pit"), false);
@@ -286,7 +286,7 @@ test("P8 clears a matrix of generic stacked and zig-zag platform layouts", () =>
     ]);
     game.goal = { kind: "collect_all", target_id: null };
 
-    const report = runPlaytest(game, 42);
+    const report = runPlaytest(game, undefined, 42);
 
     assert.equal(
       report.reached_goal,
@@ -305,7 +305,7 @@ test("P8 can validate a finishable route for every declared Lane A genre", () =>
       game.hero.bbox = [0.1, 0.12, 0.18, 0.26];
       game.entities[0]!.bbox = [0.72, 0.7, 0.82, 0.84];
     }
-    const report = runPlaytest(game, 42);
+    const report = runPlaytest(game, undefined, 42);
     assert.equal(report.reached_goal, true, `${primaryGenre}: ${report.first_blocker}`);
   }
 });
@@ -318,7 +318,7 @@ test("P8 validates the same projectile contract used for a defeat-boss game", ()
     id: "boss", role: "boss", bbox: [0.72, 0.42, 0.84, 0.62], behavior: "static", style_ref: "source",
   }];
   game.goal = { kind: "defeat_boss", target_id: "boss" };
-  const report = runPlaytest(game, 42);
+  const report = runPlaytest(game, undefined, 42);
   assert.equal(report.reached_goal, true, report.first_blocker ?? "no report");
   assert.ok(report.visited.includes("boss"));
 });

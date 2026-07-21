@@ -79,29 +79,39 @@ test("reach support adds one synthetic one-way platform beneath the unreached ta
   const support = candidate.entities.find((entity) => entity.id.startsWith("__inkling_p8_synthetic__"));
   assert.ok(support, "the support platform carries trusted synthetic provenance");
   assert.equal(support.role, "platform");
-  const gem = source.entities.find((entity) => entity.id === "gem");
-  const centerX = ((gem?.bbox[0] ?? 0) + (gem?.bbox[2] ?? 0)) / 2;
-  assert.ok(Math.abs((support.bbox[0] + support.bbox[2]) / 2 - centerX) < 0.001, "support sits under the unreached pickup");
+  const finish = source.entities.find((entity) => entity.id === "finish");
+  const centerX = ((finish?.bbox[0] ?? 0) + (finish?.bbox[2] ?? 0)) / 2;
+  assert.ok(
+    Math.abs((support.bbox[0] + support.bbox[2]) / 2 - centerX) < 0.001,
+    "support targets the unreached goal — bonus pickups are never ladder targets",
+  );
   for (const entity of source.entities) {
     assert.deepEqual(candidate.entities.find((other) => other.id === entity.id), entity, `${entity.id} is untouched`);
   }
   assert.ok(candidate.flags.includes("p8_reach_support"));
 });
 
-test("pickup relief demotes only unreached pickups and keeps reached ones collectible", () => {
+test("pickup relief exists only for collect_all and keeps reached pickups collectible", () => {
+  const reach = baseSpec();
+  assert.equal(
+    buildRungCandidate("pickup_relief", reach, report({ first_blocker: "playtest_timeout", visited: ["hero", "floor"] })),
+    null,
+    "bonus pickups never gate reach_goal, so there is nothing to relieve",
+  );
+
   const source = baseSpec();
+  source.goal = { kind: "collect_all", target_id: null };
   source.entities.push({ id: "gem_low", role: "collectible", bbox: [0.3, 0.64, 0.36, 0.7], behavior: "static", linked_to: null, style_ref: "blue-gem" });
   const candidate = buildRungCandidate(
     "pickup_relief",
     source,
-    report({ first_blocker: "playtest_timeout", visited: ["hero", "floor", "gem_low"] }),
+    report({ first_blocker: "collectibles_not_reached", visited: ["hero", "floor", "gem_low"] }),
   );
   assert.ok(candidate);
   assert.equal(candidate.entities.find((entity) => entity.id === "gem")?.role, "decoration");
   assert.equal(candidate.entities.find((entity) => entity.id === "gem_low")?.role, "collectible");
   assert.equal(candidate.entities.find((entity) => entity.id === "snake")?.behavior, "patrol", "dynamic entities survive relief");
   assert.deepEqual(candidate.entities.find((entity) => entity.id === "gem")?.bbox, source.entities.find((entity) => entity.id === "gem")?.bbox, "demoted art keeps its drawn position");
-  assert.equal(candidate.goal.target_id, "finish", "the drawn goal stays the goal");
   assert.ok(candidate.flags.includes("p8_optional_pickups"));
 });
 
@@ -160,9 +170,12 @@ test("behavior patches survive rungs that keep their entity intact and drop with
   ];
   const fallbacks: Record<string, "static"> = { snake: "static" };
 
-  const relief = buildRungCandidate("pickup_relief", source, report({ visited: ["hero", "floor"] }));
+  const gatherSource = structuredClone(source);
+  gatherSource.goal = { kind: "collect_all", target_id: null };
+  gatherSource.entities.push({ id: "gem_low", role: "collectible", bbox: [0.3, 0.64, 0.36, 0.7], behavior: "static", linked_to: null, style_ref: "blue-gem" });
+  const relief = buildRungCandidate("pickup_relief", gatherSource, report({ visited: ["hero", "floor", "gem_low"] }));
   assert.ok(relief);
-  const kept = pruneBehaviorPatchesForWorld(patches, fallbacks, source, relief);
+  const kept = pruneBehaviorPatchesForWorld(patches, fallbacks, gatherSource, relief);
   assert.equal(kept.patches.length, 1, "the surviving patrol entity keeps its patch");
   assert.deepEqual(kept.fallbacks, { snake: "static" });
 
@@ -174,47 +187,30 @@ test("behavior patches survive rungs that keep their entity intact and drop with
   assert.deepEqual(dropped.removedEntityIds, ["snake"]);
 });
 
-test("jungle-explorer certifies at pickup relief with its drawn world intact", () => {
+test("jungle-explorer is finishable exactly as drawn once bonus pickups stop gating", () => {
   const raw = structuredClone(JUNGLE);
   const rawReport = runPlaytest(raw);
-  assert.equal(rawReport.reached_goal, false, "the fixture reproduces the corpus blocker");
-
-  assert.equal(buildRungCandidate("bounded_adjustment", raw, rawReport), null);
-  const supported = buildRungCandidate("reach_support", raw, rawReport);
-  assert.ok(supported);
-  assert.equal(runPlaytest(supported).reached_goal, false, "one support platform is not enough here");
-
-  const relieved = buildRungCandidate("pickup_relief", raw, rawReport);
-  assert.ok(relieved);
-  assert.equal(runPlaytest(relieved).reached_goal, true, "pickup relief makes the drawn world finishable");
-
-  const byId = new Map(raw.entities.map((entity) => [entity.id, entity]));
-  for (const entity of relieved.entities) {
-    const original = byId.get(entity.id);
-    assert.ok(original);
-    assert.deepEqual(entity.bbox, original.bbox, `${entity.id} keeps its drawn position`);
-    assert.equal(entity.style_ref, original.style_ref, `${entity.id} keeps its stroke identity`);
-    if (original.role !== "collectible") {
-      assert.equal(entity.role, original.role, `${entity.id} keeps its role`);
-      assert.equal(entity.behavior, original.behavior, `${entity.id} keeps its behavior`);
-    }
-  }
-  assert.equal(relieved.goal.target_id, raw.goal.target_id, "the drawn temple goal stays the goal");
-  assert.ok(
-    relieved.entities.some((entity) => entity.role === "enemy" && entity.behavior === "patrol"),
-    "the patrol snakes stay patrol enemies",
+  assert.equal(
+    rawReport.reached_goal,
+    true,
+    "the drawing that once burned four P8 iterations into a recast needs no ladder at all",
   );
-  assert.ok(relieved.flags.includes("p8_optional_pickups"));
-  assert.equal(relieved.flags.includes("p8_safety_recast"), false, "no full recast for this drawing");
-  assert.equal(createPlayContract(relieved).outcome, "related_fallback");
+
+  const plan = createPlatformerPlan(raw);
+  assert.deepEqual(plan.requiredCollectibleIds, [], "the six gems are bonus, exactly as P2 extracted them");
+  assert.equal(plan.collectibles.length, 6, "every gem stays collectible for bonus play");
+
+  const failedElsewhere = { ...rawReport, reached_goal: false, first_blocker: "playtest_timeout" };
+  assert.equal(
+    buildRungCandidate("pickup_relief", raw, failedElsewhere),
+    null,
+    "unreachable bonus gems can never trigger a relief rung again",
+  );
 
   const fullFloor = createDeterministicSafetyRecast(raw);
-  const relievedPlayable = relieved.entities.filter((entity) => entity.role !== "decoration").length;
+  const rawPlayable = raw.entities.filter((entity) => entity.role !== "decoration").length;
   const fullFloorPlayable = fullFloor.entities.filter(
     (entity) => entity.role !== "decoration" && !entity.id.startsWith("__inkling_p8_synthetic__"),
   ).length;
-  assert.ok(
-    relievedPlayable > fullFloorPlayable,
-    "the ladder keeps strictly more of the child's drawing playable than the old full recast",
-  );
+  assert.ok(rawPlayable > fullFloorPlayable, "the drawn world beats any recast outcome");
 });

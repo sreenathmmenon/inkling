@@ -68,6 +68,7 @@ export const CONSUMED_GLOBAL_FIELDS = new Set([
   "reasoning_mode_live",
   "reasoning_mode_offline",
   "text_verbosity_json",
+  "text_verbosity_by_model",
   "safety_identifier",
 ]);
 export const CONSUMED_CALL_FIELDS = new Set([
@@ -135,6 +136,20 @@ export function validatePipelineSpec(document: unknown): PipelineSpec {
   );
   if (spec.globals.safety_identifier !== "REQUIRED_PER_USER_HASH") {
     throw new Error("globals.safety_identifier may not weaken the per-user hash requirement");
+  }
+  const verbosityByModel = spec.globals.text_verbosity_by_model;
+  if (verbosityByModel !== undefined) {
+    if (!isRecord(verbosityByModel)) {
+      throw new Error("globals.text_verbosity_by_model must map model aliases to verbosity");
+    }
+    for (const [alias, verbosity] of Object.entries(verbosityByModel)) {
+      if (!spec.models[alias]) {
+        throw new Error(`text_verbosity_by_model references unknown model alias ${alias}`);
+      }
+      if (verbosity !== "low" && verbosity !== "medium" && verbosity !== "high") {
+        throw new Error(`text_verbosity_by_model.${alias} must be low, medium, or high`);
+      }
+    }
   }
   if (!Array.isArray(spec.calls) || spec.calls.length === 0) {
     throw new Error("pipeline.calls must be a non-empty array");

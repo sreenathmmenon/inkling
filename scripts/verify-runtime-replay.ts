@@ -38,6 +38,8 @@ collectGameSpec.goal = { kind: "collect_all", target_id: null };
 
 const reachInteractionGameSpec = structuredClone(baseGameSpec);
 reachInteractionGameSpec.entities.splice(1, 0,
+  // reach_goal means reach the goal: these drawn collectibles are bonus and
+  // must never gate the win. Key->door gating is proven by the key-door case.
   { id: "interaction_ledge", role: "platform", bbox: [0.2, 0.5, 0.38, 0.56], behavior: "static", linked_to: null, style_ref: "source" },
   { id: "interaction_detour", role: "collectible", bbox: [0.27, 0.42, 0.32, 0.5], behavior: "static", linked_to: null, style_ref: "source" },
   { id: "interaction_route", role: "collectible", bbox: [0.5, 0.62, 0.55, 0.7], behavior: "static", linked_to: null, style_ref: "source" },
@@ -265,7 +267,7 @@ try {
       await page.close();
       page = await createReplayPage();
     }
-    const analytic = runPlaytestWithTrace(gameCase.gameSpec, 42);
+    const analytic = runPlaytestWithTrace(gameCase.gameSpec, undefined, 42);
     assert.equal(
       analytic.report.reached_goal,
       true,
@@ -365,16 +367,20 @@ try {
         if (!api) throw new Error("Inkling runtime replay API is unavailable");
         return api.run(input.gameSpec, input.inputFrames);
       }, { gameSpec: gameCase.gameSpec, inputFrames: directFrames }) as RuntimeEvent[];
+      const finalBypass = bypassEvents.at(-1);
       assert.equal(
-        bypassEvents.at(-1)?.state.status,
-        "playing",
-        "reach-goal allowed a straight-line win that bypassed a required drawn interaction",
+        finalBypass?.state.status,
+        "won",
+        "reach_goal must be winnable by reaching the goal — bonus items never gate",
       );
-      assert.ok(
-        bypassEvents.some((event) => event.kind === "goal_blocked"),
-        "reach-goal did not explain why its finish was still locked",
+      assert.equal(
+        bypassEvents.some((event) => event.kind === "pickup" && event.entityId === "interaction_detour"),
+        false,
+        "the ledge bonus was skipped entirely — and the win stood anyway",
       );
-      summaries.push("reach-interactions/bypass-blocked");
+      const bonusReport = validateRuntimeTrace(bypassEvents, createPlayContract(gameCase.gameSpec));
+      assert.equal(bonusReport.valid, true, `bonus-skip win must trace legally: ${bonusReport.blockers.join(",")}`);
+      summaries.push("reach-interactions/bonus-skip-won");
     }
     if (gameCase.id === "maze") {
       const directFrames = Array.from({ length: 300 }, (_, index) => ({
@@ -399,7 +405,7 @@ try {
   }
 
   const safetyRecast = createDeterministicSafetyRecast(hazardGameSpec);
-  const safetyAnalytic = runPlaytestWithTrace(safetyRecast, 42);
+  const safetyAnalytic = runPlaytestWithTrace(safetyRecast, undefined, 42);
   assert.equal(safetyAnalytic.report.reached_goal, true, "P8 safety recast analytic route failed");
   assert.equal(createPlayContract(safetyRecast).outcome, "related_fallback");
   const safetyEvents = await page.evaluate(async (input) => {
@@ -413,7 +419,7 @@ try {
 
   await page.close();
   page = await createReplayPage();
-  const precisionAnalytic = runPlaytestWithTrace(freePrecisionGameSpec, 42);
+  const precisionAnalytic = runPlaytestWithTrace(freePrecisionGameSpec, undefined, 42);
   assert.equal(precisionAnalytic.report.reached_goal, true, "free precision analytic route failed");
   const precisionEvents = await page.evaluate(async (input) => {
     const api = window.__INKLING_REPLAY__;
@@ -477,7 +483,7 @@ try {
   assert.equal(lockedDoorAssistEvents.at(-1)?.state.status, "playing", "locked-door assist bypassed the maze");
   summaries.push("assist/locked-door-blocked");
 
-  const soakFrames = runPlaytestWithTrace(baseGameSpec, 42).inputFrames;
+  const soakFrames = runPlaytestWithTrace(baseGameSpec, undefined, 42).inputFrames;
   for (let launch = 1; launch <= 12; launch += 1) {
     const soakEvents = await page.evaluate(async (input) => {
       const api = window.__INKLING_REPLAY__;

@@ -26,6 +26,14 @@ import {
 } from "./platformer-controls.js";
 import { createObjectiveContract } from "./objective-contract.js";
 import {
+  trackOffsetAt,
+  type BehaviorMotionTrack,
+} from "./behavior-track.js";
+import {
+  planBackdropLayers,
+  type BackdropPlan,
+} from "./backdrop-contract.js";
+import {
   CELEBRATION_POINTS,
   feedbackCueFor,
   type GameplayFeedbackEvent,
@@ -119,6 +127,17 @@ class PlatformerScene extends Phaser.Scene {
   private platforms!: Phaser.Physics.Arcade.StaticGroup;
   private doors!: Phaser.Physics.Arcade.StaticGroup;
   private hazards!: Phaser.Physics.Arcade.StaticGroup;
+  private trackedHazards: Array<{
+    track: BehaviorMotionTrack;
+    body: Phaser.Physics.Arcade.StaticBody;
+    bodyWidth: number;
+    bodyHeight: number;
+    parts: Array<{
+      object: { setPosition(x: number, y: number): unknown };
+      baseX: number;
+      baseY: number;
+    }>;
+  }> = [];
   private collectibles!: Phaser.Physics.Arcade.StaticGroup;
   private goalTrigger!: Phaser.Physics.Arcade.StaticGroup;
   private target!: Phaser.Physics.Arcade.StaticGroup;
@@ -195,6 +214,7 @@ class PlatformerScene extends Phaser.Scene {
     inputFrames: readonly InputFrame[] = [],
     private readonly showTouchControls = true,
     private readonly presentation: "standalone" | "embedded" = "standalone",
+    private readonly backdrop?: BackdropPlan,
   ) {
     super("lane-a-platformer");
     this.coaching = createCoachingContract(plan);
@@ -237,6 +257,7 @@ class PlatformerScene extends Phaser.Scene {
     this.recoveryGuide = undefined;
     this.frame = 0;
     this.runtimeSequence = 0;
+    this.trackedHazards = [];
 
     const orderedPalette = [...this.plan.palette].sort((left, right) => (
       colorLuminance(color(left, 0xffffff)) - colorLuminance(color(right, 0xffffff))
@@ -256,6 +277,23 @@ class PlatformerScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(worldColor);
     this.physics.world.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
     this.cameras.main.setBounds(0, 0, WORLD_WIDTH, WORLD_HEIGHT);
+    // P4's parallax plan renders as soft bands of the child's own palette,
+    // behind everything and capped at low alpha so the backdrop can never
+    // compete with the drawn art. No plan means no backdrop — play is
+    // unaffected either way.
+    for (const layer of planBackdropLayers(this.backdrop, this.plan.palette)) {
+      this.add
+        .rectangle(
+          WORLD_WIDTH / 2,
+          (layer.heightFraction * WORLD_HEIGHT) / 2,
+          WORLD_WIDTH,
+          layer.heightFraction * WORLD_HEIGHT,
+          color(layer.color, worldColor),
+          layer.alpha,
+        )
+        .setDepth(-5)
+        .setScrollFactor(layer.scrollFactor, 1);
+    }
     // Scenes are composed from isolated original-art crops. Repainting the
     // complete photo behind them creates ghost entities that remain after a
     // collectible disappears and makes repeated crops look like photo tiles.
@@ -372,15 +410,33 @@ class PlatformerScene extends Phaser.Scene {
     this.hazards = this.physics.add.staticGroup();
     for (const hazard of this.plan.hazards) {
       const shape = this.rectangle(hazard, dangerColor, ink, 1);
+      let placeholder: Phaser.GameObjects.Graphics | undefined;
       if (!this.canRenderEntityArtwork(hazard)) {
         shape.setAlpha(0);
-        this.addHazardPlaceholder(hazard, dangerColor, ink);
+        placeholder = this.addHazardPlaceholder(hazard, dangerColor, ink);
       }
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
       body.setSize(hazard.width * 0.72, hazard.height * 0.72);
       this.hazards.add(shape);
-      this.addArtwork(hazard, 3, 1);
+      const artwork = this.addArtwork(hazard, 3, 1);
+      // Certified track motion moves the collision body, the child's art
+      // crop, and any placeholder in lockstep, one deterministic offset per
+      // fixed frame — the same offsets the analytic playtest consumed.
+      if (hazard.track) {
+        const parts: Array<{ object: { setPosition(x: number, y: number): unknown }; baseX: number; baseY: number }> = [
+          { object: shape, baseX: shape.x, baseY: shape.y },
+        ];
+        if (artwork) parts.push({ object: artwork, baseX: artwork.x, baseY: artwork.y });
+        if (placeholder) parts.push({ object: placeholder, baseX: placeholder.x, baseY: placeholder.y });
+        this.trackedHazards.push({
+          track: hazard.track,
+          body,
+          bodyWidth: hazard.width * 0.72,
+          bodyHeight: hazard.height * 0.72,
+          parts,
+        });
+      }
     }
     this.physics.add.overlap(this.hero, this.hazards, () => this.hitHazard());
 
@@ -553,6 +609,16 @@ class PlatformerScene extends Phaser.Scene {
   update(_time: number, delta: number): void {
     if (this.status !== "playing") return;
     this.frame += 1;
+    for (const tracked of this.trackedHazards) {
+      const [offsetX, offsetY] = trackOffsetAt(tracked.track, this.frame);
+      for (const part of tracked.parts) {
+        part.object.setPosition(part.baseX + offsetX, part.baseY + offsetY);
+      }
+      tracked.body.updateFromGameObject();
+      // updateFromGameObject resets the body to the full shape; restore the
+      // reduced collision size so browser contact matches the solver exactly.
+      tracked.body.setSize(tracked.bodyWidth, tracked.bodyHeight);
+    }
     const replay = this.replayFrames.get(this.frame);
     if (replay) {
       this.touch = {
@@ -1259,7 +1325,11 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   /** A readable deterministic danger silhouette when no clean art crop exists. */
-  private addHazardPlaceholder(entity: PlannedEntity, fill: number, stroke: number): void {
+  private addHazardPlaceholder(
+    entity: PlannedEntity,
+    fill: number,
+    stroke: number,
+  ): Phaser.GameObjects.Graphics {
     const left = entity.x - entity.width / 2;
     const right = entity.x + entity.width / 2;
     const top = entity.y - entity.height / 2;
@@ -1283,6 +1353,7 @@ class PlatformerScene extends Phaser.Scene {
     }
     graphics.closePath().fillPath().strokePath();
     graphics.setData("entityId", entity.id).setData("role", entity.role);
+    return graphics;
   }
 
   /**
@@ -1726,7 +1797,7 @@ class PlatformerScene extends Phaser.Scene {
 /** Launches deterministic Lane A. It never loads prompts, models, or Lane B code. */
 export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
   const playableGame = resolvePlayableGame(options.gameSpec);
-  const plan = createPlatformerPlan(playableGame.gameSpec);
+  const plan = createPlatformerPlan(playableGame.gameSpec, playableGame.behaviorTracks);
   const artwork = options.artwork ?? playableGame.artwork;
   const narrowPortrait = typeof window !== "undefined" &&
     window.innerWidth <= 680 && window.innerHeight > window.innerWidth;
@@ -1769,6 +1840,7 @@ export function launchPlatformer(options: PlatformerOptions): Phaser.Game {
       options.inputFrames ?? [],
       options.showTouchControls ?? true,
       options.presentation ?? "standalone",
+      playableGame.backdrop,
     ),
   });
 }

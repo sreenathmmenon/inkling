@@ -3,6 +3,10 @@ import type { Responses } from "openai/resources/responses/responses";
 
 import { validateBehaviorOperation } from "../packages/sdk/src/validator.js";
 import {
+  TRACK_ANIMATABLE_ROLES,
+  type BehaviorMotionTrack,
+} from "../packages/runtime/src/behavior-track.js";
+import {
   applyBoundedRepairs,
   runPlaytest,
 } from "../services/solve/src/playtest.js";
@@ -180,9 +184,9 @@ function dryRunGameSpec(): GameSpec {
     },
     entities: [
       {
-        id: "mover_1",
-        role: "mover",
-        bbox: [0.15, 0.55, 0.32, 0.72],
+        id: "walker_1",
+        role: "enemy",
+        bbox: [0.15, 0.2, 0.28, 0.34],
         behavior: "patrol",
         linked_to: null,
         style_ref: "source-strokes",
@@ -323,6 +327,16 @@ export function assertRequestMatchesSpec(
   if (!request.safety_identifier) {
     throw new Error(`${call.id} is missing safety_identifier`);
   }
+  // Fail loudly (also in dry-run) when a request carries a verbosity the
+  // spec does not declare for its model, instead of silently 400ing in
+  // production the way the launch P7 sessions did.
+  const expectedVerbosity = spec.globals.text_verbosity_by_model?.[modelAlias]
+    ?? spec.globals.text_verbosity_json;
+  if (request.text?.verbosity !== expectedVerbosity) {
+    throw new Error(
+      `${call.id} verbosity ${String(request.text?.verbosity)} does not match the declared ${expectedVerbosity} for ${modelAlias}`,
+    );
+  }
   if (call.schema) {
     const format = request.text?.format;
     if (!format || format.type !== "json_schema" || format.strict !== true) {
@@ -340,6 +354,13 @@ class PipelineRunner {
   readonly callMetrics: CallMetric[] = [];
   private client: ResponsesClient | undefined;
   private attempts = new Map<string, number>();
+  /**
+   * Shared behavior-session budget per scan. Uncapped agentic sessions can
+   * exceed the production generation deadline (observed: 98 P7 calls,
+   * 13.5 minutes against an 8-minute deadline), which fails the whole scan;
+   * a bounded budget degrades stragglers to static instead.
+   */
+  private behaviorCallBudget = 24;
 
   constructor(private readonly options: RunnerOptions) {
     if (!options.safetyId || options.safetyId.length > 64) {
@@ -423,7 +444,13 @@ class PipelineRunner {
           ? this.spec.globals.reasoning_mode_offline
           : this.spec.globals.reasoning_mode_live,
       },
-      text: { verbosity: this.spec.globals.text_verbosity_json },
+      // Verbosity is per-model: some models reject the global default (the
+      // codex API only accepts medium), and a wrong value fails the whole
+      // call with a 400 before any work happens.
+      text: {
+        verbosity: this.spec.globals.text_verbosity_by_model?.[modelAlias]
+          ?? this.spec.globals.text_verbosity_json,
+      },
       safety_identifier: this.options.safetyId,
       store: false,
     };
@@ -528,7 +555,7 @@ class PipelineRunner {
     state: ExecutionState,
     entity: GameSpec["entities"][number],
     modelAlias = call.model,
-  ): Promise<{ patches: BehaviorPatch[]; fallback: boolean }> {
+  ): Promise<{ patches: BehaviorPatch[]; fallback: boolean; tracks: BehaviorMotionTrack[] }> {
     const validatorName = call.validator;
     if (!validatorName) {
       throw new Error(`${call.id} produces behavior patches but declares no validator`);
@@ -538,30 +565,55 @@ class PipelineRunner {
       throw new Error(`${call.id} declares unknown validator ${validatorName}`);
     }
 
+    const takeBudget = (): boolean => {
+      if (this.behaviorCallBudget <= 0) return false;
+      this.behaviorCallBudget -= 1;
+      return true;
+    };
+
     const attempt = async (
       effort?: PipelineCall["effort"],
-    ): Promise<{ patches: BehaviorPatch[]; fallback: boolean }> => {
+    ): Promise<{ patches: BehaviorPatch[]; fallback: boolean; tracks: BehaviorMotionTrack[] }> => {
+      if (!takeBudget()) {
+        this.degraded.push(`${call.id}:${entity.id}:behavior_budget_exhausted`);
+        return { patches: [], fallback: true, tracks: [] };
+      }
       const request = this.buildRequest(call, state, {
         input: this.buildInput(call, state, { item: entity }),
         modelAlias,
         ...(effort ? { effort } : {}),
       });
       let response = await this.send(call, request, modelAlias);
-      if (this.options.dryRun) return { patches: [], fallback: false };
+      if (this.options.dryRun) return { patches: [], fallback: false, tracks: [] };
 
       const patches: BehaviorPatch[] = [];
+      const tracks: BehaviorMotionTrack[] = [];
       for (let round = 0; round < 6; round += 1) {
         const patchCalls = response.output.filter(
           (item): item is Responses.ResponseApplyPatchToolCall =>
             item.type === "apply_patch_call",
         );
         if (patchCalls.length === 0) {
-          return { patches, fallback: patches.length === 0 };
+          return { patches, fallback: patches.length === 0, tracks };
+        }
+        if (!takeBudget()) {
+          this.degraded.push(`${call.id}:${entity.id}:behavior_budget_exhausted`);
+          return { patches, fallback: patches.length === 0, tracks };
         }
         const outputs: Responses.ResponseInput = [];
         for (const patchCall of patchCalls) {
           const validation = await validate(patchCall.operation, entity.id);
-          if (validation.valid && validation.patch) patches.push(validation.patch);
+          if (validation.valid && validation.patch) {
+            patches.push(validation.patch);
+            if (validation.track) tracks.push(validation.track);
+          } else {
+            // Rejections are operator evidence: without this trail a
+            // systematically failing validator looks identical to a model
+            // that never proposed anything.
+            this.degraded.push(
+              `${call.id}:${entity.id}:patch_rejected:${validation.errors[0] ?? "unknown"}`,
+            );
+          }
           outputs.push({
             type: "apply_patch_call_output",
             call_id: patchCall.call_id,
@@ -576,10 +628,23 @@ class PipelineRunner {
         });
         response = await this.send(call, continuation, modelAlias);
       }
-      return { patches: [], fallback: true };
+      // Round exhaustion keeps what already passed the full sandbox: every
+      // collected patch was independently validated and certified, so a
+      // model that never says "done" cannot void its own accepted work.
+      return { patches, fallback: patches.length === 0, tracks };
     };
 
-    let outcome = await attempt();
+    // A thrown session (transport failure, rejected request) follows the
+    // same declared escalation a fruitless one does — the launch P7 bug hid
+    // behind errors bypassing this path entirely.
+    let outcome: { patches: BehaviorPatch[]; fallback: boolean; tracks: BehaviorMotionTrack[] };
+    try {
+      outcome = await attempt();
+    } catch (error) {
+      if (!call.escalate_to) throw error;
+      this.degraded.push(`${call.id}:${entity.id}:first_attempt:${String(error)}`);
+      return attempt(call.escalate_to);
+    }
     if (outcome.fallback && call.escalate_to) {
       // The declared escalation is the one retry a fruitless behavior session
       // gets before the entity falls back to static.
@@ -624,10 +689,15 @@ class PipelineRunner {
     const field = parsed[2] ?? "";
     // The spec names the collection and discriminator field; which behaviors
     // are dynamic is the Behavior SDK's contract, not the model's to widen.
+    // Behavior sessions are also spent only on roles the runtime can animate:
+    // a patrolling collectible or a rising decoration can never move in Lane
+    // A, so paying a model to script it would be waste by construction.
     return collection.filter((item): item is GameSpec["entities"][number] =>
       isRecord(item) &&
       typeof item[field] === "string" &&
-      DYNAMIC_BEHAVIORS.has(item[field] as string),
+      DYNAMIC_BEHAVIORS.has(item[field] as string) &&
+      typeof item.role === "string" &&
+      TRACK_ANIMATABLE_ROLES.has(item.role),
     );
   }
 
@@ -655,6 +725,7 @@ class PipelineRunner {
       extractionResultId: string;
       behaviorPatches: BehaviorPatch[];
       behaviorFallbacks: Record<string, "static">;
+      behaviorTracks: Record<string, BehaviorMotionTrack>;
     },
   ): Promise<{
     gameSpec: GameSpec;
@@ -667,7 +738,7 @@ class PipelineRunner {
   }> {
     let { gameSpec } = context;
     let solvability: JsonObject | undefined;
-    let playtestReport = runPlaytest(gameSpec);
+    let playtestReport = runPlaytest(gameSpec, context.behaviorTracks);
     const iterations = call.max_iterations ?? 1;
     let iterationsUsed = 0;
     let rungCursor = -1;
@@ -675,8 +746,8 @@ class PipelineRunner {
     let solvabilityPassed = false;
 
     const adoptWorld = (next: GameSpec, rung: RecastRung): void => {
-      // Patches survive only for entities the rung left intact; a demoted
-      // entity's behavior module is dropped with it, never orphaned.
+      // Patches and certified tracks survive only for entities the rung left
+      // intact; a demoted entity's behavior is dropped with it, never orphaned.
       const pruned = pruneBehaviorPatchesForWorld(
         context.behaviorPatches,
         context.behaviorFallbacks,
@@ -689,6 +760,10 @@ class PipelineRunner {
         delete context.behaviorFallbacks[entityId];
       }
       Object.assign(context.behaviorFallbacks, pruned.fallbacks);
+      const survivingPatchIds = new Set(pruned.patches.map((patch) => patch.entityId));
+      for (const entityId of Object.keys(context.behaviorTracks)) {
+        if (!survivingPatchIds.has(entityId)) delete context.behaviorTracks[entityId];
+      }
       gameSpec = next;
       state.gamespec = gameSpec;
       state.results[context.extractionResultId] = gameSpec;
@@ -715,7 +790,7 @@ class PipelineRunner {
         if (!rung) continue;
         const candidate = buildRungCandidate(rung, gameSpec, report);
         if (!candidate) continue;
-        if (!runPlaytest(candidate).reached_goal) continue;
+        if (!runPlaytest(candidate, context.behaviorTracks).reached_goal) continue;
         adoptWorld(candidate, rung);
         return true;
       }
@@ -724,7 +799,7 @@ class PipelineRunner {
 
     for (let iteration = 0; iteration < iterations; iteration += 1) {
       iterationsUsed = iteration + 1;
-      playtestReport = runPlaytest(gameSpec);
+      playtestReport = runPlaytest(gameSpec, context.behaviorTracks);
       state.playtest_report = playtestReport;
       const verdict = await this.structured(call, state);
       if (!isRecord(verdict)) throw new ModelOutputError(call.id, "invalid verdict shape");
@@ -799,6 +874,7 @@ class PipelineRunner {
     const assets: Record<string, unknown> = {};
     const behaviorPatches: BehaviorPatch[] = [];
     const behaviorFallbacks: Record<string, "static"> = {};
+    const behaviorTracks: Record<string, BehaviorMotionTrack> = {};
     let solvability: JsonObject | undefined;
     let playtestReport: PlaytestReport | undefined;
     let p8Iterations = 0;
@@ -822,6 +898,7 @@ class PipelineRunner {
             extractionResultId: extractionId,
             behaviorPatches,
             behaviorFallbacks,
+            behaviorTracks,
           });
           gameSpec = certified.gameSpec;
           solvability = certified.solvability;
@@ -902,13 +979,19 @@ class PipelineRunner {
               return [entity.id, await this.behavior(member, state, entity)] as const;
             } catch (error) {
               this.degraded.push(`${member.id}:${entity.id}:${String(error)}`);
-              return [entity.id, { patches: [], fallback: true }] as const;
+              return [
+                entity.id,
+                { patches: [], fallback: true, tracks: [] as BehaviorMotionTrack[] },
+              ] as const;
             }
           }),
         );
         for (const [entityId, result] of results) {
           behaviorPatches.push(...result.patches);
           if (result.fallback) behaviorFallbacks[entityId] = "static";
+          for (const track of result.tracks) {
+            if (track.entityId === entityId) behaviorTracks[entityId] = track;
+          }
         }
         state.results[member.id] = { patches: behaviorPatches, fallbacks: behaviorFallbacks };
       }
@@ -933,6 +1016,7 @@ class PipelineRunner {
       assets,
       behaviorPatches,
       behaviorFallbacks,
+      behaviorTracks,
       playtestReport,
       solvability,
       calls: [...this.traces],

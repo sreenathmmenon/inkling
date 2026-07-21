@@ -32,7 +32,7 @@ import {
   type CertificationOutcome,
 } from "./interpretation-status.js";
 import { freshPlayerState, shouldShowAssist } from "./player-status.js";
-import { attachSoundFeedback } from "./sound-feedback.js";
+import { attachSoundFeedback, resolveSfxPackId } from "./sound-feedback.js";
 
 declare const __INKLING_GAMESPEC__: unknown;
 
@@ -223,9 +223,11 @@ async function certifyGeneratedGame(
   }
   try {
     const gameSpec = playable.gameSpec as GameSpec;
-    const analytic = runPlaytestWithTrace(gameSpec);
+    const analytic = runPlaytestWithTrace(gameSpec, playable.behaviorTracks);
     if (!analytic.report.reached_goal) return { value, certification: "unverified" };
-    const events = await replayInProduction(gameSpec, analytic.inputFrames, runtimeReplayHost);
+    // Replay the whole document, not the bare spec: the production scene must
+    // run the same certified behavior tracks the analytic playtest just used.
+    const events = await replayInProduction(value, analytic.inputFrames, runtimeReplayHost);
     const report = validateRuntimeTrace(events, playable.playContract);
     return {
       value: attachRuntimeTraceReport(value, report),
@@ -306,10 +308,11 @@ async function play(spec: unknown): Promise<void> {
   accessibleControls.hidden = false;
   postPlayActions.hidden = false;
   const playable = resolvePlayableGame(spec);
-  const plan = createPlatformerPlan(playable.gameSpec);
+  const plan = createPlatformerPlan(playable.gameSpec, playable.behaviorTracks);
   const objective = createObjectiveContract(plan);
   document.body.classList.toggle("four-way-controls", plan.contract.touchControls === "four_way");
   activeCounterLabel = objective.counterLabel;
+  soundFeedback.setPack(resolveSfxPackId(playable.sfxPackId));
   // A replay creates a fresh Phaser instance, so its visible status must also
   // start from a fresh playing state. Do this before the lazy player loads;
   // otherwise the previous win/loss announcement can remain on screen even

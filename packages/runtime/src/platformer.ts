@@ -11,6 +11,7 @@ import {
   fitArtworkWithin,
   resolvePlayableGame,
   type ArtworkManifest,
+  type NormalizedBounds,
 } from "./artwork.js";
 import {
   ONE_WAY_PLATFORM_COLLISION,
@@ -71,6 +72,7 @@ import {
   friendlyObjectiveLabel,
   INKLING_CUE,
   INKLING_FONT_FAMILY,
+  readableHeroArtworkFit,
 } from "./presentation-contract.js";
 
 export type PlatformerStatus = "playing" | "won" | "lost";
@@ -135,6 +137,7 @@ class PlatformerScene extends Phaser.Scene {
   private hero!: Phaser.GameObjects.Rectangle;
   private heroArtwork: Phaser.GameObjects.Image | undefined;
   private readonly artworkByEntity = new Map<string, Phaser.GameObjects.Image>();
+  private readonly artworkHaloByEntity = new Map<string, Phaser.GameObjects.Ellipse>();
   private readonly artworkIsolationByEntity = new Map<string, boolean>();
   private sceneWorldColor = 0xf7f4ff;
   private sceneSurfaceShare = 1;
@@ -361,7 +364,10 @@ class PlatformerScene extends Phaser.Scene {
       }
     }
 
-    for (const decoration of this.plan.decorations) this.addArtwork(decoration, 0, 0.82);
+    // Decorations are the untraced remainder of the child's page. They render
+    // at their drawn positions (which are their play positions) at full
+    // opacity — a ghosted page reads as a rendering mistake, not as the world.
+    for (const decoration of this.plan.decorations) this.addArtwork(decoration, 0, 1);
 
     this.platforms = this.physics.add.staticGroup();
     for (const platform of this.plan.platforms) {
@@ -372,9 +378,18 @@ class PlatformerScene extends Phaser.Scene {
         : platform.role === "launchpad" ? 0xff7bbd
         : platformColor;
       const shape = this.rectangle(platform, materialColor, ink, alpha);
-      if (platform.id !== "lane_a_safety_floor" && !this.canRenderEntityArtwork(platform)) {
-        shape.setAlpha(0);
-        this.addOrganicSurface(platform, materialColor, 0.34, 2);
+      // The child's strokes are the platform's primary visual. The template
+      // fill only survives as the synthetic safety floor, as a subtle
+      // affordance beneath rendered strokes, or as the organic fallback when
+      // no usable crop exists — never as an opaque slab over drawn art.
+      if (platform.id !== "lane_a_safety_floor") {
+        const artwork = this.addArtwork(platform, 2, alpha);
+        if (artwork) {
+          this.addSurfaceAffordance(platform, materialColor);
+        } else {
+          shape.setAlpha(0);
+          this.addOrganicSurface(platform, materialColor, 0.34, 2);
+        }
       }
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
@@ -391,7 +406,6 @@ class PlatformerScene extends Phaser.Scene {
         Object.assign(body.checkCollision, ONE_WAY_PLATFORM_COLLISION);
         this.platforms.add(shape);
       }
-      this.addArtwork(platform, 2, alpha);
     }
     // Merged maze walls (sub-clearance seams sealed at plan level) become the
     // collision bodies. They are invisible: the child's strips above stay the
@@ -443,7 +457,7 @@ class PlatformerScene extends Phaser.Scene {
       this.physics.add.existing(shape, true);
       this.doors.add(shape);
       this.doorObjects.set(door.id, shape);
-      this.addArtwork(door, 6, 1);
+      this.restoreTemplateVisual(shape, this.addArtwork(door, 6, 1), INKLING_CUE.violetDeep, ink, 0.88);
     }
     // A launched hero is positioned by the shared launch state machine, so a
     // Phaser separation collider cannot block it. Doors therefore never gate a
@@ -465,9 +479,15 @@ class PlatformerScene extends Phaser.Scene {
     }
 
     for (const water of this.plan.waterVolumes) {
-      if (this.canRenderEntityArtwork(water)) {
-        this.rectangle(water, 0x58bde8, ink, 0.18).setDepth(1);
-        this.addArtwork(water, 1, 0.68);
+      // Water strokes render at full opacity over a faint volume tint; only
+      // a missing/unusable crop falls back to the deterministic organic band.
+      if (this.addArtwork(water, 1, 1)) {
+        this.add
+          .rectangle(water.x, water.y, water.width, water.height, 0x58bde8, 0.14)
+          .setDepth(0.5)
+          .setData("entityId", water.id)
+          .setData("role", water.role)
+          .setData("inklingPresentation", "surface-affordance");
       } else {
         this.addOrganicSurface(water, 0x58bde8, 0.28, 1);
       }
@@ -476,24 +496,27 @@ class PlatformerScene extends Phaser.Scene {
     this.hazards = this.physics.add.staticGroup();
     for (const hazard of this.plan.hazards) {
       const shape = this.rectangle(hazard, dangerColor, ink, 1);
-      let placeholder: Phaser.GameObjects.Graphics | undefined;
-      if (!this.canRenderEntityArtwork(hazard)) {
-        shape.setAlpha(0);
-        placeholder = this.addHazardPlaceholder(hazard, dangerColor, ink);
-      }
       this.physics.add.existing(shape, true);
       const body = shape.body as Phaser.Physics.Arcade.StaticBody;
       body.setSize(hazard.width * 0.72, hazard.height * 0.72);
       this.hazards.add(shape);
       const artwork = this.addArtwork(hazard, 3, 1);
+      let placeholder: Phaser.GameObjects.Graphics | undefined;
+      if (!artwork) {
+        shape.setAlpha(0);
+        placeholder = this.addHazardPlaceholder(hazard, dangerColor, ink);
+      }
       // Certified track motion moves the collision body, the child's art
-      // crop, and any placeholder in lockstep, one deterministic offset per
-      // fixed frame — the same offsets the analytic playtest consumed.
+      // crop, its legibility halo, and any placeholder in lockstep, one
+      // deterministic offset per fixed frame — the same offsets the analytic
+      // playtest consumed. Nothing may stay behind at the base position.
       if (hazard.track) {
         const parts: Array<{ object: { setPosition(x: number, y: number): unknown }; baseX: number; baseY: number }> = [
           { object: shape, baseX: shape.x, baseY: shape.y },
         ];
         if (artwork) parts.push({ object: artwork, baseX: artwork.x, baseY: artwork.y });
+        const halo = this.artworkHaloByEntity.get(hazard.id);
+        if (halo) parts.push({ object: halo, baseX: halo.x, baseY: halo.y });
         if (placeholder) parts.push({ object: placeholder, baseX: placeholder.x, baseY: placeholder.y });
         this.trackedHazards.push({
           track: hazard.track,
@@ -511,7 +534,7 @@ class PlatformerScene extends Phaser.Scene {
       const shape = this.rectangle(collectible, collectibleColor, ink, 1);
       this.physics.add.existing(shape, true);
       this.collectibles.add(shape);
-      this.addArtwork(collectible, 4, 1);
+      this.restoreTemplateVisual(shape, this.addArtwork(collectible, 4, 1), collectibleColor, ink, 1);
     }
     this.physics.add.overlap(this.hero, this.collectibles, (_hero, collected) => {
       this.collect(collected as Phaser.GameObjects.GameObject);
@@ -529,6 +552,7 @@ class PlatformerScene extends Phaser.Scene {
       body.enable = false;
       (gameObject as Phaser.GameObjects.Rectangle).setVisible(false);
       this.artworkByEntity.get(entityId)?.setVisible(false);
+      this.artworkHaloByEntity.get(entityId)?.setVisible(false);
       this.collected += 1;
       this.collectedIds.add(entityId);
     }
@@ -539,8 +563,8 @@ class PlatformerScene extends Phaser.Scene {
     // FINISH marker when collecting the final required item ends the game.
     const hasVisibleGoal = createObjectiveContract(this.plan).finishRequired;
     if (hasVisibleGoal) {
-      this.rectangle(this.plan.goal, INKLING_CUE.violet, ink, 0.72);
-      this.addArtwork(this.plan.goal, 4, 1);
+      const goalShape = this.rectangle(this.plan.goal, INKLING_CUE.violet, ink, 0.72);
+      this.restoreTemplateVisual(goalShape, this.addArtwork(this.plan.goal, 4, 1), INKLING_CUE.violet, ink, 0.72);
       const goalCue = this.add
         .ellipse(
           this.plan.goal.x,
@@ -616,11 +640,12 @@ class PlatformerScene extends Phaser.Scene {
       const target = this.rectangle(this.plan.goal, dangerColor, ink, 0.9);
       this.physics.add.existing(target, true);
       this.target.add(target);
-      this.addArtwork(this.plan.goal, 4, 1);
+      this.restoreTemplateVisual(target, this.addArtwork(this.plan.goal, 4, 1), dangerColor, ink, 0.9);
       this.physics.add.overlap(this.projectiles, this.target, (projectile, targetObject) => {
         (projectile as Phaser.GameObjects.GameObject).destroy();
         (targetObject as Phaser.GameObjects.GameObject).destroy();
         this.artworkByEntity.get(this.plan.goal.id)?.setVisible(false);
+        this.artworkHaloByEntity.get(this.plan.goal.id)?.setVisible(false);
         this.win();
       });
       if (this.plan.contract.action !== "projectile") {
@@ -1094,19 +1119,11 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   /**
-<<<<<<< ours
-   * Boss-goal worlds with a projectile action contract use one deterministic,
-   * local projectile rule. It is selected by GameSpec genre/goal, never by a
-   * drawing name
-   * or model-written code. The target direction is intentional: it keeps the
-   * touch control usable for young players while P8 can simulate the same rule.
-=======
    * Shooter worlds use this deterministic, local projectile contract; the
    * slingshot template launches the hero itself instead. It is selected by
    * GameSpec genre/goal, never by a drawing name or model-written code. The
    * target direction is intentional: it keeps the touch control usable for
    * young players while P8 can simulate the same rule.
->>>>>>> theirs
    */
   private tryProjectileAction(): void {
     if (this.plan.contract.action !== "projectile" || this.plan.goalKind !== "defeat_boss") return;
@@ -1331,9 +1348,12 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   /**
-   * Renders an untouched crop from the original child drawing over the
-   * deterministic collision primitive. The primitive remains the physics
-   * contract; a malformed/missing artwork document simply leaves it visible.
+   * Renders the child's own strokes over the deterministic collision
+   * primitive. Foreground sprites contain-fit their isolated crop at the
+   * entity's play position; environmental surfaces render exactly the page
+   * region their play rectangle occupies, so what you stand on IS what was
+   * drawn there. The primitive remains the physics contract; a
+   * malformed/missing artwork document simply leaves it visible.
    */
   private addArtwork(
     entity: PlannedEntity,
@@ -1350,10 +1370,36 @@ class PlatformerScene extends Phaser.Scene {
     if (left === undefined || top === undefined || right === undefined || bottom === undefined) {
       return undefined;
     }
-    const cropX = Math.floor(left * source.width);
-    const cropY = Math.floor(top * source.height);
-    const cropWidth = Math.max(1, Math.ceil((right - left) * source.width));
-    const cropHeight = Math.max(1, Math.ceil((bottom - top) * source.height));
+    const isSurface = ENVIRONMENTAL_SURFACE_ROLES.has(entity.role);
+    // A surface's play rectangle maps straight back onto the page (the plan
+    // only clamps its drawn box, never relocates it), so sampling exactly
+    // that region shows the true strokes at the collision strip — a winding
+    // page-sized road keeps its real marks under the hero's wheels instead
+    // of a squashed photograph or strokes at stale positions.
+    let sampleLeft = left;
+    let sampleTop = top;
+    let sampleRight = right;
+    let sampleBottom = bottom;
+    if (isSurface) {
+      const worldLeft = Math.max(0, Math.min(1, (entity.x - entity.width / 2) / WORLD_WIDTH));
+      const worldRight = Math.max(0, Math.min(1, (entity.x + entity.width / 2) / WORLD_WIDTH));
+      const worldTop = Math.max(0, Math.min(1, (entity.y - entity.height / 2) / WORLD_HEIGHT));
+      const worldBottom = Math.max(0, Math.min(1, (entity.y + entity.height / 2) / WORLD_HEIGHT));
+      const clippedLeft = Math.max(left, worldLeft);
+      const clippedRight = Math.min(right, worldRight);
+      const clippedTop = Math.max(top, worldTop);
+      const clippedBottom = Math.min(bottom, worldBottom);
+      if (clippedRight - clippedLeft >= 0.01 && clippedBottom - clippedTop >= 0.01) {
+        sampleLeft = clippedLeft;
+        sampleRight = clippedRight;
+        sampleTop = clippedTop;
+        sampleBottom = clippedBottom;
+      }
+    }
+    const cropX = Math.floor(sampleLeft * source.width);
+    const cropY = Math.floor(sampleTop * source.height);
+    const cropWidth = Math.max(1, Math.ceil((sampleRight - sampleLeft) * source.width));
+    const cropHeight = Math.max(1, Math.ceil((sampleBottom - sampleTop) * source.height));
     const cropTextureKey = `inkling-art-crop-${entity.id}`;
     let isolatedArtwork = false;
     if (!this.textures.exists(cropTextureKey) && source.image) {
@@ -1383,6 +1429,22 @@ class PlatformerScene extends Phaser.Scene {
           paddedWidth,
           paddedHeight,
         );
+        // A surface band can contain other entities drawn on it (the truck on
+        // its road, gems on a ledge). Those strokes render at their own play
+        // positions, so the copy inside the surface is erased — alpha only —
+        // or the world would show the same drawing twice at disagreeing spots.
+        if (isSurface) {
+          this.eraseForeignSpriteRegions(
+            cropTexture,
+            entity.id,
+            paddedX,
+            paddedY,
+            paddedWidth,
+            paddedHeight,
+            source.width,
+            source.height,
+          );
+        }
         const isolation = this.removePaperBackground(cropTexture.context, paddedWidth, paddedHeight);
         isolatedArtwork = isolation.isolated;
         if (isolatedArtwork) {
@@ -1396,7 +1458,10 @@ class PlatformerScene extends Phaser.Scene {
             }
           }
           this.cropTextureToRect(cropTexture, innerX, innerY, cropWidth, cropHeight);
-          this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
+          // A surface texture must keep its exact sampled rectangle: it is
+          // stretched onto the play rectangle, so trimming would shift the
+          // strokes off the geometry they belong to.
+          if (!isSurface) this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
         } else {
           const padded = cropTexture.context.getImageData(0, 0, paddedWidth, paddedHeight);
           isolatedArtwork = softlyIsolateLocalBackdrop({
@@ -1407,7 +1472,7 @@ class PlatformerScene extends Phaser.Scene {
           cropTexture.context.putImageData(padded, 0, 0);
           this.cropTextureToRect(cropTexture, innerX, innerY, cropWidth, cropHeight);
           if (isolatedArtwork) {
-            this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
+            if (!isSurface) this.trimTransparentBounds(cropTexture, cropWidth, cropHeight);
           } else {
             const pixels = cropTexture.context.getImageData(0, 0, cropWidth, cropHeight);
             featherSurfaceEdges({ data: pixels.data, width: cropWidth, height: cropHeight });
@@ -1422,28 +1487,55 @@ class PlatformerScene extends Phaser.Scene {
     }
 
     const hasCropTexture = this.textures.exists(cropTextureKey);
-    const fitted = fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height);
-    if (!ENVIRONMENTAL_SURFACE_ROLES.has(entity.role)) {
+    // Without a local canvas texture the only remaining fallback repaints the
+    // full source photograph; a surface must fall back to its deterministic
+    // template affordance instead of lying about geometry.
+    if (!hasCropTexture && isSurface) return undefined;
+    const fitted = isSurface
+      ? { width: entity.width, height: entity.height }
+      : entity.id === this.plan.hero.id
+        ? readableHeroArtworkFit(fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height))
+        : fitArtworkWithin(cropWidth, cropHeight, entity.width, entity.height);
+    if (!isSurface) {
+      // The halo is a legibility backing that hugs the rendered art — never a
+      // washed-out disc dominating it. Collectibles instead get a warm ring
+      // that reads as an invitation while their strokes stay at full opacity.
       const halo = artworkHaloForWorldColor(this.sceneWorldColor);
-      this.add
+      const isCollectible = entity.role === "collectible" || entity.role === "key";
+      const haloEllipse = this.add
         .ellipse(
           entity.x,
           entity.y,
-          Math.min(entity.width + 18, fitted.width + 24),
-          Math.min(entity.height + 18, fitted.height + 24),
-          halo.color,
-          halo.alpha,
+          fitted.width + 14,
+          fitted.height + 14,
+          isCollectible ? INKLING_CUE.sun : halo.color,
+          isCollectible ? 0.05 : halo.alpha * 0.7,
         )
-        .setStrokeStyle(2, halo.color, halo.alpha * 1.35)
+        .setStrokeStyle(
+          isCollectible ? 2.5 : 2,
+          isCollectible ? INKLING_CUE.sun : halo.color,
+          isCollectible ? 0.62 : halo.alpha * 1.35,
+        )
         .setDepth(depth - 0.1)
+        .setData("entityId", entity.id)
         .setData("inklingPresentation", "artwork-legibility-halo");
+      this.artworkHaloByEntity.set(entity.id, haloEllipse);
     }
-    const image = hasCropTexture
-      ? this.add.image(entity.x, entity.y, cropTextureKey).setDisplaySize(fitted.width, fitted.height)
-      : this.add
-        .image(entity.x, entity.y, this.artworkTextureKey)
+    let image: Phaser.GameObjects.Image;
+    if (hasCropTexture) {
+      image = this.add.image(entity.x, entity.y, cropTextureKey).setDisplaySize(fitted.width, fitted.height);
+    } else {
+      // The full-photo fallback texture keeps the crop at its source offset;
+      // re-anchor the image so the visible strokes sit at the play position
+      // rather than wherever they happened to be on the page.
+      const scale = fitted.width / cropWidth;
+      const offsetX = (cropX + cropWidth / 2 - source.width / 2) * scale;
+      const offsetY = (cropY + cropHeight / 2 - source.height / 2) * scale;
+      image = this.add
+        .image(entity.x - offsetX, entity.y - offsetY, this.artworkTextureKey)
         .setCrop(cropX, cropY, cropWidth, cropHeight)
-        .setScale(fitted.width / cropWidth);
+        .setScale(scale);
+    }
     const baseScaleX = image.scaleX;
     const baseScaleY = image.scaleY;
     image
@@ -1463,23 +1555,134 @@ class PlatformerScene extends Phaser.Scene {
     const crop = this.artwork?.entityCrops[entity.id];
     if (!crop || !this.textures.exists(this.artworkTextureKey)) return false;
     const [left, top, right, bottom] = crop;
-    const width = right - left;
-    const height = bottom - top;
-    const area = width * height;
+    const area = (right - left) * (bottom - top);
+    const difficultDarkSurface = colorLuminance(this.sceneWorldColor) < 150 && this.sceneSurfaceShare < 0.24;
+    if (ENVIRONMENTAL_SURFACE_ROLES.has(entity.role)) {
+      // Surfaces render only the page band their play rectangle occupies and
+      // erase foreign sprites from it (see addArtwork), so even a page-wide
+      // drawn road shows its own strokes without reconstructing the photo.
+      // Only a dark, highly textured photographed substrate lacks the local
+      // separation for that band to stop reading as a photo tile.
+      return !difficultDarkSurface;
+    }
     // A non-hero crop spanning a large fraction of the page is scene context,
     // not a usable sprite. Treating it as an entity reconstructs the source
     // photograph as a conspicuous nested rectangle.
     if (entity.id !== this.plan.hero.id && area >= 0.16) return false;
-    const difficultDarkSurface = colorLuminance(this.sceneWorldColor) < 150 && this.sceneSurfaceShare < 0.24;
     if (difficultDarkSurface && (entity.role === "decoration" || entity.role === "hazard")) return false;
-    if (!ENVIRONMENTAL_SURFACE_ROLES.has(entity.role)) return true;
-    // A dark, highly textured photographed substrate has too little local
-    // separation for a surface crop to stop reading as a photo tile.
-    if (difficultDarkSurface) return false;
-    // Broad scene geometry is a visual/physics layer, not a foreground sprite.
-    // Rendering its source rectangle can contain many smaller entities and
-    // reconstruct the photograph as overlapping boxes.
-    return area < 0.075 && width / Math.max(height, 0.001) < 4;
+    return true;
+  }
+
+  /**
+   * A crop-bearing entity whose artwork could not actually be built (missing
+   * canvas support, malformed texture) must not end up invisible: restore the
+   * deterministic template visual its rectangle suppressed.
+   */
+  private restoreTemplateVisual(
+    shape: Phaser.GameObjects.Rectangle,
+    artwork: Phaser.GameObjects.Image | undefined,
+    fill: number,
+    stroke: number,
+    alpha: number,
+  ): void {
+    if (artwork || shape.fillAlpha > 0) return;
+    shape.setFillStyle(fill, alpha);
+    shape.setStrokeStyle(4, stroke, Math.min(1, alpha + 0.25));
+  }
+
+  /**
+   * A subtle standable-surface cue beneath a drawn surface's own strokes:
+   * a faint fill plus a thin top edge along the landing contract. The child's
+   * marks stay the primary visual above it.
+   */
+  private addSurfaceAffordance(entity: PlannedEntity, fill: number): void {
+    const leftEdge = entity.x - entity.width / 2;
+    const topEdge = entity.y - entity.height / 2;
+    const graphics = this.add.graphics().setDepth(1.5);
+    graphics.fillStyle(fill, 0.1);
+    graphics.fillRect(leftEdge, topEdge, entity.width, entity.height);
+    if (this.plan.contract.id !== "maze") {
+      graphics.lineStyle(2, fill, 0.3);
+      graphics.lineBetween(leftEdge + 1, topEdge, leftEdge + entity.width - 1, topEdge);
+    }
+    graphics
+      .setData("entityId", entity.id)
+      .setData("role", entity.role)
+      .setData("inklingPresentation", "surface-affordance");
+  }
+
+  /**
+   * Source-page regions of every non-surface entity that renders its own crop
+   * at a play position. A surface sample erases these so no stroke exists
+   * twice — once moving with its entity and once fossilized in the surface.
+   */
+  private foreignSpriteSourceRects(excludeId: string): NormalizedBounds[] {
+    const sprites = [
+      this.plan.hero,
+      ...this.plan.hazards,
+      ...this.plan.collectibles,
+      ...this.plan.doors,
+      ...this.plan.decorations,
+      this.plan.goal,
+    ];
+    const rects: NormalizedBounds[] = [];
+    const seen = new Set<string>();
+    for (const sprite of sprites) {
+      if (sprite.id === excludeId || seen.has(sprite.id)) continue;
+      seen.add(sprite.id);
+      if (!this.canRenderEntityArtwork(sprite)) continue;
+      const crop = this.artwork?.entityCrops[sprite.id];
+      if (crop) rects.push(crop);
+    }
+    return rects;
+  }
+
+  /**
+   * Alpha-only erasure of foreign sprite regions from a surface's sampled
+   * strokes, feathered so the cut never reads as a hard box. RGB is never
+   * touched (child-art invariant: isolation modifies alpha only).
+   */
+  private eraseForeignSpriteRegions(
+    texture: Phaser.Textures.CanvasTexture,
+    entityId: string,
+    canvasSourceX: number,
+    canvasSourceY: number,
+    width: number,
+    height: number,
+    sourceWidth: number,
+    sourceHeight: number,
+  ): void {
+    const rects = this.foreignSpriteSourceRects(entityId)
+      .map(([rectLeft, rectTop, rectRight, rectBottom]) => ({
+        left: rectLeft * sourceWidth - canvasSourceX,
+        top: rectTop * sourceHeight - canvasSourceY,
+        right: rectRight * sourceWidth - canvasSourceX,
+        bottom: rectBottom * sourceHeight - canvasSourceY,
+      }))
+      .filter((rect) => (
+        Math.min(rect.right, width) - Math.max(rect.left, 0) >= 2 &&
+        Math.min(rect.bottom, height) - Math.max(rect.top, 0) >= 2
+      ));
+    if (rects.length === 0) return;
+    const pixels = texture.context.getImageData(0, 0, width, height);
+    const feather = 5;
+    for (const rect of rects) {
+      const spanLeft = Math.max(0, Math.floor(rect.left));
+      const spanTop = Math.max(0, Math.floor(rect.top));
+      const spanRight = Math.min(width, Math.ceil(rect.right));
+      const spanBottom = Math.min(height, Math.ceil(rect.bottom));
+      for (let y = spanTop; y < spanBottom; y += 1) {
+        for (let x = spanLeft; x < spanRight; x += 1) {
+          const inset = Math.min(x - rect.left, rect.right - 1 - x, y - rect.top, rect.bottom - 1 - y);
+          if (inset < 0) continue;
+          const eased = Math.min(1, inset / feather);
+          const keep = 1 - eased * eased * (3 - 2 * eased);
+          const alphaOffset = (y * width + x) * 4 + 3;
+          pixels.data[alphaOffset] = Math.round((pixels.data[alphaOffset] ?? 0) * keep);
+        }
+      }
+    }
+    texture.context.putImageData(pixels, 0, 0);
   }
 
   /** A deterministic scene layer for geometry too broad to be a sprite crop. */
@@ -1832,7 +2035,10 @@ class PlatformerScene extends Phaser.Scene {
     const pickupY = (gameObject as Phaser.GameObjects.Rectangle).y;
     (gameObject as Phaser.GameObjects.Rectangle).setVisible(false);
     const entityId = gameObject.getData("entityId");
-    if (typeof entityId === "string") this.artworkByEntity.get(entityId)?.setVisible(false);
+    if (typeof entityId === "string") {
+      this.artworkByEntity.get(entityId)?.setVisible(false);
+      this.artworkHaloByEntity.get(entityId)?.setVisible(false);
+    }
     this.collected += 1;
     if (typeof entityId === "string") {
       this.collectedIds.add(entityId);
@@ -1867,6 +2073,7 @@ class PlatformerScene extends Phaser.Scene {
       body.enable = false;
       door.setVisible(false);
       this.artworkByEntity.get(relationship.doorId)?.setVisible(false);
+      this.artworkHaloByEntity.get(relationship.doorId)?.setVisible(false);
       this.emitFeedback("unlock", relationship.doorId, true, door.x, door.y);
     }
   }

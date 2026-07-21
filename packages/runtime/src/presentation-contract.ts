@@ -53,6 +53,27 @@ export function artworkHaloForWorldColor(worldColor: number): { color: number; a
     : { color: INKLING_CUE.violetDeep, alpha: 0.075 };
 }
 
+/**
+ * The hero must read at a glance. A long thin crop (a caterpillar, a truck)
+ * contain-fitted into the small ground collider box otherwise renders as a
+ * few-pixel sliver. The boost below is visual only: collision geometry stays
+ * the plan's, identical for the scene and the analytic solver.
+ */
+export const HERO_READABLE_MIN_DIMENSION = 38;
+const HERO_READABLE_MAX_BOOST = 2.6;
+
+export function readableHeroArtworkFit(
+  fitted: { width: number; height: number },
+): { width: number; height: number } {
+  const minDimension = Math.min(fitted.width, fitted.height);
+  if (!Number.isFinite(minDimension) || minDimension <= 0) return fitted;
+  const boost = Math.min(
+    HERO_READABLE_MAX_BOOST,
+    Math.max(1, HERO_READABLE_MIN_DIMENSION / minDimension),
+  );
+  return { width: fitted.width * boost, height: fitted.height * boost };
+}
+
 export function friendlyObjectiveLabel(label: string): string {
   switch (label) {
     case "FINISH": return "Goal";

@@ -216,6 +216,7 @@ declare global {
       timeToWin: number | null;
       frameCount: number;
     };
+    __INKLING_FIDELITY_GAME__?: unknown;
   }
 }
 
@@ -271,6 +272,12 @@ if (new URLSearchParams(window.location.search).has("runtime-replay")) {
 // proved. It carries no model code (the analytic trace already ships for
 // certification), changes no gate, and never runs without the explicit flag.
 const certifiedDriveEnabled = new URLSearchParams(window.location.search).has("certified-drive");
+
+// "fidelity-probe" is evidence plumbing like "certified-drive" above: the
+// visual-fidelity gate opts in via URL so it can introspect the live Phaser
+// scene (positions, sizes, opacity of rendered child art). It exposes only
+// the already-running Lane A game object and never activates without the flag.
+const fidelityProbeEnabled = new URLSearchParams(window.location.search).has("fidelity-probe");
 
 async function certifyGeneratedGame(
   value: unknown,
@@ -461,6 +468,7 @@ async function play(spec: unknown): Promise<void> {
       window.dispatchEvent(new CustomEvent<RuntimeEvent>("inkling:runtime-event", { detail: event }));
     },
   });
+  if (fidelityProbeEnabled) window.__INKLING_FIDELITY_GAME__ = game;
   motionDelight.gameRevealed();
   enterPlayMode();
 }

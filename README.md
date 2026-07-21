@@ -1,247 +1,250 @@
-# Inkling — Spec-Driven Pipeline (automation)
+# Inkling
 
-Turns the **Prompt & Model Engineering Spec PDF** into something that runs
-itself. No more copy-pasting each prompt into the right model by hand.
+**Draw it on paper. Play it in your browser.**
 
-## The idea
+Kids draw games all the time — a hero, some spikes, a door you have to reach at
+the end. Inkling takes a photo of that drawing and hands back a playable
+platformer about a minute later. The art in the game *is* the drawing: every
+character is cut straight out of the photo, wobbly lines and all. And no game
+is ever shown to a child until a simulated player has beaten it, so a kid never
+receives a game they can't win.
 
-```
-   PDF  ──►  spec/pipeline.json  ──►  runner loops every call
- (human)      (machine truth)         with the right model+effort+prompt+schema
-```
+Built for OpenAI Build Week with **Codex** and **GPT-5.6**.
 
-- **`spec/pipeline.json`** — every call from the PDF (P1–P11, P0, P2_photo) as
-  a row: model, reasoning effort, prompt file, strict schema, dependencies,
-  and whether it fans out / loops / is conditional. **This is the source of truth.**
-- **`prompts/*.txt`, `spec/schemas/*.json`** — the actual prompt + schema text,
-  extracted from the PDF (never hardcoded in code).
-- **`runner/pipeline.ts`** — one loop. Resolves dependencies, runs
-  `parallel_group`s concurrently (the fan-out), honors `loop_until`,
-  `run_if`, `effort_router`, `escalate_to`, and passes each result into its
-  dependents. Attaches strict Structured Outputs + few-shot + `safety_identifier`.
-- **`.goal`** — the instruction you hand Codex to build & wire all of it.
-- **`runner/extract_from_pdf.py`** — seeds the prompt/schema files from the PDF.
+---
 
-## Two ways to use it
+## Try it
 
-### A. Let Codex build it (one shot)
 ```bash
-codex --goal .goal --model gpt-5.2-codex --effort high
-```
-Codex reads `.goal`, loops over `pipeline.json` as its checklist, materializes
-the prompt/schema files from the PDF, wires the runner, and runs the
-self-verification test. This is the "/goal + loop" you asked for.
-
-### B. Run the pipeline at runtime
-```ts
-import { runPipeline } from "./runner/pipeline";
-
-// a child scanned a drawing:
-const result = await runPipeline({ image }, { safetyId });
-//  -> P1 gate -> P2 GameSpec (Sol/medium) -> assets fan-out (Terra/Luna)
-//     -> P6 if uncertain (Sol/high) -> P7 behaviors (Codex, per-entity)
-//     -> P8 solvability loop. Returns playable GameSpec + patches.
-
-// photo mode:
-await runPipeline({ photo, annotations }, { safetyId });
-```
-
-## Why it's safe (matches AGENTS.md)
-- Model + effort come **only** from `pipeline.json` — change the spec, not code.
-- Only `parallel_group` calls run concurrently; dependent chains stay ordered.
-- Gates (P1/P8/P11) can't be skipped; `blocks_pipeline_on` halts the run.
-- `strict:true` structured outputs everywhere a schema is declared.
-
-## Bootstrap
-```bash
-python runner/extract_from_pdf.py \
-  --pdf docs/Inkling-Spec.pdf \
-  --spec spec/pipeline.json
 npm install
-npm run verify
+export OPENAI_API_KEY=sk-...
+npm run dev          # browser flow: scan a drawing → play the game
 ```
 
-`npm run verify` is self-contained from a fresh clone: the drawing corpus it
-exercises is tracked at `fixtures/validation-drawings/round-1/` (generated
-test drawings, not customer data). The multi-run corpus baseline uses the same
-set via `npm run validate:drawing-set -- fixtures/validation-drawings/round-1
-out.json --fresh`.
-
-### Review-gate tests
-
-`npm run verify` starts with `npm run typecheck`, so TypeScript errors fail the
-chain before any test runs. Some files in the chain are **intentional review
-gates**: they protect a product invariant, and a legitimate redesign changes
-*how* the property is asserted, never *whether*. Each carries a header comment
-naming what it protects:
-
-| Gate | Protects |
-|---|---|
-| `scripts/verify-css-architecture.ts` | Ordered import-only CSS cascade; every cross-module override is reviewed. Diffs against `scripts/css-override-baseline.json` and explains selector/property-level changes; approve intentional changes by updating the baseline in the same commit. |
-| `scripts/verify-client-bundle.ts` | Capture shell boots without Phaser; player stays a lazy chunk. Builds its own input. |
-| `scripts/verify-client-ui.ts` | Real-browser accessibility, layout, contrast (ratio-based), and recovery contracts. |
-| `scripts/verify-runtime-replay.ts` | Solver and production Phaser runtime agree; idle never wins; assist never tunnels. |
-| `tests/solvability.test.ts` | Games are provably finishable; sandbox validation holds. |
-| `tests/runtime-trace.test.ts` | Readiness is earned by a legal replay trace, never claimed. |
-| `tests/replay-policies.test.ts` | Certification input policies stay deterministic and honest. |
-| `tests/recast-ladder.test.ts` | Safety recast keeps the child's drawing playable; only the last rung adds synthetic geometry. |
-
-`npm run audit:strict` separately checks the narrower JSON Schema subset
-accepted by OpenAI Structured Outputs. This is stricter than parsing the files
-as ordinary JSON Schema and intentionally exits non-zero when a source schema
-would be rejected by the Responses API.
-
-## Runtime entry points
-
-`runPipeline({ image }, { safetyId })` and `runDrawingScan` run the drawing
-workflow. `runPhotoScan` runs the mandatory P1 gate before `P2_photo`.
-`runVoiceEdit`, `runMultipageStitch`, and `runShareModeration` cover their
-conditional workflows; share moderation requires the passing P8 evidence from
-the scan result.
-
-The OpenAI client is created lazily and reads `OPENAI_API_KEY` from the process
-environment. Every outbound request is checked against `pipeline.json` before
-it is sent. Run `npm run dry-run` to print the call id, model, and effort without
-making network requests.
-
-## Play Lane A locally
-
-The deterministic Phaser 4 platformer lives in `packages/runtime`. It maps the
-GameSpec's normalized `0..1` boxes into a fixed 960×540 Arcade Physics world,
-retains every `style_ref` as art metadata, and uses simple palette-colored
-shapes when no extracted art asset is available. A safety floor and reachable
-goal trigger keep the fallback lane finishable even when input geometry is
-sparse. It never imports model-written behavior code and makes no API calls.
-
-Play the successful live-scan fixture:
+No API key handy? Play a game generated from a real live scan:
 
 ```bash
 npm run play -- examples/live-scan-gamespec.json
 ```
 
-Then open the local URL printed by Vite (normally `http://127.0.0.1:5173`).
-You can also load another saved GameSpec using the browser's JSON file picker.
-
-To close the complete drawing-to-game loop:
+Or run the whole loop from the command line:
 
 ```bash
 npm run scan -- /absolute/path/to/drawing.png --out examples/my-gamespec.json --playable-out examples/my-game.json
 npm run play -- examples/my-game.json
 ```
 
-`--out` remains a plain GameSpec for integrations. `--playable-out` writes a
-local `inkling-playable-game-v1` document containing that GameSpec and an
-inline copy of the original drawing. Lane A crops the original drawing by each
-entity's normalized GameSpec bounds and renders those untouched crops over its
-deterministic collision shapes. It accepts only inline image data for this
-local document, never a remote artwork URL, so playback remains network-free.
-The browser player can also save its currently loaded/generated game as JSON
-and load that file later. A saved playable document keeps the GameSpec, source
-artwork crop map, and optional P3 motion plan together.
-Generated playable documents also carry the P8 playtest/solvability evidence
-that produced them. Local evidence is useful for restoration and inspection;
-public sharing still requires the server-owned P8/P11 gate evidence.
+`npm run dry-run` prints every model call (id, model, effort) without touching
+the network.
 
-## Generation service boundary
+### No drawing handy? Use ours
 
-`services/gen/src/drawing-service.ts` is the server-side entry point for a
-cropped drawing. It accepts bounded inline image data only, runs the mandatory
-P1 → generation → P8 sequence, and returns a `inkling-playable-game-v1`
-document only after those gates pass. It requires a 64-character SHA-256
-`safetyId`; production code must derive that identifier from its authenticated
-or anonymous server session, never from browser JSON.
+[`docs/Inkling-brief-and-drawings.zip`](docs/Inkling-brief-and-drawings.zip)
+([direct download](https://github.com/sreenathmmenon/inkling/raw/main/docs/Inkling-brief-and-drawings.zip))
+contains seven real test drawings — from a toddler's abstract crayon scribble
+to an adult's ink-and-watercolor level — plus a three-page technical brief on
+how the system works and what was measured. Scan any of them through
+`npm run dev` or `npm run scan` to see the full drawing-to-game loop.
 
-`services/gen/src/http.ts` exposes a framework-neutral `Request` → `Response`
-adapter for `POST /api/games/drawing`. A deployment adapter must provide
-`resolveSafetyId`, authentication/session handling, rate/request-size limits,
-asset retention/deletion policy, and safe secret configuration. The browser
-calls this same-origin endpoint and does not contain an OpenAI API key.
+## How it works
 
-For the complete local browser loop (with a real API call only after the child
-taps **Make my game**), run:
-
-```bash
-npm run dev
+```
+photo of drawing
+   │
+   ▼
+ P1  safety gate ──── can't be skipped; halts the run on failure
+   ▼
+ P2  drawing → GameSpec (what's a hero, what's a hazard, what winning means)
+   ▼
+ P3 / P4 / P5  asset fan-out, run concurrently (character rig, background, sound mood)
+   ▼
+ P6  hard genre inference — only runs when P2 was uncertain
+   ▼
+ P7  bespoke behavior code, one call per entity
+   ▼
+ P8  play-test loop: simulate → repair → replay, until the game is beaten
+   ▼
+playable game, shipped with the evidence that it was actually won
 ```
 
-It creates an opaque, HttpOnly local session cookie and HMACs it server-side
-into the required safety identifier. This development adapter is intentionally
-local-only; a production host must replace its session, retention, rate-limit,
-and secret-management mechanisms with its approved infrastructure.
+The entire flow is declared in **one file, [`spec/pipeline.json`](spec/pipeline.json)** —
+13 calls, each a row naming its model, reasoning effort, prompt file, strict
+output schema, and dependencies. [`runner/pipeline.ts`](runner/pipeline.ts) is
+a single loop over that spec: it resolves dependencies, fans out
+`parallel_group`s, honors `run_if`, `loop_until`, `effort_router`,
+`escalate_to`, and `blocks_pipeline_on`, and attaches strict Structured
+Outputs plus a per-user `safety_identifier` to every request. Model and effort
+come **only** from the spec — to change routing you edit data, not code.
 
-The client capture screen validates supported image formats and size, detects
-the drawing-content bounds, and creates a local PNG crop before a child taps
-**Make my game**. Its crop operation does not apply art-restyling filters.
+## How GPT-5.6 is used
 
-## Production web deployment
+Every reasoning step in the product runs on GPT-5.6, using the three variants
+(`gpt-5.6-sol`, `gpt-5.6-terra`, `gpt-5.6-luna` — aliased `sol` / `terra` /
+`luna` in the spec) sized to each job:
 
-`npm run build:production` compiles the server and builds the Vite client into
-`build/client`. `npm start` serves that immutable client bundle and the
-same-origin generation API on `0.0.0.0:$PORT`. The production server requires
-`OPENAI_API_KEY` and a stable, random `INKLING_SESSION_SECRET` of at least 32
-characters. Both belong in the host's encrypted secret store and must never be
-written to `.env` in a deployment image, client code, logs, or Git.
+| Call | Model · effort | What it does |
+|---|---|---|
+| P1 | luna · none | Safety gate on every incoming image — mandatory, blocking |
+| P0 | luna · none | Looks at the drawing once, cheaply, and calibrates how hard the rest of the pipeline should think |
+| P2 / P2_photo | sol · low→medium | The core act: reads a child's drawing and produces a strict GameSpec — entities, physics roles, win condition |
+| P3, P4, P5 | terra/luna · low/none | Character rig plan, background plate, sound mood — fanned out concurrently |
+| P6 | sol · high | Hard genre inference, invoked only when P2 signals uncertainty |
+| P8 | terra · high | Solvability verdict: judges the deterministic play-test trace and drives the repair loop |
+| P9, P10 | terra/sol | Voice-edit diffs and multi-page drawing stitching |
+| P11 | terra · medium | Share moderation — required before anything can be published |
 
-The committed `railway.json` uses Railpack, runs the production build and
-start commands, checks `/healthz` before routing traffic, and applies bounded
-restart/drain behavior. The production HTTP boundary uses secure anonymous
-session cookies, HTTPS-aware same-origin checks, strict security headers,
-bounded uploads, and per-session generation/concurrency limits. It does not
-persist drawings or generated games server-side.
+Three GPT-5.6 techniques carry the product:
 
-## Kid-first, no-account web flow
+- **Effort routing.** P0's cheap first look routes later calls: a simple
+  crayon sketch runs P2 at `low`, a dense scene at `medium`. Hard cases
+  escalate (`escalate_to`) instead of failing.
+- **Strict Structured Outputs everywhere.** All 13 calls emit
+  `strict: true` JSON against schemas in `spec/schemas/`;
+  `npm run audit:strict` verifies every schema stays inside the subset the
+  Responses API accepts.
+- **Model-as-judge with receipts.** P8 doesn't trust the generator. It reads a
+  deterministic replay trace and rules on it; a game ships only with evidence
+  it was legally beaten.
 
-The primary player is deliberately usable without an account: a child can take
-or choose a drawing, generate a private playable game, play it, and save the
-result to their device. The web client sends only the prepared inline image;
-it does not send a name, email, age, or arbitrary browser metadata. A visible
-**Forget drawing** action clears the prepared image from the page before it is
-ever sent or after a successful generation. The local development adapter uses
-an opaque, session-only, `HttpOnly; SameSite=Strict` cookie solely to derive a
-server-side safety identifier; it contains no child profile and is not a
-durable account.
+## How Codex is used
 
-Generation responses and the local development player use `no-store`,
-same-origin upload checks, a restrictive Content Security Policy, no-referrer,
-and unused-device-permission denial headers. The development server remains a
-local test tool, not production hosting. Production must additionally provide
-HTTPS (`Secure` cookies), rate limits, abuse monitoring, deletion jobs,
-approved asset storage, incident response, and a reviewed regional privacy
-program.
+Codex shows up twice — once to build the system, and once inside it:
 
-Saving in a parent cloud library and every sharing feature are intentionally
-out of the anonymous path. A future parent-controlled flow may offer those
-features only after its applicable consent and age/privacy review. Public
-profiles, comments, chat, advertising, and searchable galleries are not part
-of this product boundary.
+**1. Codex built the runner.** The repo carries its own build instruction in
+[`.goal`](.goal):
+
+```bash
+codex --goal .goal --model gpt-5.2-codex --effort high
+```
+
+Codex reads `.goal`, uses `spec/pipeline.json` as its checklist, materializes
+every prompt (`prompts/*.txt`) and schema (`spec/schemas/*.json`) from the
+Prompt & Model Engineering Spec PDF, wires `runner/pipeline.ts`, and runs the
+self-verification suite before declaring itself done.
+
+**2. Codex writes each game's behavior code at runtime (P7).** Every entity in
+a child's drawing gets bespoke behavior generated by `gpt-5.2-codex` — this is
+what makes a drawn dragon patrol differently from a drawn cloud. Because it is
+model-written code, it is treated as hostile until proven otherwise: modules
+are validated statically, then simulated in a Node permission sandbox with no
+network, no filesystem writes, no child processes, and no inherited
+environment. A module that fails any check falls back to a static behavior and
+is never installed.
+
+## Every game is provably winnable
+
+Nothing is more deflating for a kid than a game that can't be won, so
+finishability is enforced, not hoped for. Before each P8 iteration, a
+fixed-step simulation plays the game start to finish using the *same* world
+dimensions, gravity, jump, collision plan, hazards, lives, collectibles, goal
+trigger, and survival timer as the real Phaser player. If the goal can't be
+reached, bounded repairs are applied — a platform nudged, a gap closed — and
+the game is replayed until P8 rules it ready or the iteration limit is hit.
+Generated games carry that play-test evidence with them.
+
+## Kid-safe by design
+
+The primary player needs **no account**. A child scans a drawing, plays, and
+saves the game to their device without typing a name, email, or age — the
+client sends only the prepared image crop. A visible **Forget drawing** button
+clears the image before it is ever sent or after generation. The server does
+not persist drawings or generated games.
+
+- P1 (input safety) and P11 (share moderation) are blocking gates the runner
+  cannot skip; `blocks_pipeline_on` halts the run.
+- Sharing (`services/share/`) is moderation-only: it demands P8's ready
+  verdict *and* replay evidence that the goal was reached before calling P11,
+  and it never creates a public link itself.
+- The browser never holds an API key; generation goes through a same-origin
+  server boundary (`services/gen/`) that requires a server-derived
+  64-character safety identifier.
+- Public profiles, comments, chat, ads, and searchable galleries are
+  intentionally outside the product boundary.
+
+## Repo tour
+
+| Path | What lives there |
+|---|---|
+| `spec/pipeline.json` | The single source of truth: all 13 model calls as data |
+| `prompts/`, `spec/schemas/` | Prompt text and strict output schemas, extracted from the spec PDF — never hardcoded |
+| `runner/` | The pipeline loop + PDF extractor that seeds prompts/schemas |
+| `packages/runtime` | Deterministic Phaser 4 platformer (Lane A) — no model code, no network |
+| `apps/client` | Kid-facing capture + player web app |
+| `services/gen`, `services/share` | Server boundaries: generation gate and share moderation |
+| `examples/` | Saved GameSpecs from real scans, playable offline |
+| `fixtures/validation-drawings/` | Generated test-drawing corpus used by `npm run verify` |
+
+The runtime maps the GameSpec's normalized `0..1` boxes into a fixed 960×540
+Arcade Physics world, crops the original photo by each entity's bounds, and
+renders those untouched crops over its collision shapes — the drawing is never
+redrawn or "improved". Playable documents (`inkling-playable-game-v1`) bundle
+the GameSpec, the artwork crops, and the P8 evidence, and load with zero
+network access.
+
+## Verify
+
+```bash
+python runner/extract_from_pdf.py --pdf docs/Inkling-Spec.pdf --spec spec/pipeline.json
+npm install
+npm run verify
+```
+
+`npm run verify` is self-contained from a fresh clone (the drawing corpus is
+tracked in `fixtures/validation-drawings/round-1/`) and starts with
+`npm run typecheck`. Several files in the chain are **intentional review
+gates** — each protects a product invariant; a legitimate redesign changes
+*how* the property is asserted, never *whether*:
+
+| Gate | Protects |
+|---|---|
+| `scripts/verify-css-architecture.ts` | Ordered import-only CSS cascade; cross-module overrides diffed against a reviewed baseline |
+| `scripts/verify-client-bundle.ts` | Capture shell boots without Phaser; the player stays a lazy chunk |
+| `scripts/verify-client-ui.ts` | Real-browser accessibility, layout, contrast, and recovery contracts |
+| `scripts/verify-runtime-replay.ts` | Solver and production Phaser runtime agree; idle never wins; assist never tunnels |
+| `tests/solvability.test.ts` | Games are provably finishable; sandbox validation holds |
+| `tests/runtime-trace.test.ts` | Readiness is earned by a legal replay trace, never claimed |
+| `tests/replay-policies.test.ts` | Certification input policies stay deterministic and honest |
+| `tests/recast-ladder.test.ts` | Safety recast keeps the child's drawing playable; only the last rung adds synthetic geometry |
+
+`npm run audit:strict` separately validates every schema against the narrower
+JSON Schema subset accepted by OpenAI Structured Outputs and fails on any
+schema the Responses API would reject.
+
+## Runtime entry points
+
+`runPipeline({ image }, { safetyId })` / `runDrawingScan` run the drawing
+workflow; `runPhotoScan` runs the mandatory P1 gate before `P2_photo`.
+`runVoiceEdit`, `runMultipageStitch`, and `runShareModeration` cover the
+conditional workflows — share moderation requires the passing P8 evidence from
+the scan result. The OpenAI client is created lazily from `OPENAI_API_KEY`,
+and every outbound request is checked against `pipeline.json` before it is
+sent.
+
+## Production deployment
+
+`npm run build:production` compiles the server and Vite client into
+`build/client`; `npm start` serves the client bundle and the same-origin
+generation API on `0.0.0.0:$PORT`. Production requires `OPENAI_API_KEY` and a
+stable random `INKLING_SESSION_SECRET` (≥32 chars) in the host's encrypted
+secret store — never in `.env`, client code, logs, or Git. The committed
+`railway.json` runs the production build/start, health-checks `/healthz`, and
+applies bounded restart/drain behavior. The HTTP boundary uses secure
+anonymous session cookies, HTTPS-aware same-origin checks, strict security
+headers, bounded uploads, and per-session generation/concurrency limits, and
+persists nothing server-side.
+
+The `npm run dev` adapter is intentionally local-only: it derives the safety
+identifier by HMAC-ing an opaque `HttpOnly` session cookie server-side. A
+production host must replace its session, retention, rate-limit, and
+secret-management mechanisms with approved infrastructure, and additionally
+provide HTTPS, abuse monitoring, deletion jobs, incident response, and a
+reviewed regional privacy program.
 
 ### Mobile web now; native app later
 
 The no-account capture/player path is responsive, uses the device camera
-chooser when available, keeps touch targets at least 44 CSS pixels, respects
-safe-area insets, and has in-game touch controls. It is the first production
-surface because a shared link can play in a browser with no install.
-
-A future mobile app should keep this contract: on-device crop before upload,
-the same server-side anonymous session/safety boundary, the same pipeline,
-and the same deterministic `packages/runtime` Lane A player. Native capture,
-local encrypted drafts, parent library, notifications, and platform sharing
-adapters belong in an app shell around those shared packages—not inside
-Phaser, model prompts, or model routing.
-
-## Sharing gate
-
-`services/share/src/share-service.ts` is deliberately moderation-only. It
-requires both P8's ready verdict and replay evidence showing the goal was
-reached, then calls P11. It does not create a public link or store assets.
-Publishing infrastructure must call this gate first and retain immutable
-P8/P11 evidence with the saved game it publishes.
-
-P7 patch operations are held in memory, validated statically, and simulated in
-a Node permission sandbox with no network, project/data filesystem access,
-filesystem writes, child processes, or inherited environment. Invalid modules return a `static`
-fallback and are never installed. The deterministic playtest report is produced
-before each P8 iteration by a fixed-step Lane A simulation that shares the
-platformer's world dimensions, gravity, jump, collision plan, hazards, lives,
-collectibles, goal trigger, and survival timer. Bounded repairs are applied and
-replayed until P8 is ready or the configured iteration limit is exhausted.
+chooser, keeps touch targets ≥44 CSS px, respects safe-area insets, and ships
+in-game touch controls — a shared link plays in any browser with no install. A
+future native app should wrap the same packages (on-device crop, same server
+safety boundary, same pipeline, same deterministic player) rather than forking
+them.

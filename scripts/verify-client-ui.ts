@@ -26,6 +26,7 @@ function contentType(path: string): string {
   if (extname(path) === ".css") return "text/css; charset=utf-8";
   if (extname(path) === ".woff2") return "font/woff2";
   if (extname(path) === ".webp") return "image/webp";
+  if (extname(path) === ".json") return "application/json; charset=utf-8";
   return "text/html; charset=utf-8";
 }
 
@@ -99,6 +100,62 @@ try {
     assert.ok(primary && primary.width >= 48 && primary.height >= 48, `capture target is too small at ${viewport.width}x${viewport.height}`);
     await page.close();
   }
+
+  // One-tap sample games. A quiet secondary row for visitors with no drawing:
+  // every button is a reachable >=48px target with a child-readable name, the
+  // row never outranks or precedes the primary photo action, nothing grabs
+  // focus on load, and a real tap plays the pre-generated document through the
+  // saved-game path all the way into play mode.
+  for (const viewport of [{ width: 390, height: 844 }, { width: 1366, height: 768 }]) {
+    const samplePage = await browser.newPage({ viewport });
+    await samplePage.goto(baseUrl);
+    const sampleContract = await samplePage.evaluate(() => {
+      const buttons = [...document.querySelectorAll<HTMLButtonElement>("#sample-games .sample-game")];
+      const primaryAction = document.querySelector(".choose-action");
+      return {
+        count: buttons.length,
+        geometry: buttons.map((button) => {
+          const box = button.getBoundingClientRect();
+          return { width: box.width, height: box.height };
+        }),
+        names: buttons.map((button) => (button.textContent ?? "").trim()),
+        types: buttons.map((button) => button.type),
+        afterPrimary: buttons.every((button) =>
+          Boolean(primaryAction && primaryAction.compareDocumentPosition(button) & Node.DOCUMENT_POSITION_FOLLOWING)),
+        groupLabelled: document.getElementById("sample-games")?.getAttribute("aria-labelledby") === "sample-games-title"
+          && Boolean(document.getElementById("sample-games-title")?.textContent?.trim()),
+        focusStolen: document.activeElement !== document.body,
+      };
+    });
+    assert.equal(sampleContract.count, 3, `sample game row must offer exactly three games: ${JSON.stringify(sampleContract)}`);
+    assert.ok(sampleContract.geometry.every((box) => box.width >= 48 && box.height >= 48), `sample game targets are too small at ${viewport.width}x${viewport.height}: ${JSON.stringify(sampleContract.geometry)}`);
+    assert.ok(sampleContract.names.every((name) => name.length > 0 && name.split(/\s+/).length <= 5), `sample game names are missing or too long: ${JSON.stringify(sampleContract.names)}`);
+    assert.ok(sampleContract.types.every((type) => type === "button"), "sample game buttons must not submit anything");
+    assert.ok(sampleContract.afterPrimary, "sample games must come after the primary photo action");
+    assert.ok(sampleContract.groupLabelled, "sample game row is not announced as a labelled group");
+    assert.equal(sampleContract.focusStolen, false, "sample game row stole focus from the primary flow on load");
+    await samplePage.close();
+  }
+
+  // One real tap: the fetched document must open through the saved-game load
+  // path and reach play mode with the game canvas live — proving the samples
+  // shipped with the build are genuinely playable, not just present.
+  const samplePlay = await browser.newPage({ viewport: { width: 390, height: 844 } });
+  await samplePlay.goto(baseUrl);
+  await samplePlay.locator('#sample-games .sample-game[data-sample="rocket"]').click();
+  await samplePlay.waitForSelector("body.play-mode", { timeout: 45_000 });
+  await samplePlay.waitForFunction(
+    () => document.querySelector("#game-status")?.getAttribute("data-game-state") === "playing",
+    undefined,
+    { timeout: 45_000 },
+  );
+  const samplePlaying = await samplePlay.evaluate(() => ({
+    canvasLive: Boolean(document.querySelector("#game canvas")),
+    saveEnabled: !document.querySelector<HTMLButtonElement>("#save-game")!.disabled,
+  }));
+  assert.ok(samplePlaying.canvasLive, "sample tap did not produce a live game canvas");
+  assert.ok(samplePlaying.saveEnabled, "an opened sample must be savable exactly like any opened document");
+  await samplePlay.close();
 
   // Landing hero demo + readability. The demo is decorative and lazy: it must
   // never trap focus, never claim the real materialize channel that belongs to

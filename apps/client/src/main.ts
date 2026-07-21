@@ -1018,40 +1018,80 @@ async function readGenerationStream(
   throw new GenerationTransportDeath("stream_ended_early");
 }
 
+/**
+ * The one saved-document open path. #spec-file and the one-tap sample games
+ * both come through here, so an opened document always gets the same
+ * resolution, honesty labels, and reinterpretation offer — never a fork.
+ */
+function openSavedDocument(raw: unknown): void {
+  if (activeGeneration) cancelActiveGeneration();
+  currentSpec = raw;
+  rescanContext = undefined;
+  activeCarriedCollectibles = [];
+  // A saved document carries its alternate reading with it, so the one-tap
+  // offer survives save/load — and stays hidden when none genuinely exists.
+  const loaded = resolvePlayableGame(currentSpec);
+  reinterpretSequence += 1;
+  reinterpretation = createReinterpretation(playedGenreOf(loaded), loaded.alternateGenre, {
+    document: currentSpec,
+    certification: lastCertification,
+  });
+  play(currentSpec);
+  saveGame.disabled = false;
+}
+
+function showOpenDocumentError(message: string): void {
+  status.dataset.gameState = "error";
+  status.classList.add("error");
+  status.textContent = message;
+  showCaptureStatus(message, true);
+  if (document.body.classList.contains("play-mode")) status.focus();
+  else {
+    capturePanel.scrollIntoView({ behavior: "smooth", block: "start" });
+    captureStatus.setAttribute("tabindex", "-1");
+    captureStatus.focus({ preventScroll: true });
+  }
+}
+
 fileInput.addEventListener("change", async () => {
   const file = fileInput.files?.[0];
   if (!file) return;
   // A file input does not fire change when the same file is selected twice.
   // The File object remains usable after clearing the control value.
   fileInput.value = "";
-  if (activeGeneration) cancelActiveGeneration();
   try {
-    currentSpec = JSON.parse(await file.text()) as unknown;
-    rescanContext = undefined;
-    activeCarriedCollectibles = [];
-    // A saved document carries its alternate reading with it, so the one-tap
-    // offer survives save/load — and stays hidden when none genuinely exists.
-    const loaded = resolvePlayableGame(currentSpec);
-    reinterpretSequence += 1;
-    reinterpretation = createReinterpretation(playedGenreOf(loaded), loaded.alternateGenre, {
-      document: currentSpec,
-      certification: lastCertification,
-    });
-    play(currentSpec);
-    saveGame.disabled = false;
+    openSavedDocument(JSON.parse(await file.text()) as unknown);
   } catch (error) {
-    status.dataset.gameState = "error";
-    status.classList.add("error");
-    status.textContent = "That saved game could not be opened. Try another Inkling game file.";
-    showCaptureStatus("That saved game could not be opened. Try another Inkling game file.", true);
-    if (document.body.classList.contains("play-mode")) status.focus();
-    else {
-      capturePanel.scrollIntoView({ behavior: "smooth", block: "start" });
-      captureStatus.setAttribute("tabindex", "-1");
-      captureStatus.focus({ preventScroll: true });
-    }
+    showOpenDocumentError("That saved game could not be opened. Try another Inkling game file.");
   }
 });
+
+// One-tap sample games: pre-made playable documents fetched only on demand,
+// then opened through the exact saved-game path above. The photo flow stays
+// primary; these buttons never run generation and never touch the network at
+// play time beyond this single static fetch.
+let sampleLoadSequence = 0;
+for (const button of document.querySelectorAll<HTMLButtonElement>("#sample-games .sample-game")) {
+  button.addEventListener("click", async () => {
+    const token = ++sampleLoadSequence;
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
+    showCaptureStatus("Getting this game ready to play…");
+    try {
+      const response = await fetch(`/samples/${button.dataset.sample}.json`);
+      if (!response.ok) throw new Error(`sample fetch failed: ${response.status}`);
+      const raw = await response.json() as unknown;
+      if (token !== sampleLoadSequence) return;
+      openSavedDocument(raw);
+    } catch {
+      if (token !== sampleLoadSequence) return;
+      showOpenDocumentError("That game could not open right now. Please try again.");
+    } finally {
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+    }
+  });
+}
 
 saveGame.addEventListener("click", () => {
   try {

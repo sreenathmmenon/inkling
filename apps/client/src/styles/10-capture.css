@@ -36,6 +36,16 @@ body.has-drawing .choose-action { display: none; }
 body.has-drawing .make-action { flex: 1 1 210px; }
 body.has-drawing .mini-journey { display: none; }
 
+/* One-tap sample games: a quiet secondary row for visitors with no drawing
+   handy. It never outranks the photo action and leaves once a drawing exists. */
+#sample-games { max-width: 520px; margin-top: var(--space-4); }
+#sample-games-title { margin: 0; color: var(--ink-soft); font-size: var(--size-caption); font-weight: 700; }
+.sample-game-list { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-1); }
+.sample-game { display: inline-flex; min-height: 48px; align-items: center; gap: 8px; padding: 8px 18px; border: 1.5px dashed rgba(43, 38, 32, .3); border-radius: 999px; background: var(--paper); color: var(--ink); cursor: pointer; font-size: var(--size-caption); font-weight: 800; transition: background 150ms ease, transform 150ms ease; }
+.sample-game:hover { background: var(--primary-tint); transform: translateY(-1px); }
+.sample-game[aria-busy="true"] { cursor: progress; opacity: .55; }
+body.has-drawing #sample-games { display: none; }
+
 /* 64px separates the hero block from the steps row. */
 .mini-journey { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-2); max-width: 520px; margin: var(--space-8) 0 0; padding: var(--space-3) 0 0; border-top: 1px dashed rgba(43, 38, 32, .22); list-style: none; }
 .mini-journey li { position: relative; display: grid; grid-template-columns: 26px 1fr; gap: 0 8px; align-items: center; }

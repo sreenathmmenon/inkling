@@ -79,6 +79,62 @@ export function assumptionChips(assumptions: readonly string[]): string[] {
   return chips;
 }
 
+/** The PlayContract blocker that identifies a maze with no way through. */
+export const SEALED_MAZE_BLOCKER = "maze_topology_has_no_finishable_route";
+
+export interface SafeOfferInvitation {
+  title: string;
+  detail: string;
+  /** Label for the rescan affordance in the safe-offer panel. */
+  rescanAction: string;
+  /** Short line for the live status region so assistive tech hears the offer. */
+  announcement: string;
+}
+
+/**
+ * The safe-offer panel copy for a world the runtime cannot faithfully play as
+ * declared. A sealed maze gets a warm physical invitation — erase a wall on
+ * the paper and rescan — because that is genuinely how the child fixes it.
+ * All copy is allowlisted child language; internal vocabulary never appears.
+ */
+export function safeOfferInvitation(blockers: readonly string[]): SafeOfferInvitation {
+  if (blockers.includes(SEALED_MAZE_BLOCKER)) {
+    return {
+      title: "Your maze needs one open path",
+      detail: "Right now the walls close every way through. " +
+        "Erase a little wall on your paper, then rescan it — your maze will open up! " +
+        "Or play the ready version now.",
+      rescanAction: "I erased a wall — rescan my paper",
+      announcement: "Your maze has no way through yet. Erase a wall on your paper, then rescan it.",
+    };
+  }
+  return {
+    title: "Your world is ready",
+    detail: "Your art stayed yours. Inkling chose a clear adventure you can finish.",
+    rescanAction: "I changed my paper — rescan it",
+    announcement: "Your playable version is ready.",
+  };
+}
+
+/**
+ * Status-region copy announced when the child starts a rescan: the capture
+ * flow is open and waiting for a new photo of the changed paper.
+ */
+export function rescanInviteMessage(): string {
+  return "Change your paper — draw something new or erase something — " +
+    "then take a new photo. Your world will grow instead of starting over.";
+}
+
+/**
+ * One clear line after a rescanned world arrives. Says honestly whether
+ * earlier treasures carried over or start fresh because the world changed.
+ */
+export function rescanGrowthNotice(carriedCount: number, previouslyCollectedCount: number): string {
+  if (carriedCount > 0) return "Your world grew! The treasures you already found are still yours.";
+  if (previouslyCollectedCount > 0) return "Your world changed, so treasures start fresh this time.";
+  return "Your world grew! Go see what changed.";
+}
+
 const MAX_CORRECTIONS = 6;
 const MAX_CORRECTION_LENGTH = 240;
 

@@ -6,6 +6,10 @@ import {
   assumptionChips,
   certificationNotice,
   interpretationNoteText,
+  rescanGrowthNotice,
+  rescanInviteMessage,
+  safeOfferInvitation,
+  SEALED_MAZE_BLOCKER,
   simplificationNotice,
 } from "../apps/client/src/interpretation-status.js";
 
@@ -85,4 +89,43 @@ test("corrections accumulate bounded, deduplicated, and trimmed", () => {
   assert.equal(corrections[0], "guess 3", "oldest corrections drop first");
   const long = appendCorrection([], "x".repeat(500));
   assert.equal(long[0]?.length, 240);
+});
+
+test("a sealed maze earns a warm erase-and-rescan invitation in child language", () => {
+  const invitation = safeOfferInvitation([SEALED_MAZE_BLOCKER]);
+  assert.equal(invitation.title, "Your maze needs one open path");
+  assert.match(invitation.detail, /erase/i, "the child is invited to erase a wall");
+  assert.match(invitation.detail, /rescan/i, "the child is invited to rescan the paper");
+  assert.match(invitation.announcement, /erase a wall/i);
+  for (const copy of [invitation.title, invitation.detail, invitation.rescanAction, invitation.announcement]) {
+    assert.equal(INTERNAL_TERMS.test(copy), false, `sealed-maze copy leaks internal terms: ${copy}`);
+    assert.equal(/maze_topology|blocker|needs_recast/i.test(copy), false, "no raw blocker codes reach the child");
+  }
+});
+
+test("every other blocked world keeps the reassuring safe-offer copy", () => {
+  const invitation = safeOfferInvitation(["declared_goal_target_is_missing"]);
+  assert.equal(invitation.title, "Your world is ready");
+  assert.equal(invitation.detail, "Your art stayed yours. Inkling chose a clear adventure you can finish.");
+  assert.equal(invitation.announcement, "Your playable version is ready.");
+  for (const copy of [invitation.title, invitation.detail, invitation.rescanAction, invitation.announcement]) {
+    assert.equal(INTERNAL_TERMS.test(copy), false, `safe-offer copy leaks internal terms: ${copy}`);
+  }
+});
+
+test("the rescan invitation and growth notices stay child-safe and honest", () => {
+  const invite = rescanInviteMessage();
+  assert.match(invite, /new photo/i, "the flow asks for a fresh capture of the changed paper");
+  assert.match(invite, /grow/i, "the world grows rather than restarting");
+
+  const carried = rescanGrowthNotice(2, 3);
+  const fresh = rescanGrowthNotice(0, 3);
+  const grew = rescanGrowthNotice(0, 0);
+  assert.match(carried, /still yours/i, "carried progress is acknowledged");
+  assert.match(fresh, /start fresh/i, "a fresh start is said plainly, never silent");
+  assert.notEqual(grew, fresh);
+  for (const copy of [invite, carried, fresh, grew]) {
+    assert.equal(INTERNAL_TERMS.test(copy), false, `rescan copy leaks internal terms: ${copy}`);
+    assert.ok(copy.length <= 160, "copy stays short enough for a child to read");
+  }
 });

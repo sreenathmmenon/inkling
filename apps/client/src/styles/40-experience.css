@@ -91,6 +91,9 @@ body.play-mode.playing.assist-available .assist-action { color: #153e33; border:
   body.game-won .play-meta, body.game-lost .play-meta, body.player-error .play-meta { width: min(100%, 420px); padding: 7px; }
   body.game-won #post-play-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
   body.game-won #fullscreen-new-drawing { grid-column: 1 / -1; }
+  /* With the rescan affordance visible, pair it beside Make another so the
+     terminal actions stay two rows on short phones. */
+  body.game-won #post-play-actions:has(#rescan-paper:not([hidden])) #fullscreen-new-drawing { grid-column: auto; }
   body.game-lost #post-play-actions, body.player-error #post-play-actions { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 6px; }
   body.game-won #post-play-actions button, body.game-lost #post-play-actions button, body.player-error #post-play-actions button { min-width: 0; min-height: 50px; padding: 7px 6px; font-size: .76rem; }
 }

@@ -30,8 +30,12 @@ import {
   appendCorrection,
   assumptionChips,
   interpretationNoteText,
+  rescanGrowthNotice,
+  rescanInviteMessage,
+  safeOfferInvitation,
   type CertificationOutcome,
 } from "./interpretation-status.js";
+import { carriedCollectibleIds } from "../../../packages/runtime/src/progress-preservation.js";
 import { freshPlayerState, shouldShowAssist } from "./player-status.js";
 import { attachSoundFeedback, resolveSfxPackId } from "./sound-feedback.js";
 
@@ -90,6 +94,8 @@ const safeOfferDetail = requireElement<HTMLElement>("#safe-offer-detail");
 const assumptionChipList = requireElement<HTMLElement>("#assumption-chips");
 const playSafeVersion = requireElement<HTMLButtonElement>("#play-safe-version");
 const tryNewPicture = requireElement<HTMLButtonElement>("#try-new-picture");
+const rescanPaper = requireElement<HTMLButtonElement>("#rescan-paper");
+const rescanPaperOffer = requireElement<HTMLButtonElement>("#rescan-paper-offer");
 const capturePanel = requireElement<HTMLElement>("#capture-panel");
 const playStage = requireElement<HTMLElement>("#play-stage");
 const returnGame = requireElement<HTMLButtonElement>("#return-game");
@@ -134,7 +140,20 @@ let returnableGame: unknown;
 let saveFeedbackTimer: number | undefined;
 let pendingCorrections: string[] = [];
 let lastCertification: CertificationOutcome = "not_applicable";
+// The physical rescan loop: previousGame is the certified document the child
+// is growing, collectedIds the bonuses they had found when they tapped rescan.
+let rescanContext: { previousGame: unknown; collectedIds: string[] } | undefined;
+// Bonus ids the deterministic carry rule admitted for the current world; the
+// scene pre-collects them at create so a rescan feels like growth, not reset.
+let activeCarriedCollectibles: readonly string[] = [];
+const collectedIdsThisPlay = new Set<string>();
 const gameControlReleases: Array<() => void> = [];
+
+/** Only a self-contained v1 playable document can seed a rescan stitch. */
+function rescannableGame(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value) &&
+    (value as Record<string, unknown>).format === "inkling-playable-game-v1";
+}
 
 function releaseAllGameControls(): void {
   for (const release of gameControlReleases) release();
@@ -256,6 +275,7 @@ function showState(state: PlatformerState): void {
     renderExperienceState("won");
     restart.hidden = false;
     saveGame.hidden = false;
+    rescanPaper.hidden = !rescannableGame(currentSpec);
     status.textContent = "You brought it to life! What will you make next?";
     // An unverified game never celebrates as though the full runtime check
     // passed; the win still counts, the flourish waits for a verified one.
@@ -266,12 +286,14 @@ function showState(state: PlatformerState): void {
   if (state.status === "lost") {
     renderExperienceState("lost");
     restart.hidden = false;
+    rescanPaper.hidden = !rescannableGame(currentSpec);
     status.textContent = "No lives left. Tap Play again to try again.";
     motionDelight.stateChanged(state.status);
     restart.focus({ preventScroll: true });
     return;
   }
   renderExperienceState("playing");
+  rescanPaper.hidden = true;
   const collectibles = state.collectibleTotal
     ? ` · ${activeCounterLabel ?? "Found"} ${state.collected}/${state.collectibleTotal}`
     : "";
@@ -314,6 +336,10 @@ async function play(spec: unknown): Promise<void> {
   const playable = resolvePlayableGame(spec);
   const plan = createPlatformerPlan(playable.gameSpec, playable.behaviorTracks);
   const objective = createObjectiveContract(plan);
+  // A fresh launch starts the found-bonus record from what the rescan carry
+  // rule admitted, so a later rescan sees carried treasures as still found.
+  collectedIdsThisPlay.clear();
+  for (const id of activeCarriedCollectibles) collectedIdsThisPlay.add(id);
   document.body.classList.toggle("four-way-controls", plan.contract.touchControls === "four_way");
   activeCounterLabel = objective.counterLabel;
   soundFeedback.setPack(resolveSfxPackId(playable.sfxPackId));
@@ -371,8 +397,10 @@ async function play(spec: unknown): Promise<void> {
     gameSpec: spec,
     showTouchControls: false,
     presentation: "embedded",
+    initiallyCollected: [...activeCarriedCollectibles],
     onStateChange: showState,
     onRuntimeEvent(event: RuntimeEvent) {
+      if (event.kind === "pickup" && event.entityId) collectedIdsThisPlay.add(event.entityId);
       motionDelight.handleRuntimeEvent(event);
       soundFeedback.handleRuntimeEvent(event);
       window.dispatchEvent(new CustomEvent<RuntimeEvent>("inkling:runtime-event", { detail: event }));
@@ -424,6 +452,7 @@ function showGameWaiting(): void {
   accessibleControls.hidden = true;
   postPlayActions.hidden = true;
   assistGame.hidden = true;
+  rescanPaper.hidden = true;
   playToolbar.hidden = true;
   interpretationNote.hidden = true;
   interpretationNote.textContent = "";
@@ -583,6 +612,9 @@ function startFreshDrawingSession(
   currentSpec = null;
   pendingPlayableGame = undefined;
   pendingCorrections = [];
+  rescanContext = undefined;
+  activeCarriedCollectibles = [];
+  collectedIdsThisPlay.clear();
   lastCertification = "not_applicable";
   activeCounterLabel = null;
   showGameWaiting();
@@ -611,6 +643,21 @@ function startFreshDrawingSession(
   renderExperienceState("capture-empty");
 
   window.requestAnimationFrame(() => drawingInput.focus());
+}
+
+/**
+ * Starts the physical rescan loop: the child changed their paper (added a
+ * page, erased a wall, drew a new coin) and photographs it again. The capture
+ * flow opens focused with an inviting status announcement; the next
+ * generation then carries the previous certified game so the world grows
+ * instead of restarting. The previous game stays one tap away the whole time.
+ */
+function beginRescan(previousGame: unknown, collectedIds: readonly string[]): void {
+  const collectedSnapshot = [...collectedIds];
+  if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+  returnableGame = previousGame;
+  startFreshDrawingSession(rescanInviteMessage());
+  rescanContext = { previousGame, collectedIds: collectedSnapshot };
 }
 
 function showGenerationStage(stage: GenerationStage): void {
@@ -739,6 +786,8 @@ fileInput.addEventListener("change", async () => {
   if (activeGeneration) cancelActiveGeneration();
   try {
     currentSpec = JSON.parse(await file.text()) as unknown;
+    rescanContext = undefined;
+    activeCarriedCollectibles = [];
     play(currentSpec);
     saveGame.disabled = false;
   } catch (error) {
@@ -843,6 +892,9 @@ async function runGeneration(): Promise<void> {
   const controller = new AbortController();
   const sequence = ++generationSequence;
   const requestId = newRequestId();
+  // Snapshot the rescan context so a competing session cannot swap the
+  // previous world mid-flight; it is consumed once the merged world lands.
+  const rescan = rescanContext;
   safeOfferPanel.hidden = true;
   pendingPlayableGame = undefined;
   activeGeneration = { controller, sequence };
@@ -851,9 +903,11 @@ async function runGeneration(): Promise<void> {
   makeGame.setAttribute("aria-busy", "true");
   forgetDrawing.disabled = true;
   showCaptureStatus(
-    pendingCorrections.length > 0
-      ? "Got it — trying your drawing again with your fix."
-      : "We’re turning your drawing into a game. Keep this page open.",
+    rescan
+      ? "We’re growing your world with your changed paper. Keep this page open."
+      : pendingCorrections.length > 0
+        ? "Got it — trying your drawing again with your fix."
+        : "We’re turning your drawing into a game. Keep this page open.",
   );
   startGenerationProgress();
   try {
@@ -864,6 +918,7 @@ async function runGeneration(): Promise<void> {
         image: preparedDrawing.dataUrl,
         request_id: requestId,
         ...(pendingCorrections.length > 0 ? { corrections: pendingCorrections } : {}),
+        ...(rescan ? { previous_game: rescan.previousGame } : {}),
       }),
       signal: controller.signal,
     });
@@ -892,16 +947,41 @@ async function runGeneration(): Promise<void> {
     currentSpec = certified.value;
     lastCertification = certified.certification;
     const playable = resolvePlayableGame(currentSpec);
+    // The rescan context is consumed by this completed generation: later
+    // retries or chip fixes re-derive from the retained new capture, which
+    // now shows the whole changed paper.
+    if (rescan && rescanContext === rescan) rescanContext = undefined;
     if (playable.readinessOutcome === "needs_recast") {
       pendingPlayableGame = currentSpec;
       progressPanel.hidden = true;
       safeOfferPanel.hidden = false;
       renderExperienceState("safe-offer");
-      safeOfferTitle.textContent = "Your world is ready";
-      safeOfferDetail.textContent = "Your art stayed yours. Inkling chose a clear adventure you can finish.";
-      showCaptureStatus("Your playable version is ready.");
+      // A sealed maze earns a warm physical invitation: erase a wall on the
+      // paper and rescan it. Every other blocked world keeps the safe offer.
+      const blockers = playable.playContract?.blockers;
+      const invitation = safeOfferInvitation(Array.isArray(blockers) ? blockers : []);
+      safeOfferTitle.textContent = invitation.title;
+      safeOfferDetail.textContent = invitation.detail;
+      rescanPaperOffer.textContent = invitation.rescanAction;
+      rescanPaperOffer.hidden = !rescannableGame(currentSpec);
+      showCaptureStatus(invitation.announcement);
       playSafeVersion.focus();
+    } else if (rescan) {
+      // Progress preservation: bonuses the child had already found stay
+      // collected wherever the merged world kept those ids as bonus
+      // collectibles; anywhere the geometry or goal changed, the world
+      // honestly starts fresh — and the child is told either way.
+      const carryPlan = createPlatformerPlan(playable.gameSpec, playable.behaviorTracks);
+      activeCarriedCollectibles = carriedCollectibleIds(carryPlan, rescan.collectedIds);
+      play(currentSpec);
+      saveGame.disabled = false;
+      progressPanel.hidden = true;
+      showCaptureStatus(rescanGrowthNotice(
+        activeCarriedCollectibles.length,
+        rescan.collectedIds.length,
+      ));
     } else {
+      activeCarriedCollectibles = [];
       play(currentSpec);
       saveGame.disabled = false;
       // The drawing stays on this page (never re-uploaded on its own) so a
@@ -938,12 +1018,29 @@ playSafeVersion.addEventListener("click", () => {
   if (pendingPlayableGame === undefined) return;
   currentSpec = pendingPlayableGame;
   pendingPlayableGame = undefined;
+  activeCarriedCollectibles = [];
   play(currentSpec);
   saveGame.disabled = false;
   forgetPreparedDrawing("Your drawing is now a playable game.");
 });
 
 tryNewPicture.addEventListener("click", () => startFreshDrawingSession());
+
+rescanPaper.addEventListener("click", () => {
+  if (!rescannableGame(currentSpec)) return;
+  beginRescan(currentSpec, [...collectedIdsThisPlay]);
+});
+
+rescanPaperOffer.addEventListener("click", () => {
+  // The blocked-but-certified document (for a sealed maze, the one whose
+  // walls close every route) seeds the stitch; the child erases a wall and
+  // photographs the changed paper. Nothing was played yet, so no bonuses
+  // carry from here.
+  if (!rescannableGame(pendingPlayableGame)) return;
+  const previousGame = pendingPlayableGame;
+  pendingPlayableGame = undefined;
+  beginRescan(previousGame, []);
+});
 
 forgetDrawing.addEventListener("click", () => forgetPreparedDrawing());
 

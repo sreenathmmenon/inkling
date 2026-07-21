@@ -25,6 +25,7 @@ import {
   type GameplayFeedbackEvent,
 } from "../packages/runtime/src/feedback-contract.js";
 import { createCoachingContract, createRecoveryCue } from "../packages/runtime/src/coaching-contract.js";
+import { GAME_CONTRACTS } from "../packages/runtime/src/game-contract.js";
 import { createPlayContract } from "../packages/runtime/src/play-contract.js";
 import {
   surfaceJumpVelocity,
@@ -223,7 +224,12 @@ test("Lane A honors a free-movement GameSpec instead of snapping it into a platf
 });
 
 test("every authoritative genre resolves to a deterministic Lane A contract", () => {
-  const genres = ["platformer", "maze", "runner", "roller", "shooter", "slingshot", "tower_defense"] as const;
+  const genres = Object.keys(GAME_CONTRACTS) as Array<keyof typeof GAME_CONTRACTS>;
+  assert.deepEqual(
+    [...genres].sort(),
+    ["maze", "platformer", "roller", "runner", "slingshot"],
+    "the engine's genre truth table must match the honest GameSpec vocabulary exactly",
+  );
   for (const primaryGenre of genres) {
     const plan = createPlatformerPlan({
       primary_genre: primaryGenre,
@@ -477,10 +483,10 @@ test("first-use coaching derives only from engine contracts and objective geomet
     "the first runner action must explicitly start progress",
   );
 
-  const shooter = structuredClone(base);
-  shooter.primary_genre = "shooter";
-  shooter.goal = { kind: "defeat_boss", target_id: "target" };
-  assert.equal(createCoachingContract(createPlatformerPlan(shooter)).firstControl, "action");
+  const slingshot = structuredClone(base);
+  slingshot.primary_genre = "slingshot";
+  slingshot.goal = { kind: "defeat_boss", target_id: "target" };
+  assert.equal(createCoachingContract(createPlatformerPlan(slingshot)).firstControl, "action");
 });
 
 test("recovery coaching never suggests a control the active game does not expose", () => {

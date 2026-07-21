@@ -297,11 +297,11 @@ test("P8 clears a matrix of generic stacked and zig-zag platform layouts", () =>
 });
 
 test("P8 can validate a finishable route for every declared Lane A genre", () => {
-  const genres = ["platformer", "maze", "runner", "roller", "shooter", "slingshot", "tower_defense"] as const;
+  const genres = ["platformer", "maze", "runner", "roller", "slingshot"] as const;
   for (const primaryGenre of genres) {
     const game = fixture();
     game.primary_genre = primaryGenre;
-    if (primaryGenre === "maze" || primaryGenre === "roller" || primaryGenre === "shooter" || primaryGenre === "slingshot" || primaryGenre === "tower_defense") {
+    if (primaryGenre === "maze" || primaryGenre === "roller" || primaryGenre === "slingshot") {
       game.hero.bbox = [0.1, 0.12, 0.18, 0.26];
       game.entities[0]!.bbox = [0.72, 0.7, 0.82, 0.84];
     }
@@ -312,7 +312,7 @@ test("P8 can validate a finishable route for every declared Lane A genre", () =>
 
 test("P8 validates the same projectile contract used for a defeat-boss game", () => {
   const game = fixture();
-  game.primary_genre = "shooter";
+  game.primary_genre = "slingshot";
   game.hero.bbox = [0.1, 0.2, 0.18, 0.34];
   game.entities = [{
     id: "boss", role: "boss", bbox: [0.72, 0.42, 0.84, 0.62], behavior: "static", style_ref: "source",
@@ -327,23 +327,23 @@ test("validator executes accepted code only in the restricted sandbox", async ()
   const valid = await validateBehaviorOperation(
     {
       type: "create_file",
-      path: "behaviors/mover_1.js",
+      path: "behaviors/walker_1.js",
       diff: `defineBehavior({
-  id: "mover_1",
+  id: "walker_1",
   onUpdate(dt, ctx) { ctx.move(dt * ctx.rng(), 0); }
 });`,
     },
-    "mover_1",
+    "walker_1",
   );
   assert.equal(valid.valid, true, valid.errors.join(","));
 
   const invalid = await validateBehaviorOperation(
     {
       type: "create_file",
-      path: "behaviors/mover_1.js",
-      diff: `defineBehavior({ id: "mover_1", onUpdate() { fetch("https://example.com"); } });`,
+      path: "behaviors/walker_1.js",
+      diff: `defineBehavior({ id: "walker_1", onUpdate() { fetch("https://example.com"); } });`,
     },
-    "mover_1",
+    "walker_1",
   );
   assert.equal(invalid.valid, false);
   assert.equal(invalid.fallback, "static");

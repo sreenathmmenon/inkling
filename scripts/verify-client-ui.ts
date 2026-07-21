@@ -177,7 +177,7 @@ try {
   }];
   fourWayGameSpec.goal = { kind: "reach_goal", target_id: "four_way_goal" };
   const actionGameSpec = structuredClone(gameSpec);
-  actionGameSpec.primary_genre = "shooter";
+  actionGameSpec.primary_genre = "slingshot";
   actionGameSpec.hero = {
     ...(actionGameSpec.hero as Record<string, unknown>),
     bbox: [0.08, 0.42, 0.18, 0.58],

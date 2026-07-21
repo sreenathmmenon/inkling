@@ -1,9 +1,9 @@
 import { PLATFORMER_PHYSICS } from "./platformer-physics.js";
 
-export type SurfaceMaterial = "solid" | "ice" | "cloud" | "launchpad" | "mover";
+export type SurfaceMaterial = "solid" | "ice" | "cloud" | "launchpad";
 
 export function surfaceMaterial(role: string | undefined): SurfaceMaterial {
-  if (role === "ice" || role === "cloud" || role === "launchpad" || role === "mover") return role;
+  if (role === "ice" || role === "cloud" || role === "launchpad") return role;
   return "solid";
 }
 

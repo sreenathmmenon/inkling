@@ -19,7 +19,6 @@ const PLATFORM_ROLES = new Set([
   "ice",
   "cloud",
   "launchpad",
-  "mover",
 ]);
 const HAZARD_ROLES = new Set(["hazard", "enemy", "boss"]);
 const COLLECTIBLE_ROLES = new Set(["collectible", "key"]);

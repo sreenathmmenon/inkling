@@ -23,9 +23,7 @@
           "maze",
           "runner",
           "roller",
-          "shooter",
-          "slingshot",
-          "tower_defense"
+          "slingshot"
         ]
       },
       "genre_confidence": {
@@ -100,7 +98,6 @@
                 "key",
                 "door",
                 "decoration",
-                "mover",
                 "goal"
               ]
             },

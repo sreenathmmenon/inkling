@@ -9,12 +9,10 @@ export type DeclaredGenre =
   | "maze"
   | "runner"
   | "roller"
-  | "shooter"
-  | "slingshot"
-  | "tower_defense";
+  | "slingshot";
 
 export type MovementContract = "ground" | "free" | "auto_ground" | "launch";
-export type ActionContract = "contact" | "projectile" | "defend";
+export type ActionContract = "contact" | "projectile";
 
 export interface GameContract {
   id: DeclaredGenre;
@@ -43,17 +41,9 @@ export const GAME_CONTRACTS: Record<DeclaredGenre, GameContract> = {
     id: "roller", movement: "free", colliderScale: 0.58, touchControls: "four_way", action: "contact",
     instruction: "Roll and steer through your world",
   },
-  shooter: {
-    id: "shooter", movement: "free", colliderScale: 0.7, touchControls: "four_way", action: "projectile",
-    instruction: "Dodge danger and clear the way",
-  },
   slingshot: {
     id: "slingshot", movement: "launch", colliderScale: 0.68, touchControls: "four_way", action: "projectile",
     instruction: "Aim, launch, and reach your target",
-  },
-  tower_defense: {
-    id: "tower_defense", movement: "free", colliderScale: 0.72, touchControls: "four_way", action: "defend",
-    instruction: "Protect your world and collect what you need",
   },
 };
 

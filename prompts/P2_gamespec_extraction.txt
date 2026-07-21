@@ -59,9 +59,9 @@ Choose one primary_genre from genre_enum using composition:
 - enclosed top-down corridors -> maze
 - birds-eye path with a start and end -> runner
 - vehicle/ball + slope or open field -> roller
-- hero + multiple ranged foes -> shooter
+- hero + multiple ranged foes -> platformer if side-view, maze if top-down
 - launch object at targets -> slingshot
-- path + defendable point -> tower_defense
+- path + defendable point -> maze
 Set genre_confidence in [0,1]. If < 0.55, still choose the best genre and
 add "genre_uncertain" to flags (the client offers a one-tap re-cast).
 </genre_inference>

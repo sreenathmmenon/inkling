@@ -101,7 +101,7 @@ interface Controls {
   space?: Phaser.Input.Keyboard.Key;
 }
 
-const ENVIRONMENTAL_SURFACE_ROLES = new Set(["platform", "ice", "cloud", "launchpad", "mover", "water"]);
+const ENVIRONMENTAL_SURFACE_ROLES = new Set(["platform", "ice", "cloud", "launchpad", "water"]);
 
 function color(value: string | undefined, fallback: number): number {
   if (!value || !/^#[0-9a-f]{6}$/i.test(value)) return fallback;
@@ -918,8 +918,9 @@ class PlatformerScene extends Phaser.Scene {
   }
 
   /**
-   * Shooter and slingshot worlds use the same deterministic, local projectile
-   * contract. It is selected by GameSpec genre/goal, never by a drawing name
+   * Boss-goal worlds with a projectile action contract use one deterministic,
+   * local projectile rule. It is selected by GameSpec genre/goal, never by a
+   * drawing name
    * or model-written code. The target direction is intentional: it keeps the
    * touch control usable for young players while P8 can simulate the same rule.
    */

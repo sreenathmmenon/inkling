@@ -11,9 +11,7 @@ const GENRES = [
   "maze",
   "runner",
   "roller",
-  "shooter",
   "slingshot",
-  "tower_defense",
 ] as const;
 
 function scenario(index: number): GameSpec {
@@ -68,7 +66,7 @@ function scenario(index: number): GameSpec {
     }
   }
 
-  const collectAll = index % 5 === 0 && primaryGenre !== "shooter";
+  const collectAll = index % 5 === 0;
   if (collectAll) {
     entities.push({
       id: `item_${index}`,

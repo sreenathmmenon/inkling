@@ -75,7 +75,7 @@ const spec = loadPipelineSpec(root);
 
 test("the final P8 safety recast is deterministic, art-preserving, and finishable", () => {
   const unsafe = structuredClone(SHAREABLE_GAME_SPEC);
-  unsafe.primary_genre = "shooter";
+  unsafe.primary_genre = "slingshot";
   unsafe.hero.bbox = [0.76, 0.04, 0.94, 0.24];
   unsafe.entities = [
     { id: "hero", role: "hazard", bbox: [0, 0, 1, 1], behavior: "chase", linked_to: "missing", style_ref: "child-ink" },

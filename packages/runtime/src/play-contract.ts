@@ -22,8 +22,6 @@ export type RuntimeCapability =
   | "maze_collision_topology"
   | "rolling_inertia"
   | "launch_trajectory"
-  | "shooter_combat_loop"
-  | "tower_defense_loop"
   | "multi_step_boss_encounter"
   | "dynamic_entity_behavior"
   | "linked_entity_rules"
@@ -33,7 +31,6 @@ export type RuntimeCapability =
   | "surface_ice"
   | "surface_cloud"
   | "surface_launchpad"
-  | "moving_platforms"
   | "declared_genre_movement";
 
 export type PlayContractOutcome =
@@ -125,7 +122,7 @@ export const LANE_A_RUNNER_CAPABILITY_PROFILE: RuntimeCapabilityProfile = {
   ],
 };
 
-const PLATFORM_ROLES = new Set(["platform", "ice", "cloud", "launchpad", "mover"]);
+const PLATFORM_ROLES = new Set(["platform", "ice", "cloud", "launchpad"]);
 const HAZARD_ROLES = new Set(["hazard", "enemy", "boss"]);
 
 function pushUnique(values: RuntimeCapability[], capability: RuntimeCapability): void {
@@ -152,7 +149,6 @@ function requiredForGenre(spec: GameSpec, plan: PlatformerPlan): RuntimeCapabili
   if (spec.entities.some((entity) => entity.role === "ice")) pushUnique(required, "surface_ice");
   if (spec.entities.some((entity) => entity.role === "cloud")) pushUnique(required, "surface_cloud");
   if (spec.entities.some((entity) => entity.role === "launchpad")) pushUnique(required, "surface_launchpad");
-  if (spec.entities.some((entity) => entity.role === "mover")) pushUnique(required, "moving_platforms");
 
   switch (spec.primary_genre) {
     case "maze":
@@ -165,14 +161,8 @@ function requiredForGenre(spec: GameSpec, plan: PlatformerPlan): RuntimeCapabili
     case "roller":
       pushUnique(required, "rolling_inertia");
       break;
-    case "shooter":
-      pushUnique(required, "shooter_combat_loop");
-      break;
     case "slingshot":
       pushUnique(required, "launch_trajectory");
-      break;
-    case "tower_defense":
-      pushUnique(required, "tower_defense_loop");
       break;
   }
   return required;
@@ -183,7 +173,7 @@ function requiredForGoal(spec: GameSpec, required: RuntimeCapability[]): void {
   else if (spec.goal.kind === "survive") pushUnique(required, "survive_timer");
   else if (spec.goal.kind === "defeat_boss") {
     pushUnique(required, "multi_step_boss_encounter");
-    if (spec.primary_genre === "shooter" || spec.primary_genre === "slingshot") {
+    if (spec.primary_genre === "slingshot") {
       pushUnique(required, "aimed_projectile");
     }
   } else pushUnique(required, "reach_goal");

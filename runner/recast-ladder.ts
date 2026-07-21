@@ -26,7 +26,7 @@ export const RECAST_RUNG_ORDER: readonly RecastRung[] = [
   "full_floor",
 ];
 
-const SURFACE_ROLES = new Set(["platform", "water", "ice", "cloud", "launchpad", "mover"]);
+const SURFACE_ROLES = new Set(["platform", "water", "ice", "cloud", "launchpad"]);
 const PICKUP_ROLES = new Set(["collectible", "key"]);
 
 function clone<T>(value: T): T {

@@ -55,6 +55,10 @@ export interface PlatformerPlan {
   collectibles: PlannedEntity[];
   decorations: PlannedEntity[];
   requiredCollectibleIds: string[];
+  /** Multiplier applied to hero horizontal speed by declared modifiers. */
+  heroSpeedFactor: number;
+  /** Declared modifiers the runtime could not apply; non-empty blocks faithfulness. */
+  unappliedModifiers: string[];
   relationships: KeyDoorRelationship[];
   mazeCollisionWalls: PlannedEntity[];
   mazeTopologyFallback: boolean;
@@ -268,6 +272,43 @@ function contractForSpec(spec: GameSpec): GameContract {
     };
 }
 
+/**
+ * The only modifier vocabulary the runtime executes: the same bounded
+ * encodings P8's repairs write. speed scales the hero's horizontal velocity
+ * (applied identically by scene and solver); gap resizes the named platform
+ * at plan level so both consume it by construction. Anything else is
+ * recorded as unapplied and honestly blocks a faithful claim.
+ */
+function applyDeclaredModifiers(
+  modifiers: string[],
+  heroId: string,
+  platforms: PlannedEntity[],
+): { heroSpeedFactor: number; unapplied: string[] } {
+  let heroSpeedFactor = 1;
+  const unapplied: string[] = [];
+  for (const raw of modifiers) {
+    const parsed = raw.match(/^(speed|gap):([^:]+):(-?\d*\.?\d+)$/);
+    const amount = parsed ? Number(parsed[3]) : Number.NaN;
+    if (!parsed || !Number.isFinite(amount) || Math.abs(amount) > 0.05) {
+      unapplied.push(raw);
+      continue;
+    }
+    if (parsed[1] === "speed" && (parsed[2] === heroId || parsed[2] === "hero")) {
+      heroSpeedFactor = clamp(heroSpeedFactor * (1 + amount * 4), 0.8, 1.2);
+    } else if (parsed[1] === "gap") {
+      const platform = platforms.find((candidate) => candidate.id === parsed[2]);
+      if (!platform) {
+        unapplied.push(raw);
+        continue;
+      }
+      platform.width = clamp(platform.width + amount * WORLD_WIDTH, 24, WORLD_WIDTH);
+    } else {
+      unapplied.push(raw);
+    }
+  }
+  return { heroSpeedFactor, unapplied };
+}
+
 function normalizedArea(value: unknown): number {
   const [left, top, right, bottom] = normalizeBBox(value, [0, 0, 0, 0]);
   return Math.max(0, right - left) * Math.max(0, bottom - top);
@@ -317,6 +358,7 @@ export function createPlatformerPlan(
       }, entity.artworkSource),
     );
   platforms.push(safetyFloor);
+  const appliedModifiers = applyDeclaredModifiers(modifiers, spec.hero.id, platforms);
 
   const doors = entities
     .filter((entity) => entity.role === "door")
@@ -506,6 +548,8 @@ export function createPlatformerPlan(
     collectibles,
     decorations,
     requiredCollectibleIds: [...new Set(requiredCollectibleIds)],
+    heroSpeedFactor: appliedModifiers.heroSpeedFactor,
+    unappliedModifiers: appliedModifiers.unapplied,
     relationships,
     mazeCollisionWalls: contract.id === "maze" && !mazeTopologyFallback ? drawnMazeWalls : [],
     mazeTopologyFallback,

@@ -79,6 +79,8 @@ test("P2 keeps its semantic-role, ambiguity, and art-preservation contract", () 
   assert.match(text, /collect_all only when gathering everything IS the point/);
   assert.match(text, /Use key\+door for "must get this", never a\s*collectible/);
   assert.match(text, /linked_to is ONLY for key->door pairs/, "thematic links produced unsupported linked_entity_rules");
+  assert.match(text, /rules\.modifiers accepts ONLY the encoded forms/, "free-form modifiers blocked three drawings from faithful");
+  assert.match(text, /modifiers\s*must be \[\]/);
 });
 
 test("P1 keeps its child-safety block list and fail-uncertain contract", () => {

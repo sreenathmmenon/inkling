@@ -307,10 +307,10 @@ function executePlaytest(
       const deltaY = destination ? destination.y - body.y : 0;
       const mazeUsesHorizontalStep = plan.contract.id === "maze" && Math.abs(deltaX) > 4;
       body.velocityX = destination && (plan.contract.id !== "maze" || mazeUsesHorizontalStep)
-        ? Math.sign(deltaX) * PLATFORMER_PHYSICS.moveVelocityX
+        ? Math.sign(deltaX) * PLATFORMER_PHYSICS.moveVelocityX * plan.heroSpeedFactor
         : 0;
       body.velocityY = destination && (plan.contract.id !== "maze" || !mazeUsesHorizontalStep)
-        ? Math.sign(deltaY) * PLATFORMER_PHYSICS.moveVelocityX
+        ? Math.sign(deltaY) * PLATFORMER_PHYSICS.moveVelocityX * plan.heroSpeedFactor
         : 0;
       input.left = body.velocityX < 0;
       input.right = body.velocityX > 0;

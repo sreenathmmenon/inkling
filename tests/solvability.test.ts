@@ -83,7 +83,7 @@ test("Lane A normalizes a repeated spawn hazard into a safe, finishable start", 
 
 test("Lane A solver uses the no-gravity free-movement contract for roller games", () => {
   const game = fixture();
-  game.primary_genre = "roller";
+  game.primary_genre = "maze";
   game.hero.bbox = [0.1, 0.1, 0.18, 0.22];
   game.entities[0]!.bbox = [0.72, 0.72, 0.82, 0.84];
   game.rules.modifiers = [];
@@ -96,7 +96,7 @@ test("Lane A solver uses the no-gravity free-movement contract for roller games"
 
 test("free-movement P8 routes around hazards instead of exhausting lives", () => {
   const game = fixture();
-  game.primary_genre = "roller";
+  game.primary_genre = "maze";
   game.hero.bbox = [0.08, 0.42, 0.16, 0.56];
   game.entities = [
     { id: "rock", role: "hazard", bbox: [0.42, 0.3, 0.58, 0.7], behavior: "static", style_ref: "source" },
@@ -131,7 +131,7 @@ test("maze P8 follows the same clearance-aware wall route as production", () => 
 
 test("collect-all wins on the last collectible just like the Phaser player", () => {
   const game = fixture();
-  game.primary_genre = "roller";
+  game.primary_genre = "maze";
   game.hero.bbox = [0.1, 0.1, 0.18, 0.22];
   game.entities = [{
     id: "star_1",
@@ -297,11 +297,11 @@ test("P8 clears a matrix of generic stacked and zig-zag platform layouts", () =>
 });
 
 test("P8 can validate a finishable route for every declared Lane A genre", () => {
-  const genres = ["platformer", "maze", "runner", "roller", "slingshot"] as const;
+  const genres = ["platformer", "maze", "runner", "slingshot"] as const;
   for (const primaryGenre of genres) {
     const game = fixture();
     game.primary_genre = primaryGenre;
-    if (primaryGenre === "maze" || primaryGenre === "roller" || primaryGenre === "slingshot") {
+    if (primaryGenre === "maze" || primaryGenre === "slingshot") {
       game.hero.bbox = [0.1, 0.12, 0.18, 0.26];
       game.entities[0]!.bbox = [0.72, 0.7, 0.82, 0.84];
     }

@@ -10,7 +10,7 @@ const GENRES = [
   "platformer",
   "maze",
   "runner",
-  "roller",
+  "maze",
   "slingshot",
 ] as const;
 

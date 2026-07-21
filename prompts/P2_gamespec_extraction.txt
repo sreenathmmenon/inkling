@@ -34,10 +34,15 @@ labelled as an enemy is the player hero unless text says otherwise.
 Handwritten words are game parameters, applied literally:
 - "N LIVES" / "x3" -> lives or quantity
 - "BOSS" -> mark nearest large creature as boss (+health bar)
-- "FAST"/"SLOW" -> speed modifier on the tagged region/entity
+- "FAST"/"SLOW" -> rules.modifiers entry "speed:<entity_id>:0.05" (or
+"-0.05" for SLOW) naming the tagged entity
 - "START"/"END" -> spawn / goal placement
 - a name -> entity display name
 If a word is unreadable, ignore it silently.
+rules.modifiers accepts ONLY the encoded forms "speed:<entity_id>:<amount>"
+and "gap:<entity_id>:<amount>" with amount between -0.05 and 0.05, and ONLY
+when explicit handwriting demands them. With no such handwriting, modifiers
+must be []. Never invent free-form modifier words.
 </text_rules>
 <goal_rules>
 Choose goal.kind by drawn intent:
@@ -58,7 +63,7 @@ Choose one primary_genre from genre_enum using composition:
 - side-view with horizontal platforms -> platformer
 - enclosed top-down corridors -> maze
 - birds-eye path with a start and end -> runner
-- vehicle/ball + slope or open field -> roller
+- vehicle/ball + slope or open field -> platformer (side-view gravity)
 - hero + multiple ranged foes -> platformer if side-view, maze if top-down
 - launch object at targets -> slingshot
 - path + defendable point -> maze

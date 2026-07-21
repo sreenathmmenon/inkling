@@ -20,7 +20,6 @@ export type RuntimeCapability =
   | "survive_timer"
   | "aimed_projectile"
   | "maze_collision_topology"
-  | "rolling_inertia"
   | "launch_trajectory"
   | "multi_step_boss_encounter"
   | "dynamic_entity_behavior"
@@ -158,9 +157,6 @@ function requiredForGenre(spec: GameSpec, plan: PlatformerPlan): RuntimeCapabili
       pushUnique(required, "manual_progress_input");
       if (plan.contract.movement === "auto_ground") pushUnique(required, "runner_route_topology");
       break;
-    case "roller":
-      pushUnique(required, "rolling_inertia");
-      break;
     case "slingshot":
       pushUnique(required, "launch_trajectory");
       break;
@@ -295,6 +291,15 @@ export function createPlayContract(
       ? LANE_A_RUNNER_CAPABILITY_PROFILE
       : LANE_A_CAPABILITY_PROFILE;
   const available = new Set(capabilityProfile.capabilities);
+  // Declared modifiers count as supported only when the plan applied every
+  // one of them — P8's own bounded repair encodings are now mechanically
+  // real, and anything unparseable honestly blocks a faithful claim.
+  if (
+    required.includes("declared_rule_modifiers") &&
+    plan.unappliedModifiers.length === 0
+  ) {
+    available.add("declared_rule_modifiers");
+  }
   if (required.includes("dynamic_entity_behavior")) {
     const certified = new Set(evidence?.certifiedDynamicEntityIds ?? []);
     const dynamicEntities = gameSpec.entities.filter(

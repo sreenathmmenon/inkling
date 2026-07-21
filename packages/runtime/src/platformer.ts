@@ -696,7 +696,7 @@ class PlatformerScene extends Phaser.Scene {
       );
       if (movingLeft || movingRight || jumpRequested) this.runnerStarted = true;
       body.setVelocityX(this.runnerStarted
-        ? movingLeft ? -PLATFORMER_PHYSICS.moveVelocityX : PLATFORMER_PHYSICS.moveVelocityX
+        ? (movingLeft ? -PLATFORMER_PHYSICS.moveVelocityX : PLATFORMER_PHYSICS.moveVelocityX) * this.plan.heroSpeedFactor
         : 0);
     } else {
       body.setVelocityX(surfaceVelocityX(body.velocity.x, direction, surfaceRole, assistActive));
@@ -856,7 +856,7 @@ class PlatformerScene extends Phaser.Scene {
     if (right) this.acceptCoachedControl("right");
     if (up) this.acceptCoachedControl("jump");
     if (down) this.acceptCoachedControl("down");
-    const velocity = PLATFORMER_PHYSICS.moveVelocityX;
+    const velocity = PLATFORMER_PHYSICS.moveVelocityX * this.plan.heroSpeedFactor;
     body.setVelocityX(left === right ? 0 : left ? -velocity : velocity);
     body.setVelocityY(up === down ? 0 : up ? -velocity : velocity);
   }

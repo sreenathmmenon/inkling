@@ -8,7 +8,6 @@ export type DeclaredGenre =
   | "platformer"
   | "maze"
   | "runner"
-  | "roller"
   | "slingshot";
 
 export type MovementContract = "ground" | "free" | "auto_ground" | "launch";
@@ -36,10 +35,6 @@ export const GAME_CONTRACTS: Record<DeclaredGenre, GameContract> = {
   runner: {
     id: "runner", movement: "auto_ground", colliderScale: 0.9, touchControls: "side", action: "contact",
     instruction: "Keep running and jump over danger",
-  },
-  roller: {
-    id: "roller", movement: "free", colliderScale: 0.58, touchControls: "four_way", action: "contact",
-    instruction: "Roll and steer through your world",
   },
   slingshot: {
     id: "slingshot", movement: "launch", colliderScale: 0.68, touchControls: "four_way", action: "projectile",

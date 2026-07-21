@@ -191,7 +191,7 @@ test("world-sized regions stay environmental instead of becoming unavoidable haz
 
 test("Lane A honors a free-movement GameSpec instead of snapping it into a platformer", () => {
   const plan = createPlatformerPlan({
-    primary_genre: "roller",
+    primary_genre: "maze",
     genre_confidence: 1,
     mood: "spacey",
     hero: {
@@ -227,7 +227,7 @@ test("every authoritative genre resolves to a deterministic Lane A contract", ()
   const genres = Object.keys(GAME_CONTRACTS) as Array<keyof typeof GAME_CONTRACTS>;
   assert.deepEqual(
     [...genres].sort(),
-    ["maze", "platformer", "roller", "runner", "slingshot"],
+    ["maze", "platformer", "runner", "slingshot"],
     "the engine's genre truth table must match the honest GameSpec vocabulary exactly",
   );
   for (const primaryGenre of genres) {
@@ -392,7 +392,7 @@ test("runner topology comes from drawn support geometry, not object names", () =
 
 test("water remains a swim volume instead of silently becoming damage", () => {
   const game = structuredClone(liveSpec) as GameSpec;
-  game.primary_genre = "roller";
+  game.primary_genre = "maze";
   game.hero.bbox = [0.08, 0.46, 0.21, 0.66];
   game.entities = [
     { id: "water", role: "water", bbox: [0.03, 0.55, 0.32, 0.72], behavior: "static", linked_to: null, style_ref: "source" },
@@ -539,7 +539,7 @@ test("objective copy and counters stay truthful without guessing drawing nouns",
 
 test("reach means reach: pickups are bonus, collect_all gathers, keys gate", () => {
   const spec: GameSpec = {
-    primary_genre: "roller", genre_confidence: 1, mood: null,
+    primary_genre: "maze", genre_confidence: 1, mood: null,
     hero: { id: "hero", name: "Hero", bbox: [0.05, 0.45, 0.15, 0.6], style_ref: "source" },
     entities: [
       { id: "near_route_1", role: "collectible", bbox: [0.25, 0.48, 0.3, 0.55], behavior: "static", linked_to: null, style_ref: "source" },
@@ -820,4 +820,42 @@ test("a drawn trail keeps the runner automatic and starts the run on the route",
   surfaceless.entities = surfaceless.entities.filter((entity) => entity.id !== "trail");
   const downgraded = createPlatformerPlan(surfaceless);
   assert.equal(downgraded.contract.movement, "free", "no drawn surface at all still downgrades honestly");
+});
+
+test("declared modifiers are mechanically real and gate faithfulness honestly", () => {
+  const spec: GameSpec = {
+    primary_genre: "platformer", genre_confidence: 1, mood: null,
+    hero: { id: "hero_1", name: "Hero", bbox: [0.1, 0.52, 0.2, 0.72], style_ref: "source" },
+    entities: [
+      { id: "floor", role: "platform", bbox: [0, 0.72, 0.5, 0.8], behavior: "static", linked_to: null, style_ref: "source" },
+      { id: "finish", role: "goal", bbox: [0.8, 0.5, 0.9, 0.72], behavior: "static", linked_to: null, style_ref: "source" },
+    ],
+    goal: { kind: "reach_goal", target_id: "finish" },
+    rules: { lives: 3, difficulty_hint: "normal", modifiers: ["speed:hero_1:0.05", "gap:floor:0.05"] },
+    palette: ["#ffffff"], assumptions: [], flags: [],
+  };
+  const plan = createPlatformerPlan(spec);
+  assert.equal(plan.heroSpeedFactor, 1.2, "the encoded speed modifier scales the hero");
+  const floor = plan.platforms.find((platform) => platform.id === "floor");
+  assert.equal(floor?.width, 0.5 * 960 + 0.05 * 960, "the encoded gap modifier resizes the named platform");
+  assert.deepEqual(plan.unappliedModifiers, []);
+  assert.equal(
+    createPlayContract(spec).unsupportedCapabilities.includes("declared_rule_modifiers"),
+    false,
+    "fully applied modifiers no longer block a faithful claim",
+  );
+
+  const freeform = structuredClone(spec);
+  freeform.rules.modifiers = ["slippery-floors"];
+  const freeformPlan = createPlatformerPlan(freeform);
+  assert.deepEqual(freeformPlan.unappliedModifiers, ["slippery-floors"]);
+  assert.equal(freeformPlan.heroSpeedFactor, 1);
+  assert.ok(
+    createPlayContract(freeform).unsupportedCapabilities.includes("declared_rule_modifiers"),
+    "a modifier the runtime cannot execute still blocks faithfulness",
+  );
+
+  const outOfBounds = structuredClone(spec);
+  outOfBounds.rules.modifiers = ["speed:hero_1:0.5"];
+  assert.deepEqual(createPlatformerPlan(outOfBounds).unappliedModifiers, ["speed:hero_1:0.5"], "repair bounds hold");
 });

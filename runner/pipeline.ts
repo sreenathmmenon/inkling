@@ -237,7 +237,7 @@ function dryRunOutput(callId: string): unknown {
     case "P8":
       return { verdict: "ready", repairs: [], fallback: "none" };
     case "P9":
-      return { spec_diff_json: "{}", needs_code: false, patch: null };
+      return { spec_diff: "{}", needs_code: false, patch: null };
     case "P11":
       return { publishable: true, reason_code: "none" };
     default:
@@ -265,21 +265,26 @@ function parseStructured(response: ResponseLike, call: PipelineCall): unknown {
   }
 }
 
+/**
+ * `spec_diff` is one field end to end: the schema and prompt declare it as a
+ * JSON-encoded string (strict structured outputs cannot type an open diff
+ * object), and this decoder replaces the string with its decoded object under
+ * the same name for every consumer.
+ */
 function parseEditDiffJson(value: unknown): Record<string, unknown> {
-  if (!isRecord(value) || typeof value.spec_diff_json !== "string") {
-    throw new ModelOutputError("P9", "missing serialized spec_diff_json");
+  if (!isRecord(value) || typeof value.spec_diff !== "string") {
+    throw new ModelOutputError("P9", "missing serialized spec_diff");
   }
   let specDiff: unknown;
   try {
-    specDiff = JSON.parse(value.spec_diff_json) as unknown;
+    specDiff = JSON.parse(value.spec_diff) as unknown;
   } catch (error) {
-    throw new ModelOutputError("P9", `invalid spec_diff_json: ${String(error)}`);
+    throw new ModelOutputError("P9", `invalid spec_diff: ${String(error)}`);
   }
   if (!isRecord(specDiff)) {
-    throw new ModelOutputError("P9", "spec_diff_json must decode to an object");
+    throw new ModelOutputError("P9", "spec_diff must decode to an object");
   }
-  const { spec_diff_json: _serialized, ...rest } = value;
-  return { ...rest, spec_diff: specDiff };
+  return { ...value, spec_diff: specDiff };
 }
 
 function normalizeNullableGameSpec(gameSpec: GameSpec): GameSpec {

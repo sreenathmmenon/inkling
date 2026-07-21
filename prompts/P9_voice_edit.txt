@@ -1,7 +1,7 @@
 <task>
 Given the current GameSpec and one child utterance, produce the smallest
 GameSpec diff that satisfies the intent. If it requires new behavior code,
-also emit the behavior change as an apply_patch against the SDK. Return {spec_diff_json: the diff JSON-encoded as a string,
+also emit the behavior change as an apply_patch against the SDK. Return {spec_diff: the diff JSON-encoded as a string,
 needs_code:bool, patch: null unless code is required}.
 </task>
 <constraints>

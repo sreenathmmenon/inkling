@@ -4,15 +4,13 @@ import { createServer as createHttpServer, type IncomingMessage, type ServerResp
 import { extname, resolve, sep } from "node:path";
 
 import { createDrawingGenerationStreamHandler } from "../services/gen/src/http.js";
-import { GenerationAdmissionController } from "../services/gen/src/generation-admission.js";
+import {
+  createGenerationAdmission,
+  handleAdmittedGeneration,
+} from "../services/gen/src/server-admission.js";
 import { findProjectRoot } from "../runner/spec.js";
 
-const MAX_REQUEST_BYTES = 12 * 1024 * 1024;
 const SESSION_COOKIE = "inkling_session";
-const RATE_WINDOW_MS = 60 * 60 * 1_000;
-const MAX_GENERATIONS_PER_WINDOW = 8;
-const MAX_CONCURRENT_GENERATIONS = 4;
-const MAX_GENERATION_MS = 8 * 60 * 1_000;
 const port = Number(process.env.PORT ?? 3000);
 const host = process.env.HOST ?? "0.0.0.0";
 const configuredSessionSecret = process.env.INKLING_SESSION_SECRET;
@@ -30,11 +28,7 @@ const sessionSecret = configuredSessionSecret;
 
 const root = findProjectRoot();
 const publicRoot = resolve(root, "build/client");
-const generationAdmission = new GenerationAdmissionController(
-  MAX_CONCURRENT_GENERATIONS,
-  MAX_GENERATIONS_PER_WINDOW,
-  RATE_WINDOW_MS,
-);
+const generationAdmission = createGenerationAdmission();
 const configuredBuildRevision = process.env.INKLING_BUILD_REVISION ?? process.env.RAILWAY_GIT_COMMIT_SHA;
 if (!configuredBuildRevision || !/^[a-f0-9]{7,64}$/i.test(configuredBuildRevision)) {
   throw new Error("INKLING_BUILD_REVISION or RAILWAY_GIT_COMMIT_SHA must contain an immutable commit hash");
@@ -92,62 +86,6 @@ function setSecurityHeaders(response: ServerResponse): void {
     "content-security-policy",
     "default-src 'self'; base-uri 'none'; object-src 'none'; frame-ancestors 'none'; form-action 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'",
   );
-}
-
-function rejectUpload(
-  request: IncomingMessage,
-  response: ServerResponse,
-  status: number,
-  error: string,
-  retryAfter?: string,
-): void {
-  // The browser may still be streaming a multi-megabyte drawing when an
-  // authorization, capacity, or rate gate rejects it. Keep consuming those
-  // bytes so reverse proxies can deliver the JSON response instead of
-  // resetting the HTTP/2 stream as a protocol error.
-  request.resume();
-  response.writeHead(status, {
-    "content-type": "application/json; charset=utf-8",
-    "cache-control": "no-store",
-    ...(retryAfter ? { "retry-after": retryAfter } : {}),
-  });
-  response.end(JSON.stringify({ error }));
-}
-
-async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
-  const contentLength = Number(request.headers["content-length"] ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
-    throw new Error("request_too_large");
-  }
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > MAX_REQUEST_BYTES) throw new Error("request_too_large");
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks);
-}
-
-async function writeWebResponse(response: ServerResponse, result: Response): Promise<void> {
-  for (const [key, value] of result.headers) response.setHeader(key, value);
-  response.statusCode = result.status;
-  if (!result.body) {
-    response.end();
-    return;
-  }
-  const reader = result.body.getReader();
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      response.write(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-    response.end();
-  }
 }
 
 function sessionKey(request: Request): string | undefined {
@@ -263,57 +201,12 @@ const server = createHttpServer(async (request, response) => {
   }
 
   if (pathname === "/api/games/drawing") {
-    const key = sessionKey(requestUrl);
-    if (!key) {
-      rejectUpload(request, response, 401, "missing_session");
-      return;
-    }
-    const admission = generationAdmission.begin(key);
-    if (!admission.accepted) {
-      const rateLimited = admission.reason === "rate_limited";
-      rejectUpload(
-        request,
-        response,
-        rateLimited ? 429 : 503,
-        rateLimited ? "generation_rate_limited" : "generation_busy",
-        rateLimited ? "3600" : "30",
-      );
-      return;
-    }
-    const lease = admission.lease;
-    const disconnect = lease.controller;
-    const generationDeadline = setTimeout(() => {
-      disconnect.abort(new Error("generation_deadline_exceeded"));
-    }, MAX_GENERATION_MS);
-    generationDeadline.unref();
-    const abortDisconnectedGeneration = (): void => {
-      if (!response.writableEnded) disconnect.abort(new Error("client_disconnected"));
-    };
-    request.once("aborted", abortDisconnectedGeneration);
-    response.once("close", abortDisconnectedGeneration);
-    try {
-      const body = await readRequestBody(request);
-      await lease.activate();
-      await writeWebResponse(response, await generationHandler(requestFromNode(request, body, disconnect.signal)));
-    } catch (error) {
-      const status = error instanceof Error && error.message === "request_too_large" ? 413 : 500;
-      if (!response.headersSent) {
-        response.writeHead(status, {
-          "content-type": "application/json; charset=utf-8",
-          "cache-control": "no-store",
-        });
-        response.end(JSON.stringify({
-          error: status === 413 ? "request_too_large" : "generation_unavailable",
-        }));
-      } else {
-        response.end();
-      }
-    } finally {
-      clearTimeout(generationDeadline);
-      request.off("aborted", abortDisconnectedGeneration);
-      response.off("close", abortDisconnectedGeneration);
-      lease.release();
-    }
+    await handleAdmittedGeneration(request, response, {
+      admission: generationAdmission,
+      sessionKey: sessionKey(requestUrl),
+      toWebRequest: (body, signal) => requestFromNode(request, body, signal),
+      handler: generationHandler,
+    });
     return;
   }
 

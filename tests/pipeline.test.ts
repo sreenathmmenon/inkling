@@ -18,10 +18,7 @@ import {
 import { runPlaytest } from "../services/solve/src/playtest.js";
 import { validateJsonSchema } from "../runner/schema-validation.js";
 import { generateDrawingGame } from "../services/gen/src/drawing-service.js";
-import {
-  createDrawingGenerationHandler,
-  createDrawingGenerationStreamHandler,
-} from "../services/gen/src/http.js";
+import { createDrawingGenerationStreamHandler } from "../services/gen/src/http.js";
 import { moderateShareCandidate } from "../services/share/src/share-service.js";
 import { createPlayContract } from "../packages/runtime/src/play-contract.js";
 import { createPlatformerPlan } from "../packages/runtime/src/platformer-layout.js";
@@ -604,7 +601,7 @@ test("drawing generation rejects remote or oversized image input before P1", asy
 });
 
 test("HTTP generation derives safety identity on the server and returns no-store playable games", async () => {
-  const handler = createDrawingGenerationHandler({
+  const handler = createDrawingGenerationStreamHandler({
     dryRun: true,
     resolveSafetyId() {
       return SERVICE_SAFETY_ID;
@@ -615,11 +612,19 @@ test("HTTP generation derives safety identity on the server and returns no-store
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ image: "data:image/png;base64,aGVsbG8=", request_id: REQUEST_ID, safetyId: "do-not-trust-this" }),
   }));
-  assert.equal(response.status, 201);
+  assert.equal(response.status, 200);
   assert.equal(response.headers.get("cache-control"), "no-store");
-  const body = await response.json() as { requestId?: string; playableGame?: { format?: string } };
-  assert.equal(body.requestId, REQUEST_ID);
-  assert.equal(body.playableGame?.format, "inkling-playable-game-v1");
+  const events = (await response.text()).trim().split("\n\n").map((line) => (
+    JSON.parse(line.slice("data: ".length)) as {
+      type: string;
+      requestId?: string;
+      playableGame?: { format?: string };
+    }
+  ));
+  const complete = events.at(-1);
+  assert.equal(complete?.type, "complete");
+  assert.equal(complete?.requestId, REQUEST_ID);
+  assert.equal(complete?.playableGame?.format, "inkling-playable-game-v1");
 
   const unbound = await handler(new Request("https://inkling.test/api/games/drawing", {
     method: "POST",
@@ -635,7 +640,7 @@ test("HTTP generation derives safety identity on the server and returns no-store
   }));
   assert.equal(crossOrigin.status, 403);
 
-  const missingSession = createDrawingGenerationHandler({
+  const missingSession = createDrawingGenerationStreamHandler({
     dryRun: true,
     resolveSafetyId() {
       return undefined;
@@ -1459,7 +1464,7 @@ test("HTTP rescan accepts the prior document, streams coarse stages, and re-gate
 });
 
 test("HTTP rescan payload validation rejects malformed documents and remote artwork", async () => {
-  const handler = createDrawingGenerationHandler({
+  const handler = createDrawingGenerationStreamHandler({
     dryRun: true,
     resolveSafetyId() {
       return SERVICE_SAFETY_ID;
@@ -1474,6 +1479,19 @@ test("HTTP rescan payload validation rejects malformed documents and remote artw
       previous_game: previousGame,
     }),
   }));
+  const sseEvents = async (response: Response): Promise<Array<{ type: string; error?: string; playableGame?: { format?: string } }>> => (
+    (await response.text()).trim().split("\n\n").map((line) => (
+      JSON.parse(line.slice("data: ".length)) as { type: string; error?: string; playableGame?: { format?: string } }
+    ))
+  );
+  // Shallow document-shape failures are rejected before the stream opens;
+  // deeper service-layer failures surface as a terminal SSE error event.
+  const rejectionError = async (response: Response): Promise<string | undefined> => {
+    if (response.status === 400) return ((await response.json()) as { error?: string }).error;
+    assert.equal(response.status, 200);
+    const last = (await sseEvents(response)).at(-1);
+    return last?.type === "error" ? last.error : undefined;
+  };
 
   for (const malformed of [
     "not-a-document",
@@ -1490,14 +1508,19 @@ test("HTTP rescan payload validation rejects malformed documents and remote artw
       },
     },
   ]) {
-    const response = await post(malformed);
-    assert.equal(response.status, 400, `previous_game ${JSON.stringify(malformed).slice(0, 60)} must be rejected`);
-    const body = await response.json() as { error?: string };
-    assert.equal(body.error, "invalid_drawing_request");
+    const error = await rejectionError(await post(malformed));
+    assert.equal(
+      error,
+      "invalid_drawing_request",
+      `previous_game ${JSON.stringify(malformed).slice(0, 60)} must be rejected`,
+    );
   }
 
   const accepted = await post(RESCAN_PREVIOUS_GAME);
-  assert.equal(accepted.status, 201, "a valid self-contained document is accepted");
+  assert.equal(accepted.status, 200, "a valid self-contained document is accepted");
+  const acceptedEvents = await sseEvents(accepted);
+  assert.equal(acceptedEvents.at(-1)?.type, "complete");
+  assert.equal(acceptedEvents.at(-1)?.playableGame?.format, "inkling-playable-game-v1");
 
   await assert.rejects(
     generateDrawingGame(

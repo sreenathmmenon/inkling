@@ -48,6 +48,62 @@ function sourceFromDiff(diff: string): string {
   return added.length > 0 ? added.join("\n") : diff;
 }
 
+/**
+ * Removes `//` and `/* *​/` comments while leaving string and template
+ * literal contents intact, so a comment can never trip the lexical layer.
+ * The scanner is deliberately conservative: anything it cannot classify is
+ * kept, and the VM sandbox — which always runs the ORIGINAL source — remains
+ * the real enforcement boundary.
+ */
+function stripComments(source: string): string {
+  let out = "";
+  let i = 0;
+  type Mode = "code" | "single" | "double" | "template" | "line" | "block";
+  const stack: Mode[] = ["code"];
+  while (i < source.length) {
+    const mode = stack[stack.length - 1]!;
+    const char = source[i]!;
+    const next = source[i + 1];
+    if (mode === "line") {
+      if (char === "\n") { stack.pop(); out += char; }
+      i += 1;
+      continue;
+    }
+    if (mode === "block") {
+      if (char === "*" && next === "/") { stack.pop(); i += 2; continue; }
+      if (char === "\n") out += char;
+      i += 1;
+      continue;
+    }
+    if (mode === "single" || mode === "double") {
+      out += char;
+      if (char === "\\" && next !== undefined) { out += next; i += 2; continue; }
+      if ((mode === "single" && char === "'") || (mode === "double" && char === '"') || char === "\n") stack.pop();
+      i += 1;
+      continue;
+    }
+    if (mode === "template") {
+      out += char;
+      if (char === "\\" && next !== undefined) { out += next; i += 2; continue; }
+      if (char === "`") { stack.pop(); i += 1; continue; }
+      if (char === "$" && next === "{") { out += "{"; stack.push("code"); i += 2; continue; }
+      i += 1;
+      continue;
+    }
+    // mode === "code"
+    if (char === "/" && next === "/") { stack.push("line"); i += 2; continue; }
+    if (char === "/" && next === "*") { stack.push("block"); i += 2; continue; }
+    if (char === "'") { stack.push("single"); out += char; i += 1; continue; }
+    if (char === '"') { stack.push("double"); out += char; i += 1; continue; }
+    if (char === "`") { stack.push("template"); out += char; i += 1; continue; }
+    if (char === "{") { stack.push("code"); out += char; i += 1; continue; }
+    if (char === "}" && stack.length > 1) { stack.pop(); out += char; i += 1; continue; }
+    out += char;
+    i += 1;
+  }
+  return out;
+}
+
 function validPath(path: string): boolean {
   if (path.startsWith("/") || path.includes("..") || path.includes("\\")) {
     return false;
@@ -55,7 +111,11 @@ function validPath(path: string): boolean {
   return /(^|\/)behaviors\/[a-zA-Z0-9_.-]+\.(?:js|ts)$/.test(path);
 }
 
-function staticErrors(source: string, expectedEntityId: string): string[] {
+function staticErrors(rawSource: string, expectedEntityId: string): string[] {
+  // Lexical checks look only at executable text: a comment mentioning
+  // `fetch` or `document` must never reject a legitimate module, while the
+  // same token in real code still does.
+  const source = stripComments(rawSource);
   const errors: string[] = [];
   for (const match of source.matchAll(
     /^\s*import(?:[\s\S]*?)\sfrom\s+["']([^"']+)["'];?\s*$/gm,

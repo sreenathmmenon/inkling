@@ -8,9 +8,10 @@ import {
 } from "../../../packages/runtime/src/artwork.js";
 import type { BehaviorMotionTrack } from "../../../packages/runtime/src/behavior-track.js";
 
+import { MAX_IMAGE_BYTES } from "./image-limits.js";
+
 const INLINE_IMAGE = /^data:image\/(?:gif|jpeg|png|webp);base64,([A-Za-z0-9+/=]+)$/i;
 const SHA256_IDENTIFIER = /^[a-f0-9]{64}$/i;
-const DEFAULT_MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 
 export interface DrawingGenerationRequest {
   /** Cropped on-device image data. Remote URLs are deliberately not accepted. */
@@ -102,7 +103,7 @@ export async function generateDrawingGame(
     throw new Error("safetyId must be a 64-character privacy-preserving SHA-256 hash");
   }
   const byteLength = inlineImageBytes(request.image);
-  const maxImageBytes = options.maxImageBytes ?? DEFAULT_MAX_IMAGE_BYTES;
+  const maxImageBytes = options.maxImageBytes ?? MAX_IMAGE_BYTES;
   if (byteLength === undefined) {
     throw new Error("Drawing input must be an inline GIF, JPEG, PNG, or WebP image");
   }

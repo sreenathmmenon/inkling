@@ -253,6 +253,18 @@ test("every prompt's task framing agrees with its declared invocation", () => {
     }
   }
   assert.doesNotMatch(prompt("P10"), /change_summary/, "P10 must not promise fields its closed schema forbids");
-  assert.match(prompt("P9"), /spec_diff_json/, "P9 must name the serialized field the schema requires");
+  // The voice-edit diff travels as ONE field name end to end: prompt, strict
+  // schema, and the runVoiceEdit consumer all say `spec_diff` — no renamed
+  // `spec_diff_json` twin may reappear on any side of the seam.
+  assert.match(prompt("P9"), /\bspec_diff\b/, "P9 must name the serialized field the schema requires");
+  assert.doesNotMatch(prompt("P9"), /spec_diff_json/, "the retired spec_diff_json name must not resurface in the prompt");
+  const editDiffCall = spec.calls.find((candidate) => candidate.id === "P9");
+  assert.ok(editDiffCall, "P9 must be declared");
+  assert.ok(editDiffCall.schema, "P9 must declare a strict schema");
+  const editDiffSchema = JSON.parse(loadText(root, editDiffCall.schema)) as {
+    schema: { required?: string[]; properties?: Record<string, unknown> };
+  };
+  assert.ok(editDiffSchema.schema.required?.includes("spec_diff"), "the strict schema requires spec_diff");
+  assert.equal("spec_diff_json" in (editDiffSchema.schema.properties ?? {}), false, "the schema has no renamed twin");
   assert.doesNotMatch(prompt("P1"), /cropping/, "P1 must not promise escalation behavior the runner does not perform");
 });

@@ -152,42 +152,11 @@ async function requestPayload(
 }
 
 /**
- * A minimal same-origin HTTP adapter. Hosting/framework code is intentionally
- * outside this module; it must supply authentication, rate limiting, request
- * size limits, retention/deletion policy, and a privacy-preserving safety id.
- */
-export function createDrawingGenerationHandler(
-  options: DrawingGenerationHttpOptions,
-): (request: Request) => Promise<Response> {
-  return async (request: Request): Promise<Response> => {
-    const payload = await requestPayload(request, options);
-    if (payload instanceof Response) return payload;
-
-    try {
-      const result = await generateDrawingGame(
-        // An anonymous child flow sends only the prepared image plus, at most,
-        // its own echoed-back guesses to correct and its own prior playable
-        // document to grow. Deliberately do not forward arbitrary browser
-        // metadata into model prompts.
-        {
-          image: payload.image,
-          safetyId: payload.safetyId,
-          ...(payload.corrections ? { context: { corrections: payload.corrections } } : {}),
-          ...(payload.previousGame ? { previousGame: payload.previousGame } : {}),
-        },
-        { ...options, signal: request.signal },
-      );
-      return json(201, { requestId: payload.requestId, playableGame: result.playableGame });
-    } catch (error) {
-      const code = publicError(error);
-      const status = code === "drawing_not_approved" || code === "game_not_finishable" ? 422
-        : code === "invalid_drawing_request" ? 400 : 502;
-      return json(status, { error: code });
-    }
-  };
-}
-
-/**
+ * The single same-origin HTTP adapter for generation. Hosting/framework code
+ * is intentionally outside this module; it must supply authentication, rate
+ * limiting, request size limits, retention/deletion policy, and a
+ * privacy-preserving safety id.
+ *
  * Emits only child-safe, coarse progress stages while the mandatory pipeline
  * runs. No model text, image data, identifier, or internal reasoning is sent
  * back over this event stream.

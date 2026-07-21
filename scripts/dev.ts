@@ -5,10 +5,12 @@ import { resolve } from "node:path";
 import { createServer as createViteServer } from "vite";
 
 import { createDrawingGenerationStreamHandler } from "../services/gen/src/http.js";
-import { LatestGenerationJobAuthority } from "../services/gen/src/job-authority.js";
+import {
+  createGenerationAdmission,
+  handleAdmittedGeneration,
+} from "../services/gen/src/server-admission.js";
 import { findProjectRoot } from "../runner/spec.js";
 
-const MAX_REQUEST_BYTES = 12 * 1024 * 1024;
 const SESSION_COOKIE = "inkling_dev_session";
 const port = Number(process.env.PORT ?? 5173);
 
@@ -52,22 +54,6 @@ function setPrivacyHeaders(response: ServerResponse): void {
   );
 }
 
-async function readRequestBody(request: IncomingMessage): Promise<Buffer> {
-  const contentLength = Number(request.headers["content-length"] ?? 0);
-  if (Number.isFinite(contentLength) && contentLength > MAX_REQUEST_BYTES) {
-    throw new Error("request_too_large");
-  }
-  const chunks: Buffer[] = [];
-  let size = 0;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
-    size += buffer.length;
-    if (size > MAX_REQUEST_BYTES) throw new Error("request_too_large");
-    chunks.push(buffer);
-  }
-  return Buffer.concat(chunks);
-}
-
 function requestFromNode(request: IncomingMessage, body: Buffer, signal?: AbortSignal): Request {
   const headers = new Headers();
   for (const [key, value] of Object.entries(request.headers)) {
@@ -88,29 +74,12 @@ function requestFromNode(request: IncomingMessage, body: Buffer, signal?: AbortS
   return new Request(`http://${host}${request.url ?? "/"}`, init);
 }
 
-async function writeResponse(response: ServerResponse, result: Response): Promise<void> {
-  for (const [key, value] of result.headers) response.setHeader(key, value);
-  response.statusCode = result.status;
-  if (!result.body) {
-    response.end();
-    return;
-  }
-  const reader = result.body.getReader();
-  try {
-    while (true) {
-      const next = await reader.read();
-      if (next.done) break;
-      response.write(next.value);
-    }
-  } finally {
-    reader.releaseLock();
-    response.end();
-  }
-}
-
 const root = findProjectRoot();
 const sessionSecret = randomBytes(32);
-const latestJobs = new LatestGenerationJobAuthority();
+// The same rate, concurrency, deadline, and body-size gates as production:
+// development must exercise identical admission control so production
+// behavior is never a surprise.
+const generationAdmission = createGenerationAdmission();
 function safetyId(request: Request): string | undefined {
   const session = cookie(request, SESSION_COOKIE);
   return session ? createHmac("sha256", sessionSecret).update(session).digest("hex") : undefined;
@@ -141,18 +110,12 @@ const server = createHttpServer(async (request, response) => {
     return;
   }
   if (path === "/api/games/drawing") {
-    const key = safetyId(requestFromNode(request, Buffer.alloc(0)));
-    const lease = key ? latestJobs.begin(key) : undefined;
-    try {
-      const body = await readRequestBody(request);
-      await writeResponse(response, await handler(requestFromNode(request, body, lease?.controller.signal)));
-    } catch (error) {
-      const status = error instanceof Error && error.message === "request_too_large" ? 413 : 500;
-      response.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
-      response.end(JSON.stringify({ error: status === 413 ? "request_too_large" : "generation_unavailable" }));
-    } finally {
-      lease?.release();
-    }
+    await handleAdmittedGeneration(request, response, {
+      admission: generationAdmission,
+      sessionKey: safetyId(requestFromNode(request, Buffer.alloc(0))),
+      toWebRequest: (body, signal) => requestFromNode(request, body, signal),
+      handler,
+    });
     return;
   }
 

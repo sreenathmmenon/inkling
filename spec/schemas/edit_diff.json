@@ -3,9 +3,9 @@
   "schema": {
     "type": "object",
     "additionalProperties": false,
-    "required": ["spec_diff_json", "needs_code", "patch"],
+    "required": ["spec_diff", "needs_code", "patch"],
     "properties": {
-      "spec_diff_json": { "type": "string" },
+      "spec_diff": { "type": "string" },
       "needs_code": { "type": "boolean" },
       "patch": { "type": ["string", "null"] }
     }

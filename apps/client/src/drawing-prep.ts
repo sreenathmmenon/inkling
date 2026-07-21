@@ -1,3 +1,5 @@
+import { MAX_IMAGE_BYTES } from "../../../services/gen/src/image-limits.js";
+
 export interface PreparedDrawing {
   dataUrl: string;
   width: number;
@@ -38,7 +40,10 @@ export interface DrawingQuality {
 }
 
 const ALLOWED_TYPES = new Set(["image/gif", "image/jpeg", "image/png", "image/webp"]);
-const MAX_INPUT_BYTES = 8 * 1024 * 1024;
+// The one product-wide image cap: the same constant the drawing service
+// enforces server-side, so the child hears about an oversized picture here,
+// once, in their own language — never as a later server rejection.
+const MAX_INPUT_BYTES = MAX_IMAGE_BYTES;
 const MAX_OUTPUT_EDGE = 1_600;
 
 function fileDataUrl(file: File): Promise<string> {
@@ -631,7 +636,9 @@ export async function prepareDrawing(
   output.height = height;
   const outputContext = output.getContext("2d");
   if (!outputContext) throw new Error("This browser cannot prepare drawing images.");
-  outputContext.imageSmoothingEnabled = true;
+  // The crop is a same-scale copy of the analysis pixels. Smoothing stays off
+  // so the child's strokes are never resampled by this boundary.
+  outputContext.imageSmoothingEnabled = false;
   outputContext.drawImage(
     analysis,
     left,

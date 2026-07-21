@@ -350,6 +350,43 @@ test("validator executes accepted code only in the restricted sandbox", async ()
   assert.ok(invalid.errors.includes("forbidden_network"));
 });
 
+test("lexical checks ignore forbidden tokens inside comments but still reject real code", async () => {
+  const commented = await validateBehaviorOperation(
+    {
+      type: "create_file",
+      path: "behaviors/walker_1.js",
+      diff: `// no fetch, no document, no window here — Math.random() is banned too
+/* wall_clock note: Date and performance stay out of gameplay.
+   setTimeout(...) would also be rejected if it were real code. */
+defineBehavior({
+  id: "walker_1", // the process/require globals are unavailable
+  onUpdate(dt, ctx) {
+    const label = "keeps // slashes and /* stars */ intact"; // strings survive stripping
+    ctx.move(dt * ctx.rng() * label.length * 0, 0);
+    ctx.move(dt * ctx.rng(), 0);
+  }
+});`,
+    },
+    "walker_1",
+  );
+  assert.equal(commented.valid, true, commented.errors.join(","));
+
+  const disguised = await validateBehaviorOperation(
+    {
+      type: "create_file",
+      path: "behaviors/walker_1.js",
+      diff: `defineBehavior({
+  id: "walker_1",
+  // a comment above real code must not mask the violation below
+  onUpdate() { const t = Date.now(); return t; }
+});`,
+    },
+    "walker_1",
+  );
+  assert.equal(disguised.valid, false);
+  assert.ok(disguised.errors.includes("forbidden_wall_clock"));
+});
+
 test("the solver proves a relocated trail-runner route end to end", () => {
   const trailRunner: GameSpec = {
     primary_genre: "runner", genre_confidence: 1, mood: null,

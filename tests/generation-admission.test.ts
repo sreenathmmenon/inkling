@@ -2,12 +2,38 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { GenerationAdmissionController } from "../services/gen/src/generation-admission.js";
+import { MAX_IMAGE_BYTES, MAX_REQUEST_BYTES } from "../services/gen/src/image-limits.js";
+import { createGenerationAdmission } from "../services/gen/src/server-admission.js";
 
 function accepted(result: ReturnType<GenerationAdmissionController["begin"]>) {
   assert.equal(result.accepted, true);
   if (!result.accepted) throw new Error("expected admission");
   return result.lease;
 }
+
+test("one upload size contract: the body cap is derived from the single image cap", () => {
+  const base64ImageBytes = Math.ceil(MAX_IMAGE_BYTES / 3) * 4;
+  assert.ok(
+    MAX_REQUEST_BYTES > base64ImageBytes,
+    "a maximum-size legal image must fit inside its JSON upload body",
+  );
+  assert.ok(
+    MAX_REQUEST_BYTES <= base64ImageBytes + 2 * 1024 * 1024,
+    "the body cap allows only a bounded envelope beyond the encoded image",
+  );
+});
+
+test("dev and production servers share one admission policy source", () => {
+  const admission = createGenerationAdmission();
+  assert.ok(admission instanceof GenerationAdmissionController);
+  // Shared limits: 4 concurrent generations per process. The fifth distinct
+  // session must be refused as busy on any server built from this module.
+  const sessions = ["a", "b", "c", "d"].map((key) => accepted(admission.begin(`session-${key}`)));
+  const fifth = admission.begin("session-e");
+  assert.equal(fifth.accepted, false);
+  if (!fifth.accepted) assert.equal(fifth.reason, "busy");
+  for (const lease of sessions) lease.release();
+});
 
 test("same-session replacement waits for release and never exceeds the hard cap", async () => {
   const admission = new GenerationAdmissionController(2, 20, 60_000);

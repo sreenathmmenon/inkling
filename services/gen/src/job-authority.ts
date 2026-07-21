@@ -2,7 +2,6 @@ export interface GenerationJobLease {
   controller: AbortController;
   replacedOlderJob: boolean;
   predecessorDone: Promise<void>;
-  isLatest(): boolean;
   release(): void;
 }
 
@@ -34,7 +33,6 @@ export class LatestGenerationJobAuthority {
       controller,
       replacedOlderJob: older !== undefined,
       predecessorDone: older?.done ?? Promise.resolve(),
-      isLatest: () => this.active.get(sessionKey) === current,
       release: () => {
         if (released) return;
         released = true;

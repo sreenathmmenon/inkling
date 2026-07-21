@@ -9,7 +9,9 @@ import { MAX_REQUEST_BYTES } from "./image-limits.js";
  * and body-size gates as production so production is never a surprise.
  */
 export const GENERATION_RATE_WINDOW_MS = 60 * 60 * 1_000;
-export const MAX_GENERATIONS_PER_WINDOW = 8;
+// Effectively unlimited for a real person; still a ceiling against runaway
+// scripts. Raised from 8 for live-demo sessions at the owner's direction.
+export const MAX_GENERATIONS_PER_WINDOW = 100;
 export const MAX_CONCURRENT_GENERATIONS = 4;
 export const MAX_GENERATION_MS = 8 * 60 * 1_000;
 
